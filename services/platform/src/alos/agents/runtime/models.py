@@ -22,6 +22,7 @@ class AgentRunRequest(BaseModel):
     capability: str
     input_references: list[str] = Field(min_length=1)
     requested_tools: list[str] = Field(default_factory=list)
+    material_action: bool = False
     correlation_id: UUID
     idempotency_key: str = Field(min_length=8, max_length=128)
 

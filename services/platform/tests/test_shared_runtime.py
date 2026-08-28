@@ -41,3 +41,19 @@ def test_runtime_blocks_tool_outside_agent_contract() -> None:
                 idempotency_key="pilot-payment-002",
             )
         )
+
+
+def test_runtime_marks_material_action_for_human_review() -> None:
+    plan = runtime().prepare(
+        AgentRunRequest(
+            agent_id="CFA",
+            capability="draft_customer_message",
+            input_references=["lead:synthetic-001"],
+            requested_tools=["ai.language.generate"],
+            material_action=True,
+            correlation_id=uuid4(),
+            idempotency_key="pilot-follow-up-001",
+        )
+    )
+
+    assert plan.requires_human_review is True

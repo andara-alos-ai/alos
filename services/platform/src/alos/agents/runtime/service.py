@@ -33,7 +33,7 @@ class SharedAgentRuntime:
             approved_tools=request.requested_tools,
             input_references=request.input_references,
             status=AgentRunStatus.RECEIVED,
-            requires_human_review=bool(agent.approval_boundary),
+            requires_human_review=request.material_action,
             correlation_id=request.correlation_id,
             idempotency_key=request.idempotency_key,
         )

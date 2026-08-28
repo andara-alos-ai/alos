@@ -8,10 +8,11 @@ services:
       POSTGRES_USER: alos
       POSTGRES_PASSWORD: ${ALOS_POSTGRES_PASSWORD:-change-me}
     ports:
-      - "5432:5432"
+      - "${ALOS_POSTGRES_PORT:-5433}:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
       - ../database/001_foundation.sql:/docker-entrypoint-initdb.d/001_foundation.sql:ro
+      - ../database/002_operational_foundation.sql:/docker-entrypoint-initdb.d/002_operational_foundation.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U alos -d alos"]
       interval: 5s

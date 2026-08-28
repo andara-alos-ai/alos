@@ -8,14 +8,14 @@ CREATE SCHEMA IF NOT EXISTS agents;
 CREATE SCHEMA IF NOT EXISTS executive;
 CREATE SCHEMA IF NOT EXISTS audit;
 
-CREATE TABLE identity.organizations (
+CREATE TABLE IF NOT EXISTS identity.organizations (
     organization_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     code text NOT NULL UNIQUE,
     name text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE identity.divisions (
+CREATE TABLE IF NOT EXISTS identity.divisions (
     division_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id uuid NOT NULL REFERENCES identity.organizations,
     code text NOT NULL,
@@ -25,7 +25,7 @@ CREATE TABLE identity.divisions (
     UNIQUE (organization_id, code)
 );
 
-CREATE TABLE identity.users (
+CREATE TABLE IF NOT EXISTS identity.users (
     user_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     external_subject text UNIQUE,
     email text NOT NULL UNIQUE,
@@ -36,7 +36,7 @@ CREATE TABLE identity.users (
     version integer NOT NULL DEFAULT 1
 );
 
-CREATE TABLE identity.role_assignments (
+CREATE TABLE IF NOT EXISTS identity.role_assignments (
     assignment_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid NOT NULL REFERENCES identity.users,
     division_id uuid REFERENCES identity.divisions,
@@ -47,7 +47,7 @@ CREATE TABLE identity.role_assignments (
     CHECK (valid_until IS NULL OR valid_until > valid_from)
 );
 
-CREATE TABLE platform.projects (
+CREATE TABLE IF NOT EXISTS platform.projects (
     project_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id uuid NOT NULL REFERENCES identity.organizations,
     code text NOT NULL,
@@ -60,7 +60,7 @@ CREATE TABLE platform.projects (
     UNIQUE (organization_id, code)
 );
 
-CREATE TABLE platform.work_items (
+CREATE TABLE IF NOT EXISTS platform.work_items (
     work_item_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id uuid NOT NULL REFERENCES identity.organizations,
     project_id uuid REFERENCES platform.projects,
@@ -78,7 +78,7 @@ CREATE TABLE platform.work_items (
     version integer NOT NULL DEFAULT 1
 );
 
-CREATE TABLE platform.documents (
+CREATE TABLE IF NOT EXISTS platform.documents (
     document_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id uuid NOT NULL REFERENCES identity.organizations,
     project_id uuid REFERENCES platform.projects,
@@ -88,7 +88,7 @@ CREATE TABLE platform.documents (
     created_by uuid REFERENCES identity.users
 );
 
-CREATE TABLE platform.document_versions (
+CREATE TABLE IF NOT EXISTS platform.document_versions (
     document_version_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id uuid NOT NULL REFERENCES platform.documents,
     version_number integer NOT NULL CHECK (version_number > 0),
@@ -103,7 +103,7 @@ CREATE TABLE platform.document_versions (
     UNIQUE (document_id, sha256)
 );
 
-CREATE TABLE platform.evidence (
+CREATE TABLE IF NOT EXISTS platform.evidence (
     evidence_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     work_item_id uuid NOT NULL REFERENCES platform.work_items,
     document_version_id uuid REFERENCES platform.document_versions,
@@ -113,7 +113,7 @@ CREATE TABLE platform.evidence (
     created_by uuid REFERENCES identity.users
 );
 
-CREATE TABLE governance.approval_requests (
+CREATE TABLE IF NOT EXISTS governance.approval_requests (
     approval_request_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     work_item_id uuid NOT NULL REFERENCES platform.work_items,
     requester_user_id uuid NOT NULL REFERENCES identity.users,
@@ -125,7 +125,7 @@ CREATE TABLE governance.approval_requests (
     decided_at timestamptz
 );
 
-CREATE TABLE governance.approval_decisions (
+CREATE TABLE IF NOT EXISTS governance.approval_decisions (
     approval_decision_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     approval_request_id uuid NOT NULL REFERENCES governance.approval_requests,
     approver_user_id uuid NOT NULL REFERENCES identity.users,
@@ -135,7 +135,7 @@ CREATE TABLE governance.approval_decisions (
     UNIQUE (approval_request_id, approver_user_id)
 );
 
-CREATE TABLE governance.exceptions (
+CREATE TABLE IF NOT EXISTS governance.exceptions (
     exception_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     work_item_id uuid REFERENCES platform.work_items,
     category text NOT NULL,
@@ -146,7 +146,7 @@ CREATE TABLE governance.exceptions (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE governance.capas (
+CREATE TABLE IF NOT EXISTS governance.capas (
     capa_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     exception_id uuid NOT NULL REFERENCES governance.exceptions,
     status text NOT NULL CHECK (status IN ('OPEN', 'ANALYSIS', 'ACTION_IN_PROGRESS', 'VERIFICATION', 'CLOSED')),
@@ -159,7 +159,7 @@ CREATE TABLE governance.capas (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE workflow.workflow_releases (
+CREATE TABLE IF NOT EXISTS workflow.workflow_releases (
     workflow_release_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     workflow_id text NOT NULL,
     version text NOT NULL,
@@ -169,7 +169,7 @@ CREATE TABLE workflow.workflow_releases (
     UNIQUE (workflow_id, version)
 );
 
-CREATE TABLE workflow.workflow_runs (
+CREATE TABLE IF NOT EXISTS workflow.workflow_runs (
     workflow_run_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     workflow_release_id uuid NOT NULL REFERENCES workflow.workflow_releases,
     work_item_id uuid REFERENCES platform.work_items,
@@ -182,7 +182,7 @@ CREATE TABLE workflow.workflow_runs (
     version integer NOT NULL DEFAULT 1
 );
 
-CREATE TABLE agents.agent_releases (
+CREATE TABLE IF NOT EXISTS agents.agent_releases (
     agent_release_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     agent_id text NOT NULL,
     version text NOT NULL,
@@ -192,7 +192,7 @@ CREATE TABLE agents.agent_releases (
     UNIQUE (agent_id, version)
 );
 
-CREATE TABLE agents.agent_runs (
+CREATE TABLE IF NOT EXISTS agents.agent_runs (
     agent_run_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     agent_release_id uuid NOT NULL REFERENCES agents.agent_releases,
     workflow_run_id uuid REFERENCES workflow.workflow_runs,
@@ -204,7 +204,7 @@ CREATE TABLE agents.agent_runs (
     completed_at timestamptz
 );
 
-CREATE TABLE audit.entries (
+CREATE TABLE IF NOT EXISTS audit.entries (
     audit_entry_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     occurred_at timestamptz NOT NULL DEFAULT now(),
     actor_type text NOT NULL,
@@ -222,12 +222,12 @@ CREATE TABLE audit.entries (
     entry_hash char(64) NOT NULL
 );
 
-CREATE INDEX work_items_queue_idx ON platform.work_items (division_id, status, priority, due_at);
-CREATE INDEX approval_pending_idx ON governance.approval_requests (status, created_at);
-CREATE INDEX exception_open_idx ON governance.exceptions (status, severity, due_at);
-CREATE INDEX workflow_runs_active_idx ON workflow.workflow_runs (status, started_at);
-CREATE INDEX agent_runs_status_idx ON agents.agent_runs (status, started_at);
-CREATE INDEX audit_entity_idx ON audit.entries (entity_type, entity_id, occurred_at);
+CREATE INDEX IF NOT EXISTS work_items_queue_idx ON platform.work_items (division_id, status, priority, due_at);
+CREATE INDEX IF NOT EXISTS approval_pending_idx ON governance.approval_requests (status, created_at);
+CREATE INDEX IF NOT EXISTS exception_open_idx ON governance.exceptions (status, severity, due_at);
+CREATE INDEX IF NOT EXISTS workflow_runs_active_idx ON workflow.workflow_runs (status, started_at);
+CREATE INDEX IF NOT EXISTS agent_runs_status_idx ON agents.agent_runs (status, started_at);
+CREATE INDEX IF NOT EXISTS audit_entity_idx ON audit.entries (entity_type, entity_id, occurred_at);
 
 INSERT INTO identity.organizations (code, name)
 VALUES ('ARM', 'PT Andara Rejo Makmur')

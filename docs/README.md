@@ -15,6 +15,7 @@ Dokumentasi ini menjadi dasar implementasi ALOS Internal Agent Pilot v0.1 dan ta
 9. [Strategi Pengujian dan Definisi Selesai](testing/TEST_STRATEGY_AND_DEFINITION_OF_DONE.md)
 10. [Register Keputusan Arsitektur](adr/ARCHITECTURE_DECISION_REGISTER.md)
 11. [Runbook Pengembangan Lokal](runbooks/LOCAL_DEVELOPMENT.md)
+12. [API Foundation Operasional](api/FOUNDATION_API.md)
 
 ## Aturan Penggunaan
 

@@ -2,7 +2,7 @@
   "workflow_id": "FLOW-001",
   "name": "Lead ke Reservasi",
   "purpose": "Mencatat, menugaskan, menindaklanjuti, dan memproses lead sampai hasil pipeline yang sah.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "STAGED",
   "owner": "Kepala Sales & Marketing",
   "trigger": ["Formulir lead internal", "Impor data sintetis"],
@@ -25,6 +25,7 @@
     {"from_step": "sales-assignment", "outcome": "assigned", "to_step": "follow-up-plan"},
     {"from_step": "follow-up-plan", "outcome": "ready", "to_step": "interaction-review"},
     {"from_step": "interaction-review", "outcome": "qualified", "to_step": "pipeline-result"},
+    {"from_step": "interaction-review", "outcome": "reserved", "to_step": "pipeline-result"},
     {"from_step": "interaction-review", "outcome": "follow_up", "to_step": "follow-up-plan"},
     {"from_step": "interaction-review", "outcome": "exception", "to_step": "exception-open"}
   ]
