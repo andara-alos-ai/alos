@@ -6,7 +6,10 @@ from alos.config import Settings
 
 def test_staging_rejects_default_signing_secret() -> None:
     with pytest.raises(ValidationError, match="wajib unik dan kuat"):
-        Settings(environment="staging")
+        Settings(
+            environment="staging",
+            auth_signing_secret="local-development-only-change-me",
+        )
 
 
 def test_signing_secret_has_minimum_length() -> None:
