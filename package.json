@@ -1,0 +1,18 @@
+{
+  "name": "@andara/alos",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev:web": "pnpm --filter @andara/alos-web dev",
+    "dev:api": "python -m uvicorn alos.main:app --app-dir services/platform/src --reload --port 8000",
+    "build": "pnpm --filter @andara/alos-web build",
+    "lint": "pnpm --filter @andara/alos-web lint && python -m ruff check services/platform",
+    "typecheck": "pnpm --filter @andara/alos-web typecheck && python -m mypy services/platform/src",
+    "test": "pnpm --filter @andara/alos-web test && python -m pytest services/platform/tests",
+    "validate:definitions": "python -m alos.agents.registry.cli --definitions-root definitions"
+  }
+}

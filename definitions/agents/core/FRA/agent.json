@@ -1,0 +1,20 @@
+{
+  "agent_id": "FRA",
+  "name": "Finance Reconciliation Agent",
+  "domain": "finance",
+  "purpose": "Mencocokkan invoice, bukti pembayaran, dan transaksi serta mengidentifikasi selisih secara deterministik.",
+  "human_owner": "Kepala Keuangan",
+  "triggers": ["Bukti pembayaran dicatat", "Data transaksi diimpor"],
+  "inputs": ["Invoice", "Catatan pembayaran", "Transaksi bank atau file sintetis"],
+  "source_of_truth": ["Finance Ledger ALOS", "Import transaksi terverifikasi"],
+  "capabilities": ["match_transactions_deterministically", "detect_duplicate_payment", "open_reconciliation_case"],
+  "outputs": ["Status rekonsiliasi", "Daftar selisih", "Reconciliation Case"],
+  "tools_allowed": ["alos.finance.read", "alos.reconciliation.create", "deterministic.calculator"],
+  "approval_boundary": ["Koreksi transaksi dan jurnal final dilakukan Finance Human"],
+  "evidence_requirement": ["Invoice, pembayaran, transaksi, dan aturan pencocokan tercatat"],
+  "forbidden_actions": ["Mengubah transaksi bank", "Membuat jurnal final", "Menganggap selisih sebagai cocok"],
+  "KPI/metrics": ["Match rate", "Duplicate detection", "Usia selisih", "False match"],
+  "escalation": ["Transaksi ganda", "Nilai tidak cocok", "Referensi pembayaran hilang"],
+  "version": "0.1.0",
+  "status": "STAGED"
+}

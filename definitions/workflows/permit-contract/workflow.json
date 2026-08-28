@@ -1,0 +1,27 @@
+{
+  "workflow_id": "FLOW-004",
+  "name": "Izin dan Kontrak",
+  "purpose": "Menghasilkan catatan izin atau kontrak terstruktur dan paket review Legal yang lengkap.",
+  "version": "0.1.0",
+  "status": "STAGED",
+  "owner": "Kepala Legal",
+  "trigger": ["Izin atau kontrak diunggah", "Permintaan review Legal"],
+  "agents": ["DIA", "LPA", "CLA", "CEA"],
+  "initial_step": "document-submitted",
+  "terminal_steps": ["legal-reviewed", "exception-open"],
+  "steps": [
+    {"step_id": "document-submitted", "name": "Dokumen diterima", "actor_type": "human", "actor_ref": "Requester", "deterministic": true, "requires_evidence": true},
+    {"step_id": "document-extraction", "name": "Ekstraksi dokumen", "actor_type": "agent", "actor_ref": "DIA", "deterministic": false},
+    {"step_id": "legal-analysis", "name": "Analisis izin atau kontrak", "actor_type": "agent", "actor_ref": "LPA_OR_CLA", "deterministic": false},
+    {"step_id": "evidence-check", "name": "Pemeriksaan paket bukti", "actor_type": "agent", "actor_ref": "CEA", "deterministic": true},
+    {"step_id": "legal-reviewed", "name": "Keputusan review Legal", "actor_type": "human", "actor_ref": "Legal Human", "deterministic": true, "requires_human_decision": true},
+    {"step_id": "exception-open", "name": "Exception dibuka", "actor_type": "system", "actor_ref": "governance", "deterministic": true}
+  ],
+  "transitions": [
+    {"from_step": "document-submitted", "outcome": "submitted", "to_step": "document-extraction"},
+    {"from_step": "document-extraction", "outcome": "extracted", "to_step": "legal-analysis"},
+    {"from_step": "legal-analysis", "outcome": "analyzed", "to_step": "evidence-check"},
+    {"from_step": "evidence-check", "outcome": "complete", "to_step": "legal-reviewed"},
+    {"from_step": "evidence-check", "outcome": "incomplete", "to_step": "exception-open"}
+  ]
+}

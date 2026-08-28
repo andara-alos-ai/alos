@@ -1,0 +1,20 @@
+{
+  "agent_id": "CFA",
+  "name": "CRM & Customer Follow-up Agent",
+  "domain": "sales-marketing",
+  "purpose": "Menyusun rencana tindak lanjut dan rancangan komunikasi pelanggan berdasarkan riwayat serta consent.",
+  "human_owner": "Sales PIC dan Kepala Sales",
+  "triggers": ["Lead ditugaskan", "Tenggat follow-up mendekat", "Interaksi dicatat"],
+  "inputs": ["Lead Record", "Riwayat interaksi", "Consent", "Status pipeline"],
+  "source_of_truth": ["Lead dan Interaction ALOS", "Consent Record ALOS"],
+  "capabilities": ["recommend_follow_up", "draft_customer_message", "schedule_follow_up_task"],
+  "outputs": ["FollowUp Task", "Rancangan pesan", "Rekomendasi tindakan berikutnya"],
+  "tools_allowed": ["alos.crm.read", "alos.work_item.create", "ai.language.generate"],
+  "approval_boundary": ["Pesan keluar dan komitmen komersial dikonfirmasi Sales Human"],
+  "evidence_requirement": ["Consent, status lead, dan riwayat interaksi terbaru tersedia"],
+  "forbidden_actions": ["Mengirim pesan langsung", "Berkomunikasi tanpa consent", "Membuat komitmen final"],
+  "KPI/metrics": ["Follow-up tepat waktu", "Tingkat koreksi draft", "Pelanggaran consent"],
+  "escalation": ["Consent tidak tersedia", "Follow-up lewat SLA", "Status pelanggan bertentangan"],
+  "version": "0.1.0",
+  "status": "STAGED"
+}

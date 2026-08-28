@@ -112,6 +112,16 @@ Status keputusan: `PROPOSED`, `ACCEPTED`, `SUPERSEDED`, atau `REJECTED`.
 
 **Konsekuensi:** setiap kemampuan agent harus terhubung ke objek kerja dan status sistem. Keluaran percakapan tanpa tindak lanjut terstruktur tidak dianggap implementasi workflow.
 
+## ADR-011 — Stack Teknis Pilot
+
+**Status:** `ACCEPTED`
+
+**Konteks:** target dua minggu membutuhkan teknologi yang matang, mudah diuji, mendukung AI/document processing, dan tetap sederhana untuk satu tim.
+
+**Keputusan:** aplikasi web menggunakan Next.js dan TypeScript; backend modular, workflow, serta shared Agent Runtime menggunakan FastAPI dan Python; database menggunakan PostgreSQL. Versi dependency dikunci melalui `pnpm-lock.yaml` dan environment Python terisolasi. Dokumen pilot memakai adaptor filesystem lokal; penyimpanan objek produksi tetap berada di balik kontrak netral vendor.
+
+**Konsekuensi:** frontend dan backend dapat berkembang secara independen dalam satu monorepo tanpa menjadi microservice per agent. Pemilihan penyedia object storage, identitas, LLM, dan hosting produksi tetap memerlukan evaluasi serta persetujuan terpisah.
+
 ## 2. Keputusan yang Belum Dibuat
 
 Keputusan berikut tetap `PROPOSED/TBD`: penyedia identitas, LLM, hosting produksi, observability backend, target layanan, vendor integrasi, strategi analitik, dan teknologi orkestrasi setelah pilot. Keputusan baru wajib mencatat konteks, alternatif, alasan, dampak keamanan/data, konsekuensi, dan rencana migrasi.

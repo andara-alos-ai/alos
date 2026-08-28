@@ -1,0 +1,38 @@
+{
+  "workflow_id": "FLOW-002",
+  "name": "Permintaan Pembayaran",
+  "purpose": "Memastikan pembayaran memiliki dokumen, bukti, anggaran, approval, tindakan manusia, dan rekonsiliasi.",
+  "version": "0.1.0",
+  "status": "STAGED",
+  "owner": "Kepala Keuangan",
+  "trigger": ["Payment Request diajukan"],
+  "agents": ["DIA", "CEA", "BCA", "ARA", "FRA", "TIA", "CRA"],
+  "initial_step": "request-submitted",
+  "terminal_steps": ["reconciled", "exception-open"],
+  "steps": [
+    {"step_id": "request-submitted", "name": "Permintaan diajukan", "actor_type": "human", "actor_ref": "Requester", "deterministic": true, "requires_evidence": true},
+    {"step_id": "document-extraction", "name": "Ekstraksi dokumen", "actor_type": "agent", "actor_ref": "DIA", "deterministic": false},
+    {"step_id": "evidence-check", "name": "Pemeriksaan bukti", "actor_type": "agent", "actor_ref": "CEA", "deterministic": true, "requires_evidence": true},
+    {"step_id": "budget-check", "name": "Pemeriksaan anggaran", "actor_type": "agent", "actor_ref": "BCA", "deterministic": true},
+    {"step_id": "approval-routing", "name": "Routing dan SoD", "actor_type": "agent", "actor_ref": "ARA", "deterministic": true},
+    {"step_id": "finance-approval", "name": "Keputusan Finance", "actor_type": "human", "actor_ref": "Finance Human", "deterministic": true, "requires_human_decision": true},
+    {"step_id": "payment-action", "name": "Tindakan pembayaran dicatat", "actor_type": "human", "actor_ref": "Finance Human", "deterministic": true, "requires_evidence": true},
+    {"step_id": "reconciliation", "name": "Rekonsiliasi", "actor_type": "agent", "actor_ref": "FRA", "deterministic": true},
+    {"step_id": "reconciled", "name": "Pembayaran cocok", "actor_type": "system", "actor_ref": "finance-domain", "deterministic": true},
+    {"step_id": "exception-open", "name": "Exception atau CAPA dibuka", "actor_type": "agent", "actor_ref": "CRA", "deterministic": true}
+  ],
+  "transitions": [
+    {"from_step": "request-submitted", "outcome": "submitted", "to_step": "document-extraction"},
+    {"from_step": "document-extraction", "outcome": "extracted", "to_step": "evidence-check"},
+    {"from_step": "evidence-check", "outcome": "complete", "to_step": "budget-check"},
+    {"from_step": "evidence-check", "outcome": "incomplete", "to_step": "exception-open"},
+    {"from_step": "budget-check", "outcome": "available", "to_step": "approval-routing"},
+    {"from_step": "budget-check", "outcome": "unavailable", "to_step": "exception-open"},
+    {"from_step": "approval-routing", "outcome": "routed", "to_step": "finance-approval"},
+    {"from_step": "finance-approval", "outcome": "approved", "to_step": "payment-action"},
+    {"from_step": "finance-approval", "outcome": "rejected", "to_step": "exception-open"},
+    {"from_step": "payment-action", "outcome": "recorded", "to_step": "reconciliation"},
+    {"from_step": "reconciliation", "outcome": "matched", "to_step": "reconciled"},
+    {"from_step": "reconciliation", "outcome": "mismatch", "to_step": "exception-open"}
+  ]
+}

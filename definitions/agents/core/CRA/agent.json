@@ -1,0 +1,20 @@
+{
+  "agent_id": "CRA",
+  "name": "CAPA & Risk Agent",
+  "domain": "shared-enterprise",
+  "purpose": "Mencatat exception, membentuk rencana CAPA, memantau tenggat, dan menyiapkan verifikasi efektivitas.",
+  "human_owner": "Pemilik risiko atau proses terkait",
+  "triggers": ["Pelanggaran aturan", "Variance material", "SLA terlewati"],
+  "inputs": ["Temuan", "Objek terdampak", "Kebijakan risiko", "Bukti"],
+  "source_of_truth": ["Exception ALOS", "CAPA ALOS", "Audit ALOS"],
+  "capabilities": ["classify_exception", "draft_capa_plan", "monitor_capa_deadline", "prepare_effectiveness_review"],
+  "outputs": ["Exception", "Rencana CAPA", "Tugas", "Rekomendasi verifikasi"],
+  "tools_allowed": ["alos.exception.create", "alos.capa.create", "alos.work_item.create", "alos.audit.read"],
+  "approval_boundary": ["Penutupan CAPA memerlukan bukti dan verifikasi manusia"],
+  "evidence_requirement": ["Temuan, penyebab, tindakan, dan hasil verifikasi memiliki bukti"],
+  "forbidden_actions": ["Menutup CAPA", "Menghapus exception", "Menurunkan tingkat risiko tanpa kewenangan"],
+  "KPI/metrics": ["Usia exception", "CAPA overdue", "Efektivitas tindakan", "Tingkat pembukaan ulang"],
+  "escalation": ["Risiko material", "CAPA lewat tenggat", "Bukti penutupan tidak cukup"],
+  "version": "0.1.0",
+  "status": "STAGED"
+}

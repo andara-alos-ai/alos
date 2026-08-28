@@ -1,0 +1,28 @@
+{
+  "workflow_id": "FLOW-003",
+  "name": "Bukti Lapangan",
+  "purpose": "Memverifikasi bukti progres, memperbarui KPI, dan membuka CAPA saat terdapat variance.",
+  "version": "0.1.0",
+  "status": "STAGED",
+  "owner": "Kepala Property",
+  "trigger": ["Site Evidence diunggah"],
+  "agents": ["CEA", "TPA", "KDA", "CRA"],
+  "initial_step": "evidence-submitted",
+  "terminal_steps": ["kpi-updated", "capa-open"],
+  "steps": [
+    {"step_id": "evidence-submitted", "name": "Bukti lapangan diterima", "actor_type": "human", "actor_ref": "Property Human", "deterministic": true, "requires_evidence": true},
+    {"step_id": "evidence-check", "name": "Pemeriksaan bukti", "actor_type": "agent", "actor_ref": "CEA", "deterministic": true},
+    {"step_id": "progress-verification", "name": "Verifikasi progres", "actor_type": "agent", "actor_ref": "TPA", "deterministic": true, "requires_evidence": true},
+    {"step_id": "human-review", "name": "Review Property", "actor_type": "human", "actor_ref": "Property Human", "deterministic": true, "requires_human_decision": true},
+    {"step_id": "kpi-updated", "name": "KPI diperbarui", "actor_type": "agent", "actor_ref": "KDA", "deterministic": true},
+    {"step_id": "capa-open", "name": "CAPA dibuka", "actor_type": "agent", "actor_ref": "CRA", "deterministic": true}
+  ],
+  "transitions": [
+    {"from_step": "evidence-submitted", "outcome": "submitted", "to_step": "evidence-check"},
+    {"from_step": "evidence-check", "outcome": "complete", "to_step": "progress-verification"},
+    {"from_step": "evidence-check", "outcome": "incomplete", "to_step": "capa-open"},
+    {"from_step": "progress-verification", "outcome": "ready", "to_step": "human-review"},
+    {"from_step": "human-review", "outcome": "accepted", "to_step": "kpi-updated"},
+    {"from_step": "human-review", "outcome": "variance", "to_step": "capa-open"}
+  ]
+}

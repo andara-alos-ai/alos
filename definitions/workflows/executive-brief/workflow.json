@@ -1,0 +1,29 @@
+{
+  "workflow_id": "FLOW-006",
+  "name": "Ringkasan Eksekutif",
+  "purpose": "Menyusun brief kondisi perusahaan dari fakta ALOS dan membentuk antrean keputusan Direktur Utama.",
+  "version": "0.1.0",
+  "status": "STAGED",
+  "owner": "Direktur Utama",
+  "trigger": ["Jadwal brief", "Permintaan pengguna berwenang"],
+  "agents": ["KDA", "CRA", "ARA", "MCA"],
+  "initial_step": "snapshot-created",
+  "terminal_steps": ["brief-reviewed", "exception-open"],
+  "steps": [
+    {"step_id": "snapshot-created", "name": "Snapshot enam divisi", "actor_type": "system", "actor_ref": "executive-read-model", "deterministic": true},
+    {"step_id": "kpi-aggregation", "name": "Agregasi KPI", "actor_type": "agent", "actor_ref": "KDA", "deterministic": true},
+    {"step_id": "risk-aggregation", "name": "Agregasi risiko dan CAPA", "actor_type": "agent", "actor_ref": "CRA", "deterministic": true},
+    {"step_id": "approval-aggregation", "name": "Agregasi approval tertunda", "actor_type": "agent", "actor_ref": "ARA", "deterministic": true},
+    {"step_id": "brief-generation", "name": "Penyusunan Executive Brief", "actor_type": "agent", "actor_ref": "MCA", "deterministic": false, "requires_evidence": true},
+    {"step_id": "brief-reviewed", "name": "Review dan keputusan Direktur Utama", "actor_type": "human", "actor_ref": "Direktur Utama", "deterministic": true, "requires_human_decision": true},
+    {"step_id": "exception-open", "name": "Exception data dibuka", "actor_type": "system", "actor_ref": "governance", "deterministic": true}
+  ],
+  "transitions": [
+    {"from_step": "snapshot-created", "outcome": "ready", "to_step": "kpi-aggregation"},
+    {"from_step": "kpi-aggregation", "outcome": "complete", "to_step": "risk-aggregation"},
+    {"from_step": "risk-aggregation", "outcome": "complete", "to_step": "approval-aggregation"},
+    {"from_step": "approval-aggregation", "outcome": "complete", "to_step": "brief-generation"},
+    {"from_step": "brief-generation", "outcome": "sourced", "to_step": "brief-reviewed"},
+    {"from_step": "brief-generation", "outcome": "missing_source", "to_step": "exception-open"}
+  ]
+}

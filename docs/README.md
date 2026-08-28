@@ -14,6 +14,7 @@ Dokumentasi ini menjadi dasar implementasi ALOS Internal Agent Pilot v0.1 dan ta
 8. [Dasar Keamanan dan Kebijakan Data AI](security/SECURITY_AND_AI_DATA_POLICY.md)
 9. [Strategi Pengujian dan Definisi Selesai](testing/TEST_STRATEGY_AND_DEFINITION_OF_DONE.md)
 10. [Register Keputusan Arsitektur](adr/ARCHITECTURE_DECISION_REGISTER.md)
+11. [Runbook Pengembangan Lokal](runbooks/LOCAL_DEVELOPMENT.md)
 
 ## Aturan Penggunaan
 
@@ -23,6 +24,6 @@ Dokumentasi ini menjadi dasar implementasi ALOS Internal Agent Pilot v0.1 dan ta
 - Data perusahaan asli tidak disimpan di repository. Pilot menggunakan data sintetis atau data yang telah disanitasi.
 - Perubahan material wajib memperbarui dokumen terkait, definisi, pengujian, dan register keputusan bila relevan.
 
-## Dokumentasi yang Ditunda
+## Dokumentasi Tahap Berikutnya
 
-Folder `api`, `deployment`, `runbooks`, `handover`, dan `uat` tetap kosong sampai implementasi menghasilkan fakta yang dapat didokumentasikan. Bagian tersebut tidak diisi dengan rancangan spekulatif.
+Runbook pengembangan lokal telah tersedia sesuai fondasi yang dapat dijalankan. Dokumentasi rinci `api`, `database`, `deployment`, `handover`, dan `uat` dilengkapi ketika komponen terkait sudah memiliki implementasi serta hasil pengujian; bagian tersebut tidak diisi dengan rancangan spekulatif.

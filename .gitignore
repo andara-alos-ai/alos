@@ -1,0 +1,43 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+.pnpm-store/
+.next/
+.turbo/
+coverage/
+pnpm-debug.log*
+*.tsbuildinfo
+
+# Runtime data
+data/imports/inbox/*
+data/imports/processed/*
+data/imports/rejected/*
+data/exports/*
+data/objects/
+!**/.gitkeep
+infra/volumes/
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db

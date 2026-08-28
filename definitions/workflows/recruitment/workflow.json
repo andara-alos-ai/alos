@@ -1,0 +1,29 @@
+{
+  "workflow_id": "FLOW-005",
+  "name": "Rekrutmen",
+  "purpose": "Memproses kebutuhan rekrutmen sampai review kandidat manusia dan persiapan berkas onboarding.",
+  "version": "0.1.0",
+  "status": "STAGED",
+  "owner": "Kepala HR",
+  "trigger": ["Recruitment Request diajukan"],
+  "agents": ["SEA", "HRA", "HPA"],
+  "initial_step": "request-submitted",
+  "terminal_steps": ["onboarding-checklist", "request-closed", "exception-open"],
+  "steps": [
+    {"step_id": "request-submitted", "name": "Kebutuhan diajukan", "actor_type": "human", "actor_ref": "Division Requester", "deterministic": true, "requires_evidence": true},
+    {"step_id": "sop-plan", "name": "Rencana SOP rekrutmen", "actor_type": "agent", "actor_ref": "SEA", "deterministic": true},
+    {"step_id": "candidate-screening", "name": "Screening administratif", "actor_type": "agent", "actor_ref": "HRA", "deterministic": false},
+    {"step_id": "hr-review", "name": "Review dan keputusan HR", "actor_type": "human", "actor_ref": "HR Human", "deterministic": true, "requires_human_decision": true},
+    {"step_id": "onboarding-checklist", "name": "Checklist berkas awal", "actor_type": "agent", "actor_ref": "HPA", "deterministic": true},
+    {"step_id": "request-closed", "name": "Permintaan ditutup", "actor_type": "system", "actor_ref": "hr-domain", "deterministic": true},
+    {"step_id": "exception-open", "name": "Exception dibuka", "actor_type": "system", "actor_ref": "governance", "deterministic": true}
+  ],
+  "transitions": [
+    {"from_step": "request-submitted", "outcome": "valid", "to_step": "sop-plan"},
+    {"from_step": "request-submitted", "outcome": "invalid", "to_step": "exception-open"},
+    {"from_step": "sop-plan", "outcome": "ready", "to_step": "candidate-screening"},
+    {"from_step": "candidate-screening", "outcome": "ready_for_review", "to_step": "hr-review"},
+    {"from_step": "hr-review", "outcome": "selected", "to_step": "onboarding-checklist"},
+    {"from_step": "hr-review", "outcome": "rejected", "to_step": "request-closed"}
+  ]
+}

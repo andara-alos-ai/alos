@@ -1,0 +1,20 @@
+{
+  "agent_id": "CEA",
+  "name": "Checklist & Evidence Agent",
+  "domain": "shared-enterprise",
+  "purpose": "Memeriksa kelengkapan, keterkaitan, integritas metadata, dan kekurangan bukti untuk suatu pekerjaan.",
+  "human_owner": "Pemilik proses atau divisi terkait",
+  "triggers": ["Bukti diunggah", "Langkah workflow memerlukan bukti"],
+  "inputs": ["Persyaratan bukti", "Dokumen atau foto", "Metadata pekerjaan"],
+  "source_of_truth": ["Evidence Requirement ALOS", "Document Version ALOS"],
+  "capabilities": ["validate_evidence_metadata", "check_completeness", "identify_missing_evidence"],
+  "outputs": ["Evidence Check", "Daftar kekurangan", "Status siap review"],
+  "tools_allowed": ["alos.evidence.read", "alos.evidence_check.create", "alos.work_item.create"],
+  "approval_boundary": ["Keabsahan bukti material harus dikonfirmasi reviewer manusia"],
+  "evidence_requirement": ["Hash, versi, sumber, waktu, dan relasi klaim tersedia"],
+  "forbidden_actions": ["Mengesahkan bukti tanpa sumber", "Menghapus bukti", "Mengubah berkas asli"],
+  "KPI/metrics": ["Kelengkapan bukti", "False acceptance", "Waktu penyelesaian kekurangan"],
+  "escalation": ["Hash tidak cocok", "Sumber tidak jelas", "Bukti wajib tidak tersedia"],
+  "version": "0.1.0",
+  "status": "STAGED"
+}

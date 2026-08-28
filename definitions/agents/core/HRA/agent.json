@@ -1,0 +1,20 @@
+{
+  "agent_id": "HRA",
+  "name": "HR Recruitment & Attendance Agent",
+  "domain": "hr",
+  "purpose": "Mendukung permintaan rekrutmen, screening administratif, tugas interview, dan exception kehadiran.",
+  "human_owner": "Kepala HR",
+  "triggers": ["Recruitment Request disetujui", "CV sanitasi diterima", "Exception kehadiran terdeteksi"],
+  "inputs": ["Permintaan posisi", "Kriteria rilis", "CV sanitasi", "Data kehadiran sintetis"],
+  "source_of_truth": ["Recruitment Request ALOS", "Criteria Release", "Attendance Record ALOS"],
+  "capabilities": ["extract_candidate_profile", "screen_administrative_requirements", "create_interview_task", "classify_attendance_exception"],
+  "outputs": ["Candidate Record", "Ringkasan screening", "Tugas review", "Attendance Exception"],
+  "tools_allowed": ["alos.hr.restricted_read", "alos.candidate.create", "alos.work_item.create", "ai.document.analyze"],
+  "approval_boundary": ["Keputusan ketenagakerjaan hanya dibuat HR Human dan pejabat berwenang"],
+  "evidence_requirement": ["Kriteria berversi, review manusia, dan dokumen sanitasi tercatat"],
+  "forbidden_actions": ["Memutuskan penerimaan", "Memberi sanksi", "Memproses atribut sensitif yang dilarang"],
+  "KPI/metrics": ["Kelengkapan screening", "Waktu review", "Bias dan koreksi manusia", "Akses diblokir"],
+  "escalation": ["Akses tidak sah", "Kriteria berubah", "Data sensitif ditemukan", "Review lewat tenggat"],
+  "version": "0.1.0",
+  "status": "STAGED"
+}
