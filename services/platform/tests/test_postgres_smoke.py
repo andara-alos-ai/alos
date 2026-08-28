@@ -56,10 +56,19 @@ def test_sales_workflow_is_persisted_from_lead_to_reservation() -> None:
         )
         assert project_response.status_code == 201
         project_id = project_response.json()["project_id"]
+        sales_token = _local_token(
+            client,
+            organization_id,
+            sales_user_id,
+            ["SALES"],
+            ["SALES_MARKETING"],
+            [project_id],
+        )
+        sales_headers = {"Authorization": f"Bearer {sales_token}"}
 
         lead_response = client.post(
             "/api/v1/leads",
-            headers={**admin_headers, "Idempotency-Key": f"smoke-{uuid4().hex}"},
+            headers={**sales_headers, "Idempotency-Key": f"smoke-{uuid4().hex}"},
             json={
                 "project_id": project_id,
                 "full_name": "Lead Smoke Test",
@@ -74,21 +83,12 @@ def test_sales_workflow_is_persisted_from_lead_to_reservation() -> None:
 
         assignment_response = client.post(
             f"/api/v1/workflow-runs/{result['workflow_run_id']}/sales-assignment",
-            headers={**admin_headers, "Idempotency-Key": f"assign-{uuid4().hex}"},
+            headers={**sales_headers, "Idempotency-Key": f"assign-{uuid4().hex}"},
             json={"sales_pic_user_id": sales_user_id},
         )
         assert assignment_response.status_code == 200
         assert assignment_response.json()["current_step"] == "interaction-review"
 
-        sales_token = _local_token(
-            client,
-            organization_id,
-            sales_user_id,
-            ["SALES"],
-            ["SALES_MARKETING"],
-            [project_id],
-        )
-        sales_headers = {"Authorization": f"Bearer {sales_token}"}
         follow_up_response = client.post(
             f"/api/v1/workflow-runs/{result['workflow_run_id']}/interactions",
             headers={**sales_headers, "Idempotency-Key": f"follow-{uuid4().hex}"},

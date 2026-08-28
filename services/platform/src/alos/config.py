@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,7 +18,7 @@ class Settings(BaseSettings):
     )
 
     application_name: str = "ALOS Internal v1"
-    environment: str = "local"
+    environment: Literal["local", "test", "staging", "production"] = "local"
     log_level: str = "INFO"
     api_prefix: str = "/api/v1"
     web_origin: str = "http://localhost:3000"
@@ -25,17 +26,20 @@ class Settings(BaseSettings):
     llm_provider: str = "disabled"
     auth_issuer: str = "alos-local"
     auth_audience: str = "alos-internal"
-    auth_signing_secret: SecretStr = SecretStr("local-development-only-change-me")
+    auth_signing_secret: SecretStr = Field(
+        default=SecretStr("local-development-only-change-me"), min_length=32
+    )
     auth_token_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
     repository_root: Path = Field(default_factory=default_repository_root)
 
     @model_validator(mode="after")
     def reject_insecure_production_configuration(self) -> "Settings":
-        if (
-            self.environment == "production"
-            and self.auth_signing_secret.get_secret_value() == "local-development-only-change-me"
-        ):
-            raise ValueError("ALOS_AUTH_SIGNING_SECRET wajib diganti pada production")
+        if self.environment in {"staging", "production"}:
+            secret = self.auth_signing_secret.get_secret_value()
+            if secret == "local-development-only-change-me" or len(set(secret)) < 12:  # noqa: S105
+                raise ValueError(
+                    "ALOS_AUTH_SIGNING_SECRET wajib unik dan kuat pada staging/production"
+                )
         return self
 
     @property

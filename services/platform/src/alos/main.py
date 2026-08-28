@@ -11,6 +11,9 @@ app = FastAPI(
     title=settings.application_name,
     version=__version__,
     description="API kendali ALOS, workflow deterministik, dan shared Agent Runtime.",
+    docs_url=None if settings.environment == "production" else "/docs",
+    redoc_url=None if settings.environment == "production" else "/redoc",
+    openapi_url=None if settings.environment == "production" else "/openapi.json",
 )
 app.add_middleware(
     CORSMiddleware,

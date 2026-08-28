@@ -11,6 +11,24 @@
 | Pembaruan terakhir | 28 Agustus 2026 |
 | Sumber utama | Dokumen Master Blueprint ALOS + GENESIS, 27 Agustus 2026 |
 
+## Status Implementasi Saat Ini
+
+| Area | Status | Bukti minimum |
+|---|---|---|
+| Foundation platform | Selesai | identitas lokal, project, work queue, migrasi, dan audit |
+| Registry dan runtime | Selesai | tepat 18 Core Agent valid pada satu shared runtime |
+| Governance bersama | Selesai | dokumen, evidence, approval, exception, dan CAPA tersedia |
+| FLOW-001 Sales | Selesai untuk backend pilot | Lead-to-Reservation lulus integration test PostgreSQL |
+| FLOW-002 Finance | Selesai untuk backend pilot | Payment-to-Reconciliation lulus dengan SoD dan pembaruan budget |
+| FLOW-003 Property | Selesai untuk backend pilot | review terpisah menghasilkan KPI atau exception dan CAPA |
+| FLOW-004 Legal | Selesai untuk backend pilot | izin dan kontrak mencapai keputusan Legal Human terkontrol |
+| FLOW-005 HR | Selesai untuk backend pilot | keputusan HR Human mengontrol pembuatan checklist personalia |
+| FLOW-006 AI Executive | Selesai untuk backend pilot | snapshot bersumber menghasilkan brief dan decision queue untuk Direktur |
+| Workspace web operasional | Belum selesai | UI saat ini masih katalog foundation dan belum mengoperasikan seluruh workflow |
+
+Status “selesai” di atas berarti siap untuk pengujian internal berbasis data sintetis,
+bukan persetujuan penggunaan data perusahaan atau integrasi produksi.
+
 ## 1. Tujuan
 
 Dokumen ini menetapkan dasar implementasi ALOS Internal v1 dan ruang lingkup pilot agent internal selama dua minggu. Rencana ini menerjemahkan blueprint menjadi arsitektur, model domain, rancangan data, lingkungan eksekusi agent bersama, alur kerja, pengamanan, strategi pengujian, dan kriteria penerimaan yang dapat dilaksanakan.

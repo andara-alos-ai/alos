@@ -2,6 +2,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -9,13 +10,44 @@ from sqlalchemy import Engine, create_engine, text
 
 from alos.agents.runtime import AgentExecutionPlan
 from alos.platform.models import (
+    ApprovalDecisionCreate,
+    ApprovalRequestCreate,
+    ApprovalRequestView,
+    BudgetCreate,
+    BudgetView,
+    CapaCreate,
+    CapaView,
+    DocumentCreate,
+    DocumentView,
+    EvidenceCreate,
+    EvidenceView,
+    ExceptionCreate,
+    ExceptionView,
+    ExecutiveBriefCreate,
+    ExecutiveBriefResult,
+    ExecutiveBriefReviewCreate,
+    FinanceWorkflowResult,
     InteractionOutcome,
     LeadIntake,
     LeadIntakeResult,
+    LegalReviewCreate,
+    LegalSubmissionCreate,
+    LegalWorkflowResult,
+    PaymentDecisionCreate,
+    PaymentRecordCreate,
+    PaymentRequestCreate,
+    PaymentRequestView,
     ProjectCreate,
     ProjectView,
+    PropertyReviewCreate,
+    PropertyWorkflowResult,
+    ReconciliationCreate,
+    RecruitmentDecisionCreate,
+    RecruitmentRequestCreate,
+    RecruitmentWorkflowResult,
     SalesAssignment,
     SalesInteraction,
+    SiteEvidenceCreate,
     WorkflowActionResult,
     WorkItemStatus,
     WorkItemView,
@@ -39,30 +71,35 @@ class PostgresOperationalStore:
         user_id = uuid4()
         now = datetime.now(UTC)
         with self._engine.begin() as connection:
-            division_id = connection.execute(
-                text(
-                    """
-                    SELECT division_id FROM identity.divisions
-                    WHERE organization_id = :organization_id AND code = :division_code
-                    """
-                ),
-                {
-                    "organization_id": principal.organization_id,
-                    "division_code": command.division_code,
-                },
-            ).scalar_one_or_none()
-            if division_id is None:
-                raise KeyError("Divisi tidak ditemukan pada organisasi pengguna")
+            division_id = None
+            if command.division_code is not None:
+                division_id = connection.execute(
+                    text(
+                        """
+                        SELECT division_id FROM identity.divisions
+                        WHERE organization_id = :organization_id AND code = :division_code
+                        """
+                    ),
+                    {
+                        "organization_id": principal.organization_id,
+                        "division_code": command.division_code,
+                    },
+                ).scalar_one_or_none()
+                if division_id is None:
+                    raise KeyError("Divisi tidak ditemukan pada organisasi pengguna")
             connection.execute(
                 text(
                     """
                     INSERT INTO identity.users
-                        (user_id, email, display_name, status, created_at, updated_at)
-                    VALUES (:user_id, :email, :display_name, 'ACTIVE', :now, :now)
+                        (user_id, organization_id, email, display_name, status,
+                         created_at, updated_at)
+                    VALUES (:user_id, :organization_id, :email, :display_name,
+                            'ACTIVE', :now, :now)
                     """
                 ),
                 {
                     "user_id": user_id,
+                    "organization_id": principal.organization_id,
                     "email": command.email.lower(),
                     "display_name": command.display_name,
                     "now": now,
@@ -104,6 +141,2670 @@ class PostgresOperationalStore:
             )
         return result
 
+    def create_document(self, command: DocumentCreate, principal: Principal) -> DocumentView:
+        document_id, version_id = uuid4(), uuid4()
+        now = datetime.now(UTC)
+        with self._engine.begin() as connection:
+            if command.project_id:
+                self._assert_project(connection, command.project_id, principal)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO platform.documents
+                        (document_id, organization_id, project_id, logical_name, classification,
+                         created_at, created_by, updated_at)
+                    VALUES (:document_id, :organization_id, :project_id, :logical_name,
+                            :classification, :now, :created_by, :now)
+                    """
+                ),
+                {
+                    "document_id": document_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "logical_name": command.logical_name,
+                    "classification": command.classification,
+                    "now": now,
+                    "created_by": principal.user_id,
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO platform.document_versions
+                        (document_version_id, document_id, version_number, object_key, sha256,
+                         media_type, size_bytes, verification_status, created_at, created_by)
+                    VALUES (:version_id, :document_id, 1, :object_key, :sha256, :media_type,
+                            :size_bytes, 'UNVERIFIED', :now, :created_by)
+                    """
+                ),
+                {
+                    "version_id": version_id,
+                    "document_id": document_id,
+                    "object_key": command.object_key,
+                    "sha256": command.sha256.lower(),
+                    "media_type": command.media_type,
+                    "size_bytes": command.size_bytes,
+                    "now": now,
+                    "created_by": principal.user_id,
+                },
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "document.created",
+                "document",
+                document_id,
+                document_id,
+                None,
+                command.model_dump(mode="json"),
+            )
+        return DocumentView(
+            **command.model_dump(),
+            document_id=document_id,
+            document_version_id=version_id,
+            organization_id=principal.organization_id,
+            version_number=1,
+            verification_status="UNVERIFIED",
+            created_at=now,
+        )
+
+    def create_evidence(self, command: EvidenceCreate, principal: Principal) -> EvidenceView:
+        evidence_id, now = uuid4(), datetime.now(UTC)
+        with self._engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text("""
+                    SELECT wi.work_item_id, wi.organization_id, wi.project_id,
+                           dv.document_version_id
+                    FROM platform.work_items wi
+                    JOIN platform.document_versions dv
+                      ON dv.document_version_id = :document_version_id
+                    JOIN platform.documents d ON d.document_id = dv.document_id
+                    WHERE wi.work_item_id = :work_item_id
+                      AND wi.organization_id = :organization_id
+                      AND d.organization_id = wi.organization_id
+                      AND (d.project_id IS NULL OR d.project_id = wi.project_id)
+                """),
+                    {
+                        "work_item_id": command.work_item_id,
+                        "document_version_id": command.document_version_id,
+                        "organization_id": principal.organization_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise KeyError("Work item atau versi dokumen tidak ditemukan")
+            if row["project_id"] is not None and not principal.can_access_project(
+                row["project_id"]
+            ):
+                raise AuthorizationDenied("Pengguna tidak memiliki akses ke evidence")
+            connection.execute(
+                text("""
+                INSERT INTO platform.evidence
+                    (evidence_id, work_item_id, document_version_id, claim_type,
+                     status, created_at, created_by)
+                VALUES (:evidence_id, :work_item_id, :document_version_id, :claim_type,
+                        'SUBMITTED', :now, :created_by)
+            """),
+                {
+                    "evidence_id": evidence_id,
+                    "work_item_id": command.work_item_id,
+                    "document_version_id": command.document_version_id,
+                    "claim_type": command.claim_type,
+                    "now": now,
+                    "created_by": principal.user_id,
+                },
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "evidence.submitted",
+                "evidence",
+                evidence_id,
+                evidence_id,
+                None,
+                command.model_dump(mode="json"),
+            )
+        return EvidenceView(
+            evidence_id=evidence_id, **command.model_dump(), status="SUBMITTED", created_at=now
+        )
+
+    def request_approval(
+        self, command: ApprovalRequestCreate, principal: Principal
+    ) -> ApprovalRequestView:
+        approval_id, now = uuid4(), datetime.now(UTC)
+        with self._engine.begin() as connection:
+            self._assert_work_item(connection, command.work_item_id, principal)
+            connection.execute(
+                text("""
+                INSERT INTO governance.approval_requests
+                    (approval_request_id, work_item_id, requester_user_id, policy_code,
+                     policy_version, status, material_fingerprint, created_at)
+                VALUES (:approval_id, :work_item_id, :requester, :policy_code, '0.1.0',
+                        'PENDING', :fingerprint, :now)
+            """),
+                {
+                    "approval_id": approval_id,
+                    "work_item_id": command.work_item_id,
+                    "requester": principal.user_id,
+                    "policy_code": command.policy_code,
+                    "fingerprint": command.material_fingerprint.lower(),
+                    "now": now,
+                },
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "approval.requested",
+                "approval_request",
+                approval_id,
+                approval_id,
+                None,
+                command.model_dump(mode="json"),
+            )
+        return ApprovalRequestView(
+            approval_request_id=approval_id,
+            work_item_id=command.work_item_id,
+            requester_user_id=principal.user_id,
+            policy_code=command.policy_code,
+            policy_version="0.1.0",
+            status="PENDING",
+            material_fingerprint=command.material_fingerprint.lower(),
+            created_at=now,
+            decided_at=None,
+        )
+
+    def decide_approval(
+        self, approval_request_id: UUID, command: ApprovalDecisionCreate, principal: Principal
+    ) -> ApprovalRequestView:
+        now = datetime.now(UTC)
+        with self._engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text("""
+                SELECT ar.approval_request_id, ar.work_item_id, ar.requester_user_id,
+                       ar.policy_code, ar.policy_version, ar.status, ar.material_fingerprint,
+                       ar.created_at, ar.decided_at
+                FROM governance.approval_requests ar
+                JOIN platform.work_items wi ON wi.work_item_id = ar.work_item_id
+                WHERE ar.approval_request_id = :approval_id
+                  AND wi.organization_id = :organization_id
+                FOR UPDATE OF ar
+            """),
+                    {
+                        "approval_id": approval_request_id,
+                        "organization_id": principal.organization_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise KeyError("Approval request tidak ditemukan")
+            if row["requester_user_id"] == principal.user_id:
+                raise AuthorizationDenied("Pemohon tidak dapat menyetujui permintaannya sendiri")
+            if row["status"] != "PENDING":
+                raise ValueError("Approval request sudah diputuskan")
+            self._assert_work_item(connection, row["work_item_id"], principal)
+            connection.execute(
+                text("""
+                INSERT INTO governance.approval_decisions
+                    (approval_request_id, approver_user_id, decision, reason, decided_at)
+                VALUES (:approval_id, :approver, :decision, :reason, :now)
+            """),
+                {
+                    "approval_id": approval_request_id,
+                    "approver": principal.user_id,
+                    "decision": command.decision,
+                    "reason": command.reason,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                UPDATE governance.approval_requests SET status = :status, decided_at = :now
+                WHERE approval_request_id = :approval_id
+            """),
+                {
+                    "status": command.decision.replace("REVISION_REQUESTED", "REVISION_REQUESTED"),
+                    "now": now,
+                    "approval_id": approval_request_id,
+                },
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "approval.decided",
+                "approval_request",
+                approval_request_id,
+                approval_request_id,
+                dict(row),
+                command.model_dump(),
+            )
+            updated = dict(row)
+            updated["status"] = command.decision
+            updated["decided_at"] = now
+            return ApprovalRequestView(**updated)
+
+    def create_exception(self, command: ExceptionCreate, principal: Principal) -> ExceptionView:
+        exception_id, now = uuid4(), datetime.now(UTC)
+        with self._engine.begin() as connection:
+            if command.work_item_id:
+                self._assert_work_item(connection, command.work_item_id, principal)
+            connection.execute(
+                text("""
+                INSERT INTO governance.exceptions
+                    (exception_id, organization_id, work_item_id, category, severity, status,
+                     owner_user_id, due_at, created_at)
+                VALUES (:exception_id, :organization_id, :work_item_id, :category, :severity,
+                        'OPEN', :owner, :due_at, :now)
+            """),
+                {
+                    "exception_id": exception_id,
+                    "organization_id": principal.organization_id,
+                    "work_item_id": command.work_item_id,
+                    "category": command.category,
+                    "severity": command.severity,
+                    "owner": principal.user_id,
+                    "due_at": command.due_at,
+                    "now": now,
+                },
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "exception.created",
+                "exception",
+                exception_id,
+                exception_id,
+                None,
+                command.model_dump(mode="json"),
+            )
+        return ExceptionView(
+            exception_id=exception_id,
+            **command.model_dump(),
+            status="OPEN",
+            owner_user_id=principal.user_id,
+            created_at=now,
+        )
+
+    def create_capa(self, command: CapaCreate, principal: Principal) -> CapaView:
+        capa_id, now = uuid4(), datetime.now(UTC)
+        with self._engine.begin() as connection:
+            exists = (
+                connection.execute(
+                    text("""
+                SELECT e.exception_id, e.work_item_id, wi.project_id
+                FROM governance.exceptions e
+                LEFT JOIN platform.work_items wi ON wi.work_item_id = e.work_item_id
+                WHERE e.exception_id = :id
+                  AND e.organization_id = :organization_id
+            """),
+                    {"id": command.exception_id, "organization_id": principal.organization_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if exists is None:
+                raise KeyError("Exception tidak ditemukan")
+            if exists["work_item_id"] is not None:
+                self._assert_work_item(connection, exists["work_item_id"], principal)
+            if exists["project_id"] is not None and not principal.can_access_project(
+                exists["project_id"]
+            ):
+                raise AuthorizationDenied("Pengguna tidak memiliki akses ke CAPA")
+            connection.execute(
+                text("""
+                INSERT INTO governance.capas
+                    (capa_id, exception_id, status, root_cause, corrective_action,
+                     preventive_action, due_at, created_at)
+                VALUES (:capa_id, :exception_id, 'OPEN', :root_cause, :corrective_action,
+                        :preventive_action, :due_at, :now)
+            """),
+                {
+                    "capa_id": capa_id,
+                    "exception_id": command.exception_id,
+                    "root_cause": command.root_cause,
+                    "corrective_action": command.corrective_action,
+                    "preventive_action": command.preventive_action,
+                    "due_at": command.due_at,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                    UPDATE governance.exceptions
+                    SET status = 'CAPA_REQUIRED' WHERE exception_id = :id
+                """),
+                {"id": command.exception_id},
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "capa.created",
+                "capa",
+                capa_id,
+                capa_id,
+                None,
+                command.model_dump(mode="json"),
+            )
+        return CapaView(
+            capa_id=capa_id,
+            status="OPEN",
+            reviewer_user_id=None,
+            closed_at=None,
+            created_at=now,
+            **command.model_dump(),
+        )
+
+    def create_budget(self, command: BudgetCreate, principal: Principal) -> BudgetView:
+        budget_id, now = uuid4(), datetime.now(UTC)
+        with self._engine.begin() as connection:
+            self._assert_project(connection, command.project_id, principal)
+            connection.execute(
+                text("""
+                INSERT INTO finance.budgets
+                    (budget_id, organization_id, project_id, code, name, currency,
+                     allocated_amount, status, created_at, created_by, updated_at)
+                VALUES (:budget_id, :organization_id, :project_id, :code, :name,
+                        :currency, :amount, 'ACTIVE', :now, :actor, :now)
+            """),
+                {
+                    "budget_id": budget_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "code": command.code,
+                    "name": command.name,
+                    "currency": command.currency,
+                    "amount": command.allocated_amount,
+                    "now": now,
+                    "actor": principal.user_id,
+                },
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "finance.budget_created",
+                "budget",
+                budget_id,
+                budget_id,
+                None,
+                command.model_dump(mode="json"),
+            )
+        return BudgetView(
+            budget_id=budget_id,
+            committed_amount=Decimal("0"),
+            spent_amount=Decimal("0"),
+            available_amount=command.allocated_amount,
+            status="ACTIVE",
+            created_at=now,
+            **command.model_dump(),
+        )
+
+    def create_payment_request(
+        self,
+        command: PaymentRequestCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        plans: tuple[AgentExecutionPlan, ...],
+        correlation_id: UUID,
+        idempotency_key: str,
+    ) -> PaymentRequestView:
+        payment_request_id, work_item_id, workflow_run_id = uuid4(), uuid4(), uuid4()
+        evidence_id, now = uuid4(), datetime.now(UTC)
+        approval_id: UUID | None = None
+        machine = StateMachine(definition)
+        with self._engine.begin() as connection:
+            self._assert_project(connection, command.project_id, principal)
+            actor_exists = connection.execute(
+                text("""
+                    SELECT 1 FROM identity.users
+                    WHERE user_id = :id AND organization_id = :organization_id
+                      AND status = 'ACTIVE'
+                """),
+                {"id": principal.user_id, "organization_id": principal.organization_id},
+            ).first()
+            if actor_exists is None:
+                raise AuthorizationDenied("Pengguna pemohon belum diprovisikan")
+            budget = (
+                connection.execute(
+                    text("""
+                SELECT budget_id, currency, allocated_amount, committed_amount, spent_amount
+                FROM finance.budgets
+                WHERE budget_id = :budget_id AND project_id = :project_id
+                  AND organization_id = :organization_id AND status = 'ACTIVE'
+                FOR UPDATE
+            """),
+                    {
+                        "budget_id": command.budget_id,
+                        "project_id": command.project_id,
+                        "organization_id": principal.organization_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if budget is None:
+                raise KeyError("Budget aktif tidak ditemukan")
+            document = connection.execute(
+                text("""
+                SELECT d.document_id FROM platform.document_versions dv
+                JOIN platform.documents d ON d.document_id = dv.document_id
+                WHERE dv.document_version_id = :version_id
+                  AND d.organization_id = :organization_id
+                  AND (d.project_id IS NULL OR d.project_id = :project_id)
+            """),
+                {
+                    "version_id": command.document_version_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                },
+            ).first()
+            if document is None:
+                raise KeyError("Dokumen payment request tidak ditemukan")
+            if budget["currency"] != command.currency:
+                raise ValueError("Mata uang payment request berbeda dengan budget")
+            available_amount = (
+                budget["allocated_amount"] - budget["committed_amount"] - budget["spent_amount"]
+            )
+            budget_available = available_amount >= command.amount
+            division_id = connection.execute(
+                text("""
+                SELECT division_id FROM identity.divisions
+                WHERE organization_id = :organization_id AND code = 'FINANCE'
+            """),
+                {"organization_id": principal.organization_id},
+            ).scalar_one()
+            connection.execute(
+                text("""
+                INSERT INTO platform.work_items
+                    (work_item_id, organization_id, project_id, division_id, title,
+                     work_type, priority, status, correlation_id, created_at,
+                     created_by, updated_at)
+                VALUES (:work_item_id, :organization_id, :project_id, :division_id,
+                        :title, 'PAYMENT_REQUEST', 'HIGH', :status, :correlation_id,
+                        :now, :actor, :now)
+            """),
+                {
+                    "work_item_id": work_item_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "division_id": division_id,
+                    "title": f"Pembayaran: {command.payee_name}",
+                    "status": "PENDING_APPROVAL" if budget_available else "BLOCKED",
+                    "correlation_id": correlation_id,
+                    "now": now,
+                    "actor": principal.user_id,
+                },
+            )
+            release_id = self._upsert_workflow_release(connection, definition)
+            connection.execute(
+                text("""
+                INSERT INTO workflow.workflow_runs
+                    (workflow_run_id, workflow_release_id, work_item_id, current_step,
+                     status, correlation_id, idempotency_key, started_at)
+                VALUES (:run_id, :release_id, :work_item_id, 'request-submitted',
+                        'ACTIVE', :correlation_id, :idempotency_key, :now)
+            """),
+                {
+                    "run_id": workflow_run_id,
+                    "release_id": release_id,
+                    "work_item_id": work_item_id,
+                    "correlation_id": correlation_id,
+                    "idempotency_key": idempotency_key,
+                    "now": now,
+                },
+            )
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    command.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest()
+            connection.execute(
+                text("""
+                INSERT INTO finance.payment_requests
+                    (payment_request_id, organization_id, project_id, budget_id,
+                     work_item_id, workflow_run_id, document_version_id, requester_user_id,
+                     payee_name, purpose, amount, currency, requested_payment_date,
+                     status, budget_available, material_fingerprint, created_at, updated_at)
+                VALUES (:payment_request_id, :organization_id, :project_id, :budget_id,
+                        :work_item_id, :workflow_run_id, :document_version_id, :requester,
+                        :payee_name, :purpose, :amount, :currency, :payment_date,
+                        :status, :available, :fingerprint, :now, :now)
+            """),
+                {
+                    "payment_request_id": payment_request_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "budget_id": command.budget_id,
+                    "work_item_id": work_item_id,
+                    "workflow_run_id": workflow_run_id,
+                    "document_version_id": command.document_version_id,
+                    "requester": principal.user_id,
+                    "payee_name": command.payee_name,
+                    "purpose": command.purpose,
+                    "amount": command.amount,
+                    "currency": command.currency,
+                    "payment_date": command.requested_payment_date,
+                    "status": "PENDING_APPROVAL" if budget_available else "EXCEPTION",
+                    "available": budget_available,
+                    "fingerprint": fingerprint,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO platform.evidence
+                    (evidence_id, work_item_id, document_version_id, claim_type,
+                     status, created_at, created_by)
+                VALUES (:evidence_id, :work_item_id, :version_id, 'PAYMENT_SUPPORT',
+                        'SUBMITTED', :now, :actor)
+            """),
+                {
+                    "evidence_id": evidence_id,
+                    "work_item_id": work_item_id,
+                    "version_id": command.document_version_id,
+                    "now": now,
+                    "actor": principal.user_id,
+                },
+            )
+            transitions = [
+                machine.transition("request-submitted", "submitted"),
+                machine.transition("document-extraction", "extracted"),
+                machine.transition("evidence-check", "complete"),
+                machine.transition(
+                    "budget-check", "available" if budget_available else "unavailable"
+                ),
+            ]
+            current_step = transitions[-1].current_step
+            if budget_available:
+                approval_id = uuid4()
+                routed = machine.transition("approval-routing", "routed")
+                transitions.append(routed)
+                current_step = routed.current_step
+                connection.execute(
+                    text("""
+                    INSERT INTO governance.approval_requests
+                        (approval_request_id, work_item_id, requester_user_id, policy_code,
+                         policy_version, status, material_fingerprint, created_at)
+                    VALUES (:approval_id, :work_item_id, :requester, 'FINANCE_PAYMENT',
+                            '0.1.0', 'PENDING', :fingerprint, :now)
+                """),
+                    {
+                        "approval_id": approval_id,
+                        "work_item_id": work_item_id,
+                        "requester": principal.user_id,
+                        "fingerprint": fingerprint,
+                        "now": now,
+                    },
+                )
+                connection.execute(
+                    text("""
+                    UPDATE finance.payment_requests SET approval_request_id = :approval_id
+                    WHERE payment_request_id = :payment_request_id
+                """),
+                    {"approval_id": approval_id, "payment_request_id": payment_request_id},
+                )
+                connection.execute(
+                    text("""
+                    UPDATE finance.budgets SET committed_amount = committed_amount + :amount,
+                        updated_at = :now, version = version + 1 WHERE budget_id = :budget_id
+                """),
+                    {"amount": command.amount, "now": now, "budget_id": command.budget_id},
+                )
+            else:
+                approval_id = None
+                connection.execute(
+                    text("""
+                    INSERT INTO governance.exceptions
+                        (organization_id, work_item_id, category, severity, status,
+                         owner_user_id, created_at)
+                    VALUES (:organization_id, :work_item_id, 'BUDGET_INSUFFICIENT',
+                            'HIGH', 'OPEN', :owner, :now)
+                """),
+                    {
+                        "organization_id": principal.organization_id,
+                        "work_item_id": work_item_id,
+                        "owner": principal.user_id,
+                        "now": now,
+                    },
+                )
+            agent_transitions = {
+                "DIA": transitions[1],
+                "CEA": transitions[2],
+                "BCA": transitions[3],
+            }
+            if budget_available:
+                agent_transitions["ARA"] = transitions[4]
+            for plan in plans:
+                transition = agent_transitions.get(plan.agent_id)
+                if transition is None:
+                    continue
+                self._record_agent_run(
+                    connection,
+                    plan,
+                    workflow_run_id,
+                    correlation_id,
+                    {"step": transition.current_step, "budget_available": budget_available},
+                    now,
+                )
+            self._record_transition(
+                connection,
+                workflow_run_id,
+                transitions[0],
+                "HUMAN",
+                principal.user_id,
+                now,
+            )
+            for transition, agent_id in zip(
+                transitions[1:], ("DIA", "CEA", "BCA", "ARA"), strict=False
+            ):
+                self._record_transition(
+                    connection, workflow_run_id, transition, "AGENT", agent_id, now
+                )
+            terminal = current_step == "exception-open"
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs SET current_step = :step, status = :status,
+                    completed_at = :completed_at, version = version + 1
+                WHERE workflow_run_id = :run_id
+            """),
+                {
+                    "step": current_step,
+                    "status": "COMPLETED" if terminal else "ACTIVE",
+                    "completed_at": now if terminal else None,
+                    "run_id": workflow_run_id,
+                },
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "finance.payment_requested",
+                "payment_request",
+                payment_request_id,
+                correlation_id,
+                None,
+                {
+                    "amount": str(command.amount),
+                    "current_step": current_step,
+                    "budget_available": budget_available,
+                },
+            )
+        return PaymentRequestView(
+            payment_request_id=payment_request_id,
+            work_item_id=work_item_id,
+            workflow_run_id=workflow_run_id,
+            approval_request_id=approval_id,
+            project_id=command.project_id,
+            budget_id=command.budget_id,
+            payee_name=command.payee_name,
+            purpose=command.purpose,
+            amount=command.amount,
+            currency=command.currency,
+            requested_payment_date=command.requested_payment_date,
+            status="PENDING_APPROVAL" if budget_available else "EXCEPTION",
+            current_step=current_step,
+            budget_available=budget_available,
+            correlation_id=correlation_id,
+            created_at=now,
+        )
+
+    def decide_payment(
+        self,
+        payment_request_id: UUID,
+        command: PaymentDecisionCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+    ) -> FinanceWorkflowResult:
+        now, machine = datetime.now(UTC), StateMachine(definition)
+        with self._engine.begin() as connection:
+            context = self._load_payment(connection, payment_request_id, principal)
+            if context["current_step"] != "finance-approval":
+                raise ValueError("Payment request tidak menunggu approval Finance")
+            if context["requester_user_id"] == principal.user_id:
+                raise AuthorizationDenied("Pemohon tidak dapat menyetujui pembayarannya sendiri")
+            outcome = {
+                "APPROVED": "approved",
+                "REJECTED": "rejected",
+                "REVISION_REQUESTED": "revision_requested",
+            }[command.decision]
+            transition = machine.transition("finance-approval", outcome)
+            terminal = transition.terminal
+            connection.execute(
+                text("""
+                INSERT INTO governance.approval_decisions
+                    (approval_request_id, approver_user_id, decision, reason, decided_at)
+                VALUES (:approval_id, :approver, :decision, :reason, :now)
+            """),
+                {
+                    "approval_id": context["approval_request_id"],
+                    "approver": principal.user_id,
+                    "decision": command.decision,
+                    "reason": command.reason,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                UPDATE governance.approval_requests SET status = :status, decided_at = :now
+                WHERE approval_request_id = :approval_id AND status = 'PENDING'
+            """),
+                {
+                    "status": command.decision,
+                    "now": now,
+                    "approval_id": context["approval_request_id"],
+                },
+            )
+            work_status = "IN_PROGRESS" if command.decision == "APPROVED" else "BLOCKED"
+            if command.decision != "APPROVED":
+                connection.execute(
+                    text("""
+                    UPDATE finance.budgets SET committed_amount = committed_amount - :amount,
+                        updated_at = :now, version = version + 1 WHERE budget_id = :budget_id
+                """),
+                    {"amount": context["amount"], "now": now, "budget_id": context["budget_id"]},
+                )
+                connection.execute(
+                    text("""
+                    INSERT INTO governance.exceptions
+                        (organization_id, work_item_id, category, severity, status,
+                         owner_user_id, created_at)
+                    VALUES (:organization_id, :work_item_id, 'PAYMENT_NOT_APPROVED',
+                            'MEDIUM', 'OPEN', :owner, :now)
+                """),
+                    {
+                        "work_item_id": context["work_item_id"],
+                        "organization_id": principal.organization_id,
+                        "owner": context["requester_user_id"],
+                        "now": now,
+                    },
+                )
+            self._update_payment_state(
+                connection,
+                context,
+                transition.current_step,
+                command.decision,
+                work_status,
+                terminal,
+                now,
+            )
+            self._record_transition(
+                connection, context["workflow_run_id"], transition, "HUMAN", principal.user_id, now
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "finance.payment_decided",
+                "payment_request",
+                payment_request_id,
+                context["correlation_id"],
+                None,
+                command.model_dump(),
+            )
+            return self._finance_result(
+                context, transition.current_step, command.decision, work_status, terminal
+            )
+
+    def record_payment(
+        self,
+        payment_request_id: UUID,
+        command: PaymentRecordCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+    ) -> FinanceWorkflowResult:
+        now, machine = datetime.now(UTC), StateMachine(definition)
+        with self._engine.begin() as connection:
+            context = self._load_payment(connection, payment_request_id, principal)
+            if context["current_step"] != "payment-action" or context["status"] != "APPROVED":
+                raise ValueError("Payment request belum disetujui")
+            evidence = connection.execute(
+                text("""
+                SELECT 1 FROM platform.document_versions dv
+                JOIN platform.documents d ON d.document_id = dv.document_id
+                WHERE dv.document_version_id = :version_id
+                  AND d.organization_id = :organization_id
+                  AND (d.project_id IS NULL OR d.project_id = :project_id)
+            """),
+                {
+                    "version_id": command.evidence_document_version_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": context["project_id"],
+                },
+            ).first()
+            if evidence is None:
+                raise KeyError("Evidence pembayaran tidak ditemukan")
+            transition = machine.transition("payment-action", "recorded")
+            connection.execute(
+                text("""
+                INSERT INTO finance.payment_records
+                    (payment_request_id, payment_reference, amount, currency, paid_at,
+                     evidence_document_version_id, recorded_by_user_id, created_at)
+                VALUES (:payment_request_id, :reference, :amount, :currency, :paid_at,
+                        :evidence, :actor, :now)
+            """),
+                {
+                    "payment_request_id": payment_request_id,
+                    "reference": command.payment_reference,
+                    "amount": command.amount,
+                    "currency": command.currency,
+                    "paid_at": command.paid_at,
+                    "evidence": command.evidence_document_version_id,
+                    "actor": principal.user_id,
+                    "now": now,
+                },
+            )
+            self._update_payment_state(
+                connection, context, transition.current_step, "PAID", "IN_PROGRESS", False, now
+            )
+            self._record_transition(
+                connection, context["workflow_run_id"], transition, "HUMAN", principal.user_id, now
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "finance.payment_recorded",
+                "payment_request",
+                payment_request_id,
+                context["correlation_id"],
+                None,
+                command.model_dump(mode="json"),
+            )
+            return self._finance_result(
+                context, transition.current_step, "PAID", "IN_PROGRESS", False
+            )
+
+    def reconcile_payment(
+        self,
+        payment_request_id: UUID,
+        command: ReconciliationCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        plan: AgentExecutionPlan,
+    ) -> FinanceWorkflowResult:
+        now, machine = datetime.now(UTC), StateMachine(definition)
+        with self._engine.begin() as connection:
+            context = self._load_payment(connection, payment_request_id, principal)
+            if context["current_step"] != "reconciliation" or context["status"] != "PAID":
+                raise ValueError("Payment request belum siap direkonsiliasi")
+            record = (
+                connection.execute(
+                    text("""
+                SELECT payment_record_id, payment_reference, amount, currency
+                FROM finance.payment_records
+                WHERE payment_request_id = :id
+            """),
+                    {"id": payment_request_id},
+                )
+                .mappings()
+                .one()
+            )
+            difference = command.transaction_amount - record["amount"]
+            matched = (
+                difference == 0
+                and command.transaction_reference == record["payment_reference"]
+                and command.currency == record["currency"]
+            )
+            transition = machine.transition("reconciliation", "matched" if matched else "mismatch")
+            agent_run_id = self._record_agent_run(
+                connection,
+                plan,
+                context["workflow_run_id"],
+                context["correlation_id"],
+                {"matched": matched, "difference": str(difference)},
+                now,
+            )
+            connection.execute(
+                text("""
+                INSERT INTO finance.reconciliations
+                    (payment_request_id, payment_record_id, transaction_reference,
+                     transaction_amount, currency, status, difference_amount,
+                     created_by_agent_run_id, created_at)
+                VALUES (:payment_request_id, :payment_record_id, :reference, :amount,
+                        :currency, :status, :difference, :agent_run_id, :now)
+            """),
+                {
+                    "payment_request_id": payment_request_id,
+                    "payment_record_id": record["payment_record_id"],
+                    "reference": command.transaction_reference,
+                    "amount": command.transaction_amount,
+                    "currency": command.currency,
+                    "status": "MATCHED" if matched else "MISMATCH",
+                    "difference": difference,
+                    "agent_run_id": agent_run_id,
+                    "now": now,
+                },
+            )
+            status, work_status = (
+                ("RECONCILED", "COMPLETED") if matched else ("EXCEPTION", "BLOCKED")
+            )
+            if matched:
+                connection.execute(
+                    text("""
+                    UPDATE finance.budgets SET committed_amount = committed_amount - :amount,
+                        spent_amount = spent_amount + :amount, updated_at = :now,
+                        version = version + 1 WHERE budget_id = :budget_id
+                """),
+                    {"amount": context["amount"], "now": now, "budget_id": context["budget_id"]},
+                )
+            else:
+                connection.execute(
+                    text("""
+                    INSERT INTO governance.exceptions
+                        (organization_id, work_item_id, category, severity, status,
+                         owner_user_id, created_at)
+                    VALUES (:organization_id, :work_item_id, 'RECONCILIATION_MISMATCH',
+                            'HIGH', 'CAPA_REQUIRED', :owner, :now)
+                """),
+                    {
+                        "work_item_id": context["work_item_id"],
+                        "organization_id": principal.organization_id,
+                        "owner": principal.user_id,
+                        "now": now,
+                    },
+                )
+            self._update_payment_state(
+                connection, context, transition.current_step, status, work_status, True, now
+            )
+            self._record_transition(
+                connection, context["workflow_run_id"], transition, "AGENT", "FRA", now
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "finance.payment_reconciled",
+                "payment_request",
+                payment_request_id,
+                context["correlation_id"],
+                None,
+                {"matched": matched, "difference": str(difference)},
+            )
+            return self._finance_result(
+                context,
+                transition.current_step,
+                status,
+                work_status,
+                True,
+                reconciliation_status="MATCHED" if matched else "MISMATCH",
+                difference_amount=difference,
+            )
+
+    def submit_site_evidence(
+        self,
+        command: SiteEvidenceCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        plans: tuple[AgentExecutionPlan, ...],
+        correlation_id: UUID,
+        idempotency_key: str,
+    ) -> PropertyWorkflowResult:
+        site_evidence_id, work_item_id, workflow_run_id = uuid4(), uuid4(), uuid4()
+        evidence_id, now = uuid4(), datetime.now(UTC)
+        variance = command.measured_progress - command.claimed_progress
+        machine = StateMachine(definition)
+        with self._engine.begin() as connection:
+            self._assert_project(connection, command.project_id, principal)
+            actor_exists = connection.execute(
+                text("""
+                    SELECT 1 FROM identity.users
+                    WHERE user_id = :id AND organization_id = :organization_id
+                      AND status = 'ACTIVE'
+                """),
+                {"id": principal.user_id, "organization_id": principal.organization_id},
+            ).first()
+            if actor_exists is None:
+                raise AuthorizationDenied("Pengguna Property belum diprovisikan")
+            document = connection.execute(
+                text("""
+                SELECT 1 FROM platform.document_versions dv
+                JOIN platform.documents d ON d.document_id = dv.document_id
+                WHERE dv.document_version_id = :version_id
+                  AND d.organization_id = :organization_id
+                  AND d.project_id = :project_id
+            """),
+                {
+                    "version_id": command.document_version_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                },
+            ).first()
+            if document is None:
+                raise KeyError("Dokumen bukti lapangan tidak ditemukan pada project")
+            division_id = connection.execute(
+                text("""
+                SELECT division_id FROM identity.divisions
+                WHERE organization_id = :organization_id AND code = 'PROPERTY'
+            """),
+                {"organization_id": principal.organization_id},
+            ).scalar_one()
+            connection.execute(
+                text("""
+                INSERT INTO platform.work_items
+                    (work_item_id, organization_id, project_id, division_id, title,
+                     work_type, priority, status, correlation_id, created_at,
+                     created_by, updated_at)
+                VALUES (:work_item_id, :organization_id, :project_id, :division_id,
+                        :title, 'SITE_EVIDENCE', 'HIGH', 'NEEDS_REVIEW', :correlation_id,
+                        :now, :actor, :now)
+            """),
+                {
+                    "work_item_id": work_item_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "division_id": division_id,
+                    "title": f"Review progres {command.work_package_code}",
+                    "correlation_id": correlation_id,
+                    "now": now,
+                    "actor": principal.user_id,
+                },
+            )
+            release_id = self._upsert_workflow_release(connection, definition)
+            connection.execute(
+                text("""
+                INSERT INTO workflow.workflow_runs
+                    (workflow_run_id, workflow_release_id, work_item_id, current_step,
+                     status, correlation_id, idempotency_key, started_at)
+                VALUES (:run_id, :release_id, :work_item_id, 'evidence-submitted',
+                        'ACTIVE', :correlation_id, :idempotency_key, :now)
+            """),
+                {
+                    "run_id": workflow_run_id,
+                    "release_id": release_id,
+                    "work_item_id": work_item_id,
+                    "correlation_id": correlation_id,
+                    "idempotency_key": idempotency_key,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO property.site_evidence
+                    (site_evidence_id, organization_id, project_id, work_item_id,
+                     workflow_run_id, document_version_id, submitted_by_user_id,
+                     work_package_code, claim_date, claimed_progress, measured_progress,
+                     variance, measurement_note, status, created_at, updated_at)
+                VALUES (:site_evidence_id, :organization_id, :project_id, :work_item_id,
+                        :workflow_run_id, :document_version_id, :actor,
+                        :work_package_code, :claim_date, :claimed_progress,
+                        :measured_progress, :variance, :measurement_note,
+                        'PENDING_REVIEW', :now, :now)
+            """),
+                {
+                    "site_evidence_id": site_evidence_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "work_item_id": work_item_id,
+                    "workflow_run_id": workflow_run_id,
+                    "document_version_id": command.document_version_id,
+                    "actor": principal.user_id,
+                    "work_package_code": command.work_package_code,
+                    "claim_date": command.claim_date,
+                    "claimed_progress": command.claimed_progress,
+                    "measured_progress": command.measured_progress,
+                    "variance": variance,
+                    "measurement_note": command.measurement_note,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO platform.evidence
+                    (evidence_id, work_item_id, document_version_id, claim_type,
+                     status, created_at, created_by)
+                VALUES (:evidence_id, :work_item_id, :version_id, 'SITE_PROGRESS',
+                        'NEEDS_REVIEW', :now, :actor)
+            """),
+                {
+                    "evidence_id": evidence_id,
+                    "work_item_id": work_item_id,
+                    "version_id": command.document_version_id,
+                    "now": now,
+                    "actor": principal.user_id,
+                },
+            )
+            transitions = (
+                machine.transition("evidence-submitted", "submitted"),
+                machine.transition("evidence-check", "complete"),
+                machine.transition("progress-verification", "ready"),
+            )
+            for plan, transition in zip(plans, transitions[1:], strict=True):
+                self._record_agent_run(
+                    connection,
+                    plan,
+                    workflow_run_id,
+                    correlation_id,
+                    {
+                        "step": transition.current_step,
+                        "claimed_progress": str(command.claimed_progress),
+                        "measured_progress": str(command.measured_progress),
+                        "variance": str(variance),
+                    },
+                    now,
+                )
+            self._record_transition(
+                connection, workflow_run_id, transitions[0], "HUMAN", principal.user_id, now
+            )
+            for transition, agent_id in zip(transitions[1:], ("CEA", "TPA"), strict=True):
+                self._record_transition(
+                    connection, workflow_run_id, transition, "AGENT", agent_id, now
+                )
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs SET current_step = 'human-review',
+                    version = version + 1 WHERE workflow_run_id = :run_id
+            """),
+                {"run_id": workflow_run_id},
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "property.site_evidence_submitted",
+                "site_evidence",
+                site_evidence_id,
+                correlation_id,
+                None,
+                {
+                    "work_package_code": command.work_package_code,
+                    "claimed_progress": str(command.claimed_progress),
+                    "measured_progress": str(command.measured_progress),
+                    "variance": str(variance),
+                },
+            )
+        return PropertyWorkflowResult(
+            site_evidence_id=site_evidence_id,
+            workflow_run_id=workflow_run_id,
+            work_item_id=work_item_id,
+            current_step="human-review",
+            workflow_status="ACTIVE",
+            evidence_status="PENDING_REVIEW",
+            work_item_status=WorkItemStatus.NEEDS_REVIEW,
+            claimed_progress=command.claimed_progress,
+            measured_progress=command.measured_progress,
+            variance=variance,
+            terminal=False,
+            correlation_id=correlation_id,
+        )
+
+    def review_site_evidence(
+        self,
+        site_evidence_id: UUID,
+        command: PropertyReviewCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        plan: AgentExecutionPlan,
+    ) -> PropertyWorkflowResult:
+        now, machine = datetime.now(UTC), StateMachine(definition)
+        with self._engine.begin() as connection:
+            context = self._load_site_evidence(connection, site_evidence_id, principal)
+            if context["current_step"] != "human-review" or context["status"] != "PENDING_REVIEW":
+                raise ValueError("Bukti lapangan tidak menunggu review Property")
+            if context["submitted_by_user_id"] == principal.user_id:
+                raise AuthorizationDenied("Pengunggah tidak dapat mereview buktinya sendiri")
+            outcome = "accepted" if command.decision == "ACCEPTED" else "variance"
+            transition = machine.transition("human-review", outcome)
+            agent_run_id = self._record_agent_run(
+                connection,
+                plan,
+                context["workflow_run_id"],
+                context["correlation_id"],
+                {
+                    "decision": command.decision,
+                    "verified_progress": str(command.verified_progress),
+                },
+                now,
+            )
+            kpi_snapshot_id: UUID | None = None
+            exception_id: UUID | None = None
+            capa_id: UUID | None = None
+            evidence_status = "ACCEPTED" if command.decision == "ACCEPTED" else "VARIANCE"
+            work_status = "COMPLETED" if command.decision == "ACCEPTED" else "BLOCKED"
+            if command.decision == "ACCEPTED":
+                kpi_snapshot_id = uuid4()
+                connection.execute(
+                    text("""
+                    INSERT INTO executive.kpi_snapshots
+                        (kpi_snapshot_id, organization_id, project_id, metric_code,
+                         period_start, period_end, value, unit, source_entity_type,
+                         source_entity_id, source_agent_run_id, verification_status,
+                         created_at)
+                    VALUES (:snapshot_id, :organization_id, :project_id,
+                            'PROPERTY_VERIFIED_PROGRESS', :period, :period, :value,
+                            'PERCENT', 'site_evidence', :site_evidence_id, :agent_run_id,
+                            'VERIFIED', :now)
+                """),
+                    {
+                        "snapshot_id": kpi_snapshot_id,
+                        "organization_id": principal.organization_id,
+                        "project_id": context["project_id"],
+                        "period": context["claim_date"],
+                        "value": command.verified_progress,
+                        "site_evidence_id": site_evidence_id,
+                        "agent_run_id": agent_run_id,
+                        "now": now,
+                    },
+                )
+            else:
+                exception_id, capa_id = uuid4(), uuid4()
+                connection.execute(
+                    text("""
+                    INSERT INTO governance.exceptions
+                        (exception_id, organization_id, work_item_id, category, severity, status,
+                         owner_user_id, due_at, created_at)
+                    VALUES (:exception_id, :organization_id, :work_item_id,
+                            'SITE_PROGRESS_VARIANCE',
+                            'HIGH', 'CAPA_REQUIRED', :owner, :due_at, :now)
+                """),
+                    {
+                        "exception_id": exception_id,
+                        "organization_id": principal.organization_id,
+                        "work_item_id": context["work_item_id"],
+                        "owner": context["submitted_by_user_id"],
+                        "due_at": now + timedelta(days=7),
+                        "now": now,
+                    },
+                )
+                connection.execute(
+                    text("""
+                    INSERT INTO governance.capas
+                        (capa_id, exception_id, status, root_cause, corrective_action,
+                         preventive_action, due_at, created_at)
+                    VALUES (:capa_id, :exception_id, 'OPEN',
+                            'Menunggu analisis pemilik proses Property',
+                            'Verifikasi ulang pengukuran dan bukti progres',
+                            'Review metode pengukuran sebelum klaim berikutnya',
+                            :due_at, :now)
+                """),
+                    {
+                        "capa_id": capa_id,
+                        "exception_id": exception_id,
+                        "due_at": now + timedelta(days=7),
+                        "now": now,
+                    },
+                )
+            connection.execute(
+                text("""
+                UPDATE property.site_evidence
+                SET status = :status, reviewer_user_id = :reviewer,
+                    verified_progress = :verified_progress, review_notes = :notes,
+                    reviewed_at = :now, updated_at = :now, version = version + 1
+                WHERE site_evidence_id = :site_evidence_id
+            """),
+                {
+                    "status": evidence_status,
+                    "reviewer": principal.user_id,
+                    "verified_progress": command.verified_progress,
+                    "notes": command.notes,
+                    "now": now,
+                    "site_evidence_id": site_evidence_id,
+                },
+            )
+            connection.execute(
+                text("""
+                UPDATE platform.evidence SET status = :status
+                WHERE work_item_id = :work_item_id AND claim_type = 'SITE_PROGRESS'
+            """),
+                {
+                    "status": "ACCEPTED" if command.decision == "ACCEPTED" else "REJECTED",
+                    "work_item_id": context["work_item_id"],
+                },
+            )
+            connection.execute(
+                text("""
+                UPDATE platform.work_items SET status = :status, updated_at = :now,
+                    version = version + 1 WHERE work_item_id = :work_item_id
+            """),
+                {"status": work_status, "now": now, "work_item_id": context["work_item_id"]},
+            )
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs SET current_step = :step,
+                    status = 'COMPLETED', completed_at = :now, version = version + 1
+                WHERE workflow_run_id = :workflow_run_id
+            """),
+                {
+                    "step": transition.current_step,
+                    "now": now,
+                    "workflow_run_id": context["workflow_run_id"],
+                },
+            )
+            self._record_transition(
+                connection,
+                context["workflow_run_id"],
+                transition,
+                "HUMAN",
+                principal.user_id,
+                now,
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "property.site_evidence_reviewed",
+                "site_evidence",
+                site_evidence_id,
+                context["correlation_id"],
+                {"status": context["status"]},
+                {
+                    "status": evidence_status,
+                    "verified_progress": str(command.verified_progress),
+                    "kpi_snapshot_id": str(kpi_snapshot_id) if kpi_snapshot_id else None,
+                    "exception_id": str(exception_id) if exception_id else None,
+                    "capa_id": str(capa_id) if capa_id else None,
+                },
+            )
+            return PropertyWorkflowResult(
+                site_evidence_id=site_evidence_id,
+                workflow_run_id=context["workflow_run_id"],
+                work_item_id=context["work_item_id"],
+                current_step=transition.current_step,
+                workflow_status="COMPLETED",
+                evidence_status=evidence_status,
+                work_item_status=WorkItemStatus(work_status),
+                claimed_progress=context["claimed_progress"],
+                measured_progress=context["measured_progress"],
+                variance=context["variance"],
+                kpi_snapshot_id=kpi_snapshot_id,
+                exception_id=exception_id,
+                capa_id=capa_id,
+                terminal=True,
+                correlation_id=context["correlation_id"],
+            )
+
+    @staticmethod
+    def _load_site_evidence(
+        connection: Any, site_evidence_id: UUID, principal: Principal
+    ) -> Mapping[str, Any]:
+        row = (
+            connection.execute(
+                text("""
+                SELECT se.site_evidence_id, se.project_id, se.work_item_id,
+                       se.workflow_run_id, se.submitted_by_user_id, se.claim_date,
+                       se.claimed_progress, se.measured_progress, se.variance, se.status,
+                       wr.current_step, wr.correlation_id
+                FROM property.site_evidence se
+                JOIN workflow.workflow_runs wr ON wr.workflow_run_id = se.workflow_run_id
+                WHERE se.site_evidence_id = :site_evidence_id
+                  AND se.organization_id = :organization_id
+                FOR UPDATE OF se, wr
+            """),
+                {
+                    "site_evidence_id": site_evidence_id,
+                    "organization_id": principal.organization_id,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise KeyError("Bukti lapangan tidak ditemukan")
+        if not principal.can_access_project(row["project_id"]):
+            raise AuthorizationDenied("Pengguna tidak memiliki akses ke project Property")
+        return row
+
+    def submit_legal_document(
+        self,
+        command: LegalSubmissionCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        plans: tuple[AgentExecutionPlan, ...],
+        correlation_id: UUID,
+        idempotency_key: str,
+    ) -> LegalWorkflowResult:
+        legal_case_id, work_item_id, workflow_run_id = uuid4(), uuid4(), uuid4()
+        evidence_id, now = uuid4(), datetime.now(UTC)
+        machine = StateMachine(definition)
+        with self._engine.begin() as connection:
+            self._assert_project(connection, command.project_id, principal)
+            actor_exists = connection.execute(
+                text("""
+                    SELECT 1 FROM identity.users
+                    WHERE user_id = :id AND organization_id = :organization_id
+                      AND status = 'ACTIVE'
+                """),
+                {"id": principal.user_id, "organization_id": principal.organization_id},
+            ).first()
+            if actor_exists is None:
+                raise AuthorizationDenied("Pengguna Legal belum diprovisikan")
+            document_exists = connection.execute(
+                text("""
+                SELECT 1 FROM platform.document_versions dv
+                JOIN platform.documents d ON d.document_id = dv.document_id
+                WHERE dv.document_version_id = :version_id
+                  AND d.organization_id = :organization_id
+                  AND d.project_id = :project_id
+            """),
+                {
+                    "version_id": command.document_version_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                },
+            ).first()
+            if document_exists is None:
+                raise KeyError("Dokumen Legal tidak ditemukan pada project")
+            division_id = connection.execute(
+                text("""
+                SELECT division_id FROM identity.divisions
+                WHERE organization_id = :organization_id AND code = 'LEGAL'
+            """),
+                {"organization_id": principal.organization_id},
+            ).scalar_one()
+            connection.execute(
+                text("""
+                INSERT INTO platform.work_items
+                    (work_item_id, organization_id, project_id, division_id, title,
+                     work_type, priority, status, correlation_id, created_at,
+                     created_by, updated_at)
+                VALUES (:work_item_id, :organization_id, :project_id, :division_id,
+                        :title, 'LEGAL_REVIEW', 'HIGH', 'NEEDS_REVIEW', :correlation_id,
+                        :now, :actor, :now)
+            """),
+                {
+                    "work_item_id": work_item_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "division_id": division_id,
+                    "title": f"Review {command.document_type.lower()}: {command.title}",
+                    "correlation_id": correlation_id,
+                    "now": now,
+                    "actor": principal.user_id,
+                },
+            )
+            release_id = self._upsert_workflow_release(connection, definition)
+            connection.execute(
+                text("""
+                INSERT INTO workflow.workflow_runs
+                    (workflow_run_id, workflow_release_id, work_item_id, current_step,
+                     status, correlation_id, idempotency_key, started_at)
+                VALUES (:run_id, :release_id, :work_item_id, 'document-submitted',
+                        'ACTIVE', :correlation_id, :idempotency_key, :now)
+            """),
+                {
+                    "run_id": workflow_run_id,
+                    "release_id": release_id,
+                    "work_item_id": work_item_id,
+                    "correlation_id": correlation_id,
+                    "idempotency_key": idempotency_key,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO legal.cases
+                    (legal_case_id, organization_id, project_id, work_item_id,
+                     workflow_run_id, document_version_id, submitted_by_user_id,
+                     document_type, reference_code, title, counterparty,
+                     source_authority, effective_date, expiry_date, status,
+                     created_at, updated_at)
+                VALUES (:legal_case_id, :organization_id, :project_id, :work_item_id,
+                        :workflow_run_id, :document_version_id, :actor,
+                        :document_type, :reference_code, :title, :counterparty,
+                        :source_authority, :effective_date, :expiry_date,
+                        'PENDING_REVIEW', :now, :now)
+            """),
+                {
+                    "legal_case_id": legal_case_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "work_item_id": work_item_id,
+                    "workflow_run_id": workflow_run_id,
+                    "document_version_id": command.document_version_id,
+                    "actor": principal.user_id,
+                    "document_type": command.document_type,
+                    "reference_code": command.reference_code,
+                    "title": command.title,
+                    "counterparty": command.counterparty,
+                    "source_authority": command.source_authority,
+                    "effective_date": command.effective_date,
+                    "expiry_date": command.expiry_date,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO platform.evidence
+                    (evidence_id, work_item_id, document_version_id, claim_type,
+                     status, created_at, created_by)
+                VALUES (:evidence_id, :work_item_id, :version_id, 'LEGAL_SOURCE',
+                        'NEEDS_REVIEW', :now, :actor)
+            """),
+                {
+                    "evidence_id": evidence_id,
+                    "work_item_id": work_item_id,
+                    "version_id": command.document_version_id,
+                    "now": now,
+                    "actor": principal.user_id,
+                },
+            )
+            transitions = (
+                machine.transition("document-submitted", "submitted"),
+                machine.transition("document-extraction", "extracted"),
+                machine.transition("legal-analysis", "analyzed"),
+                machine.transition("evidence-check", "complete"),
+            )
+            for plan, transition in zip(plans, transitions[1:], strict=True):
+                self._record_agent_run(
+                    connection,
+                    plan,
+                    workflow_run_id,
+                    correlation_id,
+                    {
+                        "step": transition.current_step,
+                        "document_type": command.document_type,
+                        "reference_code": command.reference_code,
+                        "human_review_required": True,
+                    },
+                    now,
+                )
+            self._record_transition(
+                connection, workflow_run_id, transitions[0], "HUMAN", principal.user_id, now
+            )
+            for plan, transition in zip(plans, transitions[1:], strict=True):
+                self._record_transition(
+                    connection, workflow_run_id, transition, "AGENT", plan.agent_id, now
+                )
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs SET current_step = 'legal-review',
+                    version = version + 1 WHERE workflow_run_id = :run_id
+            """),
+                {"run_id": workflow_run_id},
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "legal.document_submitted",
+                "legal_case",
+                legal_case_id,
+                correlation_id,
+                None,
+                {
+                    "document_type": command.document_type,
+                    "reference_code": command.reference_code,
+                    "current_step": "legal-review",
+                },
+            )
+        return LegalWorkflowResult(
+            legal_case_id=legal_case_id,
+            workflow_run_id=workflow_run_id,
+            work_item_id=work_item_id,
+            document_type=command.document_type,
+            current_step="legal-review",
+            workflow_status="ACTIVE",
+            case_status="PENDING_REVIEW",
+            work_item_status=WorkItemStatus.NEEDS_REVIEW,
+            terminal=False,
+            correlation_id=correlation_id,
+        )
+
+    def review_legal_document(
+        self,
+        legal_case_id: UUID,
+        command: LegalReviewCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+    ) -> LegalWorkflowResult:
+        now, machine = datetime.now(UTC), StateMachine(definition)
+        with self._engine.begin() as connection:
+            context = self._load_legal_case(connection, legal_case_id, principal)
+            if context["current_step"] != "legal-review" or context["status"] != "PENDING_REVIEW":
+                raise ValueError("Dokumen tidak menunggu review Legal")
+            if context["submitted_by_user_id"] == principal.user_id:
+                raise AuthorizationDenied("Pengaju tidak dapat mereview dokumen Legal sendiri")
+            if command.decision == "APPROVED" and command.legal_status == "NOT_APPROVED":
+                raise ValueError("Keputusan APPROVED tidak sesuai dengan status NOT_APPROVED")
+            if command.decision == "REJECTED" and command.legal_status != "NOT_APPROVED":
+                raise ValueError("Keputusan REJECTED wajib menggunakan status NOT_APPROVED")
+            if (
+                context["document_type"] == "PERMIT"
+                and command.decision == "APPROVED"
+                and not command.official_source_verified
+            ):
+                raise ValueError("Izin tidak dapat disetujui sebelum sumber resmi diverifikasi")
+            outcome = {
+                "APPROVED": "approved",
+                "REVISION_REQUESTED": "revision_requested",
+                "REJECTED": "rejected",
+            }[command.decision]
+            transition = machine.transition("legal-review", outcome)
+            exception_id: UUID | None = None
+            work_status = "COMPLETED" if command.decision == "APPROVED" else "BLOCKED"
+            if command.decision != "APPROVED":
+                exception_id = uuid4()
+                connection.execute(
+                    text("""
+                    INSERT INTO governance.exceptions
+                        (exception_id, organization_id, work_item_id, category, severity, status,
+                         owner_user_id, due_at, created_at)
+                    VALUES (:exception_id, :organization_id, :work_item_id,
+                            :category, :severity,
+                            'OPEN', :owner, :due_at, :now)
+                """),
+                    {
+                        "exception_id": exception_id,
+                        "organization_id": principal.organization_id,
+                        "work_item_id": context["work_item_id"],
+                        "category": f"{context['document_type']}_REVIEW_NOT_APPROVED",
+                        "severity": "HIGH" if context["document_type"] == "PERMIT" else "MEDIUM",
+                        "owner": context["submitted_by_user_id"],
+                        "due_at": now + timedelta(days=7),
+                        "now": now,
+                    },
+                )
+            connection.execute(
+                text("""
+                UPDATE legal.cases
+                SET status = :status, reviewer_user_id = :reviewer,
+                    legal_status = :legal_status,
+                    official_source_verified = :official_source_verified,
+                    review_notes = :notes, reviewed_at = :now, updated_at = :now,
+                    version = version + 1
+                WHERE legal_case_id = :legal_case_id
+            """),
+                {
+                    "status": command.decision,
+                    "reviewer": principal.user_id,
+                    "legal_status": command.legal_status,
+                    "official_source_verified": command.official_source_verified,
+                    "notes": command.notes,
+                    "now": now,
+                    "legal_case_id": legal_case_id,
+                },
+            )
+            evidence_status = (
+                "ACCEPTED"
+                if command.decision == "APPROVED"
+                else "REJECTED"
+                if command.decision == "REJECTED"
+                else "NEEDS_REVIEW"
+            )
+            connection.execute(
+                text("""
+                UPDATE platform.evidence SET status = :status
+                WHERE work_item_id = :work_item_id AND claim_type = 'LEGAL_SOURCE'
+            """),
+                {"status": evidence_status, "work_item_id": context["work_item_id"]},
+            )
+            connection.execute(
+                text("""
+                UPDATE platform.work_items SET status = :status, updated_at = :now,
+                    version = version + 1 WHERE work_item_id = :work_item_id
+            """),
+                {"status": work_status, "now": now, "work_item_id": context["work_item_id"]},
+            )
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs SET current_step = :step,
+                    status = 'COMPLETED', completed_at = :now, version = version + 1
+                WHERE workflow_run_id = :workflow_run_id
+            """),
+                {
+                    "step": transition.current_step,
+                    "now": now,
+                    "workflow_run_id": context["workflow_run_id"],
+                },
+            )
+            self._record_transition(
+                connection,
+                context["workflow_run_id"],
+                transition,
+                "HUMAN",
+                principal.user_id,
+                now,
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "legal.document_reviewed",
+                "legal_case",
+                legal_case_id,
+                context["correlation_id"],
+                {"status": context["status"]},
+                {
+                    "status": command.decision,
+                    "legal_status": command.legal_status,
+                    "official_source_verified": command.official_source_verified,
+                    "exception_id": str(exception_id) if exception_id else None,
+                },
+            )
+            return LegalWorkflowResult(
+                legal_case_id=legal_case_id,
+                workflow_run_id=context["workflow_run_id"],
+                work_item_id=context["work_item_id"],
+                document_type=context["document_type"],
+                current_step=transition.current_step,
+                workflow_status="COMPLETED",
+                case_status=command.decision,
+                work_item_status=WorkItemStatus(work_status),
+                exception_id=exception_id,
+                terminal=True,
+                correlation_id=context["correlation_id"],
+            )
+
+    @staticmethod
+    def _load_legal_case(
+        connection: Any, legal_case_id: UUID, principal: Principal
+    ) -> Mapping[str, Any]:
+        row = (
+            connection.execute(
+                text("""
+                SELECT lc.legal_case_id, lc.project_id, lc.work_item_id,
+                       lc.workflow_run_id, lc.submitted_by_user_id, lc.document_type,
+                       lc.status, wr.current_step, wr.correlation_id
+                FROM legal.cases lc
+                JOIN workflow.workflow_runs wr ON wr.workflow_run_id = lc.workflow_run_id
+                WHERE lc.legal_case_id = :legal_case_id
+                  AND lc.organization_id = :organization_id
+                FOR UPDATE OF lc, wr
+            """),
+                {
+                    "legal_case_id": legal_case_id,
+                    "organization_id": principal.organization_id,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise KeyError("Kasus Legal tidak ditemukan")
+        if not principal.can_access_project(row["project_id"]):
+            raise AuthorizationDenied("Pengguna tidak memiliki akses ke project Legal")
+        return row
+
+    def submit_recruitment_request(
+        self,
+        command: RecruitmentRequestCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        plans: tuple[AgentExecutionPlan, ...],
+        correlation_id: UUID,
+        idempotency_key: str,
+    ) -> RecruitmentWorkflowResult:
+        request_id, candidate_id, work_item_id, workflow_run_id = (
+            uuid4(),
+            uuid4(),
+            uuid4(),
+            uuid4(),
+        )
+        evidence_id, now = uuid4(), datetime.now(UTC)
+        missing_criteria = sorted(set(command.required_criteria) - set(command.met_criteria))
+        screening_status = "COMPLETE" if not missing_criteria else "INCOMPLETE"
+        machine = StateMachine(definition)
+        with self._engine.begin() as connection:
+            self._assert_project(connection, command.project_id, principal)
+            actor_exists = connection.execute(
+                text("""
+                    SELECT 1 FROM identity.users
+                    WHERE user_id = :id AND organization_id = :organization_id
+                      AND status = 'ACTIVE'
+                """),
+                {"id": principal.user_id, "organization_id": principal.organization_id},
+            ).first()
+            if actor_exists is None:
+                raise AuthorizationDenied("Pengaju rekrutmen belum diprovisikan")
+            document_exists = connection.execute(
+                text("""
+                SELECT 1 FROM platform.document_versions dv
+                JOIN platform.documents d ON d.document_id = dv.document_id
+                WHERE dv.document_version_id = :version_id
+                  AND d.organization_id = :organization_id
+                  AND d.project_id = :project_id
+            """),
+                {
+                    "version_id": command.candidate_document_version_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                },
+            ).first()
+            if document_exists is None:
+                raise KeyError("Dokumen kandidat sanitasi tidak ditemukan pada project")
+            division_id = connection.execute(
+                text("""
+                SELECT division_id FROM identity.divisions
+                WHERE organization_id = :organization_id AND code = 'HR'
+            """),
+                {"organization_id": principal.organization_id},
+            ).scalar_one()
+            connection.execute(
+                text("""
+                INSERT INTO platform.work_items
+                    (work_item_id, organization_id, project_id, division_id, title,
+                     work_type, priority, status, correlation_id, created_at,
+                     created_by, updated_at)
+                VALUES (:work_item_id, :organization_id, :project_id, :division_id,
+                        :title, 'RECRUITMENT', 'HIGH', 'NEEDS_REVIEW', :correlation_id,
+                        :now, :actor, :now)
+            """),
+                {
+                    "work_item_id": work_item_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "division_id": division_id,
+                    "title": f"Rekrutmen: {command.position_title}",
+                    "correlation_id": correlation_id,
+                    "now": now,
+                    "actor": principal.user_id,
+                },
+            )
+            release_id = self._upsert_workflow_release(connection, definition)
+            connection.execute(
+                text("""
+                INSERT INTO workflow.workflow_runs
+                    (workflow_run_id, workflow_release_id, work_item_id, current_step,
+                     status, correlation_id, idempotency_key, started_at)
+                VALUES (:run_id, :release_id, :work_item_id, 'request-submitted',
+                        'ACTIVE', :correlation_id, :idempotency_key, :now)
+            """),
+                {
+                    "run_id": workflow_run_id,
+                    "release_id": release_id,
+                    "work_item_id": work_item_id,
+                    "correlation_id": correlation_id,
+                    "idempotency_key": idempotency_key,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO hr.recruitment_requests
+                    (recruitment_request_id, organization_id, project_id, work_item_id,
+                     workflow_run_id, submitted_by_user_id, position_title,
+                     requesting_division_code, employment_type, headcount,
+                     justification, criteria_version, status, created_at, updated_at)
+                VALUES (:request_id, :organization_id, :project_id, :work_item_id,
+                        :workflow_run_id, :actor, :position_title,
+                        :requesting_division_code, :employment_type, :headcount,
+                        :justification, :criteria_version, 'PENDING_HR_REVIEW', :now, :now)
+            """),
+                {
+                    "request_id": request_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "work_item_id": work_item_id,
+                    "workflow_run_id": workflow_run_id,
+                    "actor": principal.user_id,
+                    "position_title": command.position_title,
+                    "requesting_division_code": command.requesting_division_code,
+                    "employment_type": command.employment_type,
+                    "headcount": command.headcount,
+                    "justification": command.justification,
+                    "criteria_version": command.criteria_version,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO hr.candidates
+                    (candidate_id, recruitment_request_id, document_version_id,
+                     candidate_alias, required_criteria, met_criteria, missing_criteria,
+                     screening_status, created_at)
+                VALUES (:candidate_id, :request_id, :document_version_id,
+                        :candidate_alias, CAST(:required AS jsonb), CAST(:met AS jsonb),
+                        CAST(:missing AS jsonb), :screening_status, :now)
+            """),
+                {
+                    "candidate_id": candidate_id,
+                    "request_id": request_id,
+                    "document_version_id": command.candidate_document_version_id,
+                    "candidate_alias": command.candidate_alias,
+                    "required": json.dumps(command.required_criteria),
+                    "met": json.dumps(command.met_criteria),
+                    "missing": json.dumps(missing_criteria),
+                    "screening_status": screening_status,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO platform.evidence
+                    (evidence_id, work_item_id, document_version_id, claim_type,
+                     status, created_at, created_by)
+                VALUES (:evidence_id, :work_item_id, :version_id,
+                        'CANDIDATE_SANITIZED', 'NEEDS_REVIEW', :now, :actor)
+            """),
+                {
+                    "evidence_id": evidence_id,
+                    "work_item_id": work_item_id,
+                    "version_id": command.candidate_document_version_id,
+                    "now": now,
+                    "actor": principal.user_id,
+                },
+            )
+            transitions = [
+                machine.transition("request-submitted", "valid"),
+                machine.transition("sop-plan", "ready"),
+                machine.transition("candidate-screening", "ready_for_review"),
+            ]
+            for plan, transition in zip(plans, transitions[1:], strict=True):
+                output = {
+                    "step": transition.current_step,
+                    "criteria_version": command.criteria_version,
+                    "screening_status": screening_status,
+                    "missing_criteria": missing_criteria,
+                    "human_decision_required": True,
+                }
+                self._record_agent_run(
+                    connection, plan, workflow_run_id, correlation_id, output, now
+                )
+            self._record_transition(
+                connection, workflow_run_id, transitions[0], "HUMAN", principal.user_id, now
+            )
+            for plan, transition in zip(plans, transitions[1:], strict=True):
+                self._record_transition(
+                    connection, workflow_run_id, transition, "AGENT", plan.agent_id, now
+                )
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs SET current_step = 'hr-review',
+                    version = version + 1 WHERE workflow_run_id = :run_id
+            """),
+                {"run_id": workflow_run_id},
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "hr.recruitment_submitted",
+                "recruitment_request",
+                request_id,
+                correlation_id,
+                None,
+                {
+                    "position_title": command.position_title,
+                    "criteria_version": command.criteria_version,
+                    "screening_status": screening_status,
+                    "missing_criteria": missing_criteria,
+                },
+            )
+        return RecruitmentWorkflowResult(
+            recruitment_request_id=request_id,
+            candidate_id=candidate_id,
+            workflow_run_id=workflow_run_id,
+            work_item_id=work_item_id,
+            current_step="hr-review",
+            workflow_status="ACTIVE",
+            recruitment_status="PENDING_HR_REVIEW",
+            screening_status=screening_status,
+            missing_criteria=missing_criteria,
+            work_item_status=WorkItemStatus.NEEDS_REVIEW,
+            terminal=False,
+            correlation_id=correlation_id,
+        )
+
+    def decide_recruitment(
+        self,
+        recruitment_request_id: UUID,
+        command: RecruitmentDecisionCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        agent_plan: AgentExecutionPlan | None,
+    ) -> RecruitmentWorkflowResult:
+        now, machine = datetime.now(UTC), StateMachine(definition)
+        with self._engine.begin() as connection:
+            context = self._load_recruitment(connection, recruitment_request_id, principal)
+            if context["current_step"] != "hr-review" or context["status"] != "PENDING_HR_REVIEW":
+                raise ValueError("Permintaan rekrutmen tidak menunggu keputusan HR")
+            if context["submitted_by_user_id"] == principal.user_id:
+                raise AuthorizationDenied("Pengaju tidak dapat memutus rekrutmennya sendiri")
+            outcome = "selected" if command.decision == "SELECTED" else "rejected"
+            transition = machine.transition("hr-review", outcome)
+            checklist_id: UUID | None = None
+            if command.decision == "SELECTED":
+                if agent_plan is None:
+                    raise ValueError("HPA execution plan diperlukan untuk kandidat terpilih")
+                checklist_id = uuid4()
+                agent_run_id = self._record_agent_run(
+                    connection,
+                    agent_plan,
+                    context["workflow_run_id"],
+                    context["correlation_id"],
+                    {
+                        "checklist_id": str(checklist_id),
+                        "requirements": command.personnel_requirements,
+                        "status": "OPEN",
+                    },
+                    now,
+                )
+                connection.execute(
+                    text("""
+                    INSERT INTO hr.personnel_checklists
+                        (personnel_checklist_id, recruitment_request_id, candidate_id,
+                         created_by_agent_run_id, status, created_at)
+                    VALUES (:checklist_id, :request_id, :candidate_id,
+                            :agent_run_id, 'OPEN', :now)
+                """),
+                    {
+                        "checklist_id": checklist_id,
+                        "request_id": recruitment_request_id,
+                        "candidate_id": context["candidate_id"],
+                        "agent_run_id": agent_run_id,
+                        "now": now,
+                    },
+                )
+                for requirement in command.personnel_requirements:
+                    connection.execute(
+                        text("""
+                        INSERT INTO hr.personnel_requirements
+                            (personnel_checklist_id, requirement_code, status, created_at)
+                        VALUES (:checklist_id, :requirement, 'MISSING', :now)
+                    """),
+                        {
+                            "checklist_id": checklist_id,
+                            "requirement": requirement,
+                            "now": now,
+                        },
+                    )
+            connection.execute(
+                text("""
+                UPDATE hr.recruitment_requests
+                SET status = :status, reviewer_user_id = :reviewer,
+                    decision_notes = :notes, decided_at = :now, updated_at = :now,
+                    version = version + 1
+                WHERE recruitment_request_id = :request_id
+            """),
+                {
+                    "status": command.decision,
+                    "reviewer": principal.user_id,
+                    "notes": command.notes,
+                    "now": now,
+                    "request_id": recruitment_request_id,
+                },
+            )
+            connection.execute(
+                text("""
+                UPDATE platform.evidence SET status = :status
+                WHERE work_item_id = :work_item_id
+                  AND claim_type = 'CANDIDATE_SANITIZED'
+            """),
+                {
+                    "status": "ACCEPTED" if command.decision == "SELECTED" else "REJECTED",
+                    "work_item_id": context["work_item_id"],
+                },
+            )
+            connection.execute(
+                text("""
+                UPDATE platform.work_items SET status = 'COMPLETED', updated_at = :now,
+                    version = version + 1 WHERE work_item_id = :work_item_id
+            """),
+                {"now": now, "work_item_id": context["work_item_id"]},
+            )
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs SET current_step = :step,
+                    status = 'COMPLETED', completed_at = :now, version = version + 1
+                WHERE workflow_run_id = :workflow_run_id
+            """),
+                {
+                    "step": transition.current_step,
+                    "now": now,
+                    "workflow_run_id": context["workflow_run_id"],
+                },
+            )
+            self._record_transition(
+                connection,
+                context["workflow_run_id"],
+                transition,
+                "HUMAN",
+                principal.user_id,
+                now,
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "hr.recruitment_decided",
+                "recruitment_request",
+                recruitment_request_id,
+                context["correlation_id"],
+                {"status": context["status"]},
+                {
+                    "status": command.decision,
+                    "personnel_checklist_id": str(checklist_id) if checklist_id else None,
+                },
+            )
+            return RecruitmentWorkflowResult(
+                recruitment_request_id=recruitment_request_id,
+                candidate_id=context["candidate_id"],
+                workflow_run_id=context["workflow_run_id"],
+                work_item_id=context["work_item_id"],
+                current_step=transition.current_step,
+                workflow_status="COMPLETED",
+                recruitment_status=command.decision,
+                screening_status=context["screening_status"],
+                missing_criteria=context["missing_criteria"],
+                work_item_status=WorkItemStatus.COMPLETED,
+                personnel_checklist_id=checklist_id,
+                terminal=True,
+                correlation_id=context["correlation_id"],
+            )
+
+    @staticmethod
+    def _load_recruitment(
+        connection: Any, recruitment_request_id: UUID, principal: Principal
+    ) -> Mapping[str, Any]:
+        row = (
+            connection.execute(
+                text("""
+                SELECT rr.recruitment_request_id, rr.project_id, rr.work_item_id,
+                       rr.workflow_run_id, rr.submitted_by_user_id, rr.status,
+                       c.candidate_id, c.screening_status, c.missing_criteria,
+                       wr.current_step, wr.correlation_id
+                FROM hr.recruitment_requests rr
+                JOIN hr.candidates c
+                  ON c.recruitment_request_id = rr.recruitment_request_id
+                JOIN workflow.workflow_runs wr ON wr.workflow_run_id = rr.workflow_run_id
+                WHERE rr.recruitment_request_id = :request_id
+                  AND rr.organization_id = :organization_id
+                FOR UPDATE OF rr, wr
+            """),
+                {
+                    "request_id": recruitment_request_id,
+                    "organization_id": principal.organization_id,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise KeyError("Permintaan rekrutmen tidak ditemukan")
+        if not principal.can_access_project(row["project_id"]):
+            raise AuthorizationDenied("Pengguna tidak memiliki akses ke project rekrutmen")
+        return row
+
+    def generate_executive_brief(
+        self,
+        command: ExecutiveBriefCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        plans: tuple[AgentExecutionPlan, ...],
+        correlation_id: UUID,
+        idempotency_key: str,
+    ) -> ExecutiveBriefResult:
+        snapshot_id, brief_id, workflow_run_id = uuid4(), uuid4(), uuid4()
+        now, machine = datetime.now(UTC), StateMachine(definition)
+        with self._engine.begin() as connection:
+            if command.project_id is not None:
+                self._assert_project(connection, command.project_id, principal)
+            facts = self._executive_counts(connection, principal, command)
+            source_references = [
+                f"executive_snapshot:{snapshot_id}#facts.{name}" for name in sorted(facts)
+            ]
+            source_hash = hashlib.sha256(
+                json.dumps(facts, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            narrative = self._executive_narrative(command, facts)
+            connection.execute(
+                text("""
+                INSERT INTO executive.snapshots
+                    (executive_snapshot_id, organization_id, project_id, period_start,
+                     period_end, facts, source_hash, created_at)
+                VALUES (:snapshot_id, :organization_id, :project_id, :period_start,
+                        :period_end, CAST(:facts AS jsonb), :source_hash, :now)
+            """),
+                {
+                    "snapshot_id": snapshot_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "period_start": command.period_start,
+                    "period_end": command.period_end,
+                    "facts": json.dumps(facts, sort_keys=True),
+                    "source_hash": source_hash,
+                    "now": now,
+                },
+            )
+            release_id = self._upsert_workflow_release(connection, definition)
+            connection.execute(
+                text("""
+                INSERT INTO workflow.workflow_runs
+                    (workflow_run_id, workflow_release_id, work_item_id, current_step,
+                     status, correlation_id, idempotency_key, started_at)
+                VALUES (:run_id, :release_id, NULL, 'snapshot-created', 'ACTIVE',
+                        :correlation_id, :idempotency_key, :now)
+            """),
+                {
+                    "run_id": workflow_run_id,
+                    "release_id": release_id,
+                    "correlation_id": correlation_id,
+                    "idempotency_key": idempotency_key,
+                    "now": now,
+                },
+            )
+            transitions = (
+                machine.transition("snapshot-created", "ready"),
+                machine.transition("kpi-aggregation", "complete"),
+                machine.transition("risk-aggregation", "complete"),
+                machine.transition("approval-aggregation", "complete"),
+                machine.transition("brief-generation", "sourced"),
+            )
+            agent_run_ids: dict[str, UUID] = {}
+            for plan, transition in zip(plans, transitions[1:], strict=True):
+                agent_run_ids[plan.agent_id] = self._record_agent_run(
+                    connection,
+                    plan,
+                    workflow_run_id,
+                    correlation_id,
+                    {
+                        "step": transition.current_step,
+                        "snapshot_id": str(snapshot_id),
+                        "facts": facts,
+                        "source_references": source_references,
+                    },
+                    now,
+                )
+            self._record_transition(
+                connection,
+                workflow_run_id,
+                transitions[0],
+                "SYSTEM",
+                "executive-read-model",
+                now,
+            )
+            for plan, transition in zip(plans, transitions[1:], strict=True):
+                self._record_transition(
+                    connection, workflow_run_id, transition, "AGENT", plan.agent_id, now
+                )
+            connection.execute(
+                text("""
+                INSERT INTO executive.briefs
+                    (executive_brief_id, executive_snapshot_id, workflow_run_id, title,
+                     narrative, source_references, status, generated_by_agent_run_id,
+                     created_at, updated_at)
+                VALUES (:brief_id, :snapshot_id, :workflow_run_id, :title, :narrative,
+                        CAST(:source_references AS jsonb), 'PENDING_REVIEW', :mca_run_id,
+                        :now, :now)
+            """),
+                {
+                    "brief_id": brief_id,
+                    "snapshot_id": snapshot_id,
+                    "workflow_run_id": workflow_run_id,
+                    "title": command.title,
+                    "narrative": narrative,
+                    "source_references": json.dumps(source_references),
+                    "mca_run_id": agent_run_ids["MCA"],
+                    "now": now,
+                },
+            )
+            decision_items = (
+                (
+                    "RISK",
+                    "CRITICAL" if facts["critical_exceptions"] else "HIGH",
+                    f"Tinjau {facts['open_exceptions']} exception terbuka",
+                    "facts.open_exceptions",
+                    facts["open_exceptions"],
+                ),
+                (
+                    "CAPA",
+                    "HIGH",
+                    f"Tinjau {facts['active_capas']} CAPA aktif",
+                    "facts.active_capas",
+                    facts["active_capas"],
+                ),
+                (
+                    "APPROVAL",
+                    "HIGH",
+                    f"Tinjau {facts['pending_approvals']} approval tertunda",
+                    "facts.pending_approvals",
+                    facts["pending_approvals"],
+                ),
+            )
+            decision_item_count = 0
+            for category, priority, title, source_path, count in decision_items:
+                if count == 0:
+                    continue
+                connection.execute(
+                    text("""
+                    INSERT INTO executive.decision_items
+                        (executive_brief_id, category, priority, title, source_path,
+                         status, created_at)
+                    VALUES (:brief_id, :category, :priority, :title, :source_path,
+                            'OPEN', :now)
+                """),
+                    {
+                        "brief_id": brief_id,
+                        "category": category,
+                        "priority": priority,
+                        "title": title,
+                        "source_path": source_path,
+                        "now": now,
+                    },
+                )
+                decision_item_count += 1
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs SET current_step = 'brief-review',
+                    version = version + 1 WHERE workflow_run_id = :run_id
+            """),
+                {"run_id": workflow_run_id},
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "executive.brief_generated",
+                "executive_brief",
+                brief_id,
+                correlation_id,
+                None,
+                {
+                    "snapshot_id": str(snapshot_id),
+                    "source_hash": source_hash,
+                    "decision_item_count": decision_item_count,
+                },
+            )
+        return ExecutiveBriefResult(
+            executive_brief_id=brief_id,
+            executive_snapshot_id=snapshot_id,
+            workflow_run_id=workflow_run_id,
+            current_step="brief-review",
+            workflow_status="ACTIVE",
+            brief_status="PENDING_REVIEW",
+            title=command.title,
+            summary_counts=facts,
+            narrative=narrative,
+            source_references=source_references,
+            decision_item_count=decision_item_count,
+            terminal=False,
+            correlation_id=correlation_id,
+        )
+
+    def review_executive_brief(
+        self,
+        executive_brief_id: UUID,
+        command: ExecutiveBriefReviewCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+    ) -> ExecutiveBriefResult:
+        now, machine = datetime.now(UTC), StateMachine(definition)
+        with self._engine.begin() as connection:
+            context = self._load_executive_brief(connection, executive_brief_id, principal)
+            if context["current_step"] != "brief-review" or context["status"] != "PENDING_REVIEW":
+                raise ValueError("Executive Brief tidak menunggu review Direktur")
+            reviewer_exists = connection.execute(
+                text("""
+                    SELECT 1 FROM identity.users
+                    WHERE user_id = :id AND organization_id = :organization_id
+                      AND status = 'ACTIVE'
+                """),
+                {"id": principal.user_id, "organization_id": principal.organization_id},
+            ).first()
+            if reviewer_exists is None:
+                raise AuthorizationDenied("Direktur belum diprovisikan")
+            outcome = "published" if command.decision == "PUBLISHED" else "revision_requested"
+            transition = machine.transition("brief-review", outcome)
+            exception_id: UUID | None = None
+            if command.decision == "REVISION_REQUESTED":
+                exception_id = uuid4()
+                connection.execute(
+                    text("""
+                    INSERT INTO governance.exceptions
+                        (exception_id, organization_id, work_item_id, category, severity, status,
+                         owner_user_id, due_at, created_at)
+                    VALUES (:exception_id, :organization_id, NULL,
+                            'EXECUTIVE_BRIEF_REVISION', 'HIGH',
+                            'OPEN', :owner, :due_at, :now)
+                """),
+                    {
+                        "exception_id": exception_id,
+                        "organization_id": principal.organization_id,
+                        "owner": principal.user_id,
+                        "due_at": now + timedelta(days=2),
+                        "now": now,
+                    },
+                )
+            connection.execute(
+                text("""
+                UPDATE executive.briefs
+                SET status = :status, reviewer_user_id = :reviewer,
+                    review_notes = :notes, reviewed_at = :now, updated_at = :now,
+                    version = version + 1
+                WHERE executive_brief_id = :brief_id
+            """),
+                {
+                    "status": command.decision,
+                    "reviewer": principal.user_id,
+                    "notes": command.notes,
+                    "now": now,
+                    "brief_id": executive_brief_id,
+                },
+            )
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs SET current_step = :step,
+                    status = 'COMPLETED', completed_at = :now, version = version + 1
+                WHERE workflow_run_id = :workflow_run_id
+            """),
+                {
+                    "step": transition.current_step,
+                    "now": now,
+                    "workflow_run_id": context["workflow_run_id"],
+                },
+            )
+            self._record_transition(
+                connection,
+                context["workflow_run_id"],
+                transition,
+                "HUMAN",
+                principal.user_id,
+                now,
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "executive.brief_reviewed",
+                "executive_brief",
+                executive_brief_id,
+                context["correlation_id"],
+                {"status": context["status"]},
+                {
+                    "status": command.decision,
+                    "exception_id": str(exception_id) if exception_id else None,
+                },
+            )
+            decision_item_count = connection.execute(
+                text("""
+                SELECT count(*) FROM executive.decision_items
+                WHERE executive_brief_id = :brief_id
+            """),
+                {"brief_id": executive_brief_id},
+            ).scalar_one()
+            return ExecutiveBriefResult(
+                executive_brief_id=executive_brief_id,
+                executive_snapshot_id=context["executive_snapshot_id"],
+                workflow_run_id=context["workflow_run_id"],
+                current_step=transition.current_step,
+                workflow_status="COMPLETED",
+                brief_status=command.decision,
+                title=context["title"],
+                summary_counts=context["facts"],
+                narrative=context["narrative"],
+                source_references=context["source_references"],
+                decision_item_count=decision_item_count,
+                exception_id=exception_id,
+                terminal=True,
+                correlation_id=context["correlation_id"],
+            )
+
+    @staticmethod
+    def _executive_counts(
+        connection: Any, principal: Principal, command: ExecutiveBriefCreate
+    ) -> dict[str, int]:
+        parameters = {
+            "organization_id": principal.organization_id,
+            "project_id": command.project_id,
+            "period_start": command.period_start,
+            "period_end": command.period_end,
+        }
+
+        def count(query: str) -> int:
+            return int(connection.execute(text(query), parameters).scalar_one())
+
+        facts = {
+            "active_work_items": count(
+                """
+                SELECT count(*) FROM platform.work_items wi
+                WHERE wi.organization_id = :organization_id
+                  AND wi.status NOT IN ('COMPLETED', 'CANCELLED', 'FAILED')
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR wi.project_id = CAST(:project_id AS uuid))
+                  AND wi.created_at >= CAST(:period_start AS date)
+                  AND wi.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+            "pending_approvals": count(
+                """
+                SELECT count(*) FROM governance.approval_requests ar
+                JOIN platform.work_items wi ON wi.work_item_id = ar.work_item_id
+                WHERE wi.organization_id = :organization_id AND ar.status = 'PENDING'
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR wi.project_id = CAST(:project_id AS uuid))
+                  AND ar.created_at >= CAST(:period_start AS date)
+                  AND ar.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+            "open_exceptions": count(
+                """
+                SELECT count(*) FROM governance.exceptions e
+                LEFT JOIN platform.work_items wi ON wi.work_item_id = e.work_item_id
+                WHERE e.organization_id = :organization_id
+                  AND e.status IN ('OPEN', 'INVESTIGATING', 'CAPA_REQUIRED')
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR wi.project_id = CAST(:project_id AS uuid))
+                  AND e.created_at >= CAST(:period_start AS date)
+                  AND e.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+            "critical_exceptions": count(
+                """
+                SELECT count(*) FROM governance.exceptions e
+                LEFT JOIN platform.work_items wi ON wi.work_item_id = e.work_item_id
+                WHERE e.organization_id = :organization_id AND e.severity = 'CRITICAL'
+                  AND e.status IN ('OPEN', 'INVESTIGATING', 'CAPA_REQUIRED')
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR wi.project_id = CAST(:project_id AS uuid))
+                  AND e.created_at >= CAST(:period_start AS date)
+                  AND e.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+            "active_capas": count(
+                """
+                SELECT count(*) FROM governance.capas c
+                JOIN governance.exceptions e ON e.exception_id = c.exception_id
+                LEFT JOIN platform.work_items wi ON wi.work_item_id = e.work_item_id
+                WHERE e.organization_id = :organization_id AND c.status <> 'CLOSED'
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR wi.project_id = CAST(:project_id AS uuid))
+                  AND c.created_at >= CAST(:period_start AS date)
+                  AND c.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+            "verified_kpi_snapshots": count(
+                """
+                SELECT count(*) FROM executive.kpi_snapshots k
+                WHERE k.organization_id = :organization_id
+                  AND k.verification_status = 'VERIFIED'
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR k.project_id = CAST(:project_id AS uuid))
+                  AND k.created_at >= CAST(:period_start AS date)
+                  AND k.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+            "sales_records": count(
+                """
+                SELECT count(*) FROM sales.leads l
+                JOIN platform.work_items wi ON wi.work_item_id = l.work_item_id
+                WHERE wi.organization_id = :organization_id
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR wi.project_id = CAST(:project_id AS uuid))
+                  AND l.created_at >= CAST(:period_start AS date)
+                  AND l.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+            "finance_records": count(
+                """
+                SELECT count(*) FROM finance.payment_requests f
+                WHERE f.organization_id = :organization_id
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR f.project_id = CAST(:project_id AS uuid))
+                  AND f.created_at >= CAST(:period_start AS date)
+                  AND f.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+            "property_records": count(
+                """
+                SELECT count(*) FROM property.site_evidence p
+                WHERE p.organization_id = :organization_id
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR p.project_id = CAST(:project_id AS uuid))
+                  AND p.created_at >= CAST(:period_start AS date)
+                  AND p.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+            "legal_records": count(
+                """
+                SELECT count(*) FROM legal.cases l
+                WHERE l.organization_id = :organization_id
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR l.project_id = CAST(:project_id AS uuid))
+                  AND l.created_at >= CAST(:period_start AS date)
+                  AND l.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+            "hr_records": count(
+                """
+                SELECT count(*) FROM hr.recruitment_requests h
+                WHERE h.organization_id = :organization_id
+                  AND (CAST(:project_id AS uuid) IS NULL
+                       OR h.project_id = CAST(:project_id AS uuid))
+                  AND h.created_at >= CAST(:period_start AS date)
+                  AND h.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                """
+            ),
+        }
+        return facts
+
+    @staticmethod
+    def _executive_narrative(command: ExecutiveBriefCreate, facts: Mapping[str, int]) -> str:
+        scope = f"project {command.project_id}" if command.project_id else "seluruh organisasi"
+        return (
+            f"Brief {scope} untuk {command.period_start} sampai {command.period_end}. "
+            f"Terdapat {facts['active_work_items']} work item aktif, "
+            f"{facts['pending_approvals']} approval tertunda, "
+            f"{facts['open_exceptions']} exception terbuka, dan "
+            f"{facts['active_capas']} CAPA aktif. Catatan domain pada periode ini: "
+            f"Sales {facts['sales_records']}, Finance {facts['finance_records']}, "
+            f"Property {facts['property_records']}, Legal {facts['legal_records']}, "
+            f"dan HR {facts['hr_records']}. Seluruh angka berasal dari snapshot ALOS "
+            "dan memerlukan review Direktur sebelum diterbitkan."
+        )
+
+    @staticmethod
+    def _load_executive_brief(
+        connection: Any, executive_brief_id: UUID, principal: Principal
+    ) -> Mapping[str, Any]:
+        row = (
+            connection.execute(
+                text("""
+                SELECT b.executive_brief_id, b.executive_snapshot_id, b.workflow_run_id,
+                       b.title, b.narrative, b.source_references, b.status,
+                       s.project_id, s.facts, wr.current_step, wr.correlation_id
+                FROM executive.briefs b
+                JOIN executive.snapshots s
+                  ON s.executive_snapshot_id = b.executive_snapshot_id
+                JOIN workflow.workflow_runs wr ON wr.workflow_run_id = b.workflow_run_id
+                WHERE b.executive_brief_id = :brief_id
+                  AND s.organization_id = :organization_id
+                FOR UPDATE OF b, wr
+            """),
+                {
+                    "brief_id": executive_brief_id,
+                    "organization_id": principal.organization_id,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise KeyError("Executive Brief tidak ditemukan")
+        if row["project_id"] is not None and not principal.can_access_project(row["project_id"]):
+            raise AuthorizationDenied("Pengguna tidak memiliki akses ke scope Executive Brief")
+        return row
+
     def create_project(self, command: ProjectCreate, principal: Principal) -> ProjectView:
         project_id = uuid4()
         now = datetime.now(UTC)
@@ -142,25 +2843,29 @@ class PostgresOperationalStore:
         return ProjectView.model_validate(dict(row))
 
     def list_projects(self, principal: Principal) -> tuple[ProjectView, ...]:
-        clauses = ["organization_id = :organization_id"]
         parameters: dict[str, Any] = {"organization_id": principal.organization_id}
-        if not principal.has_any_role(*self._organization_wide_roles()):
+        organization_wide = principal.has_any_role(*self._organization_wide_roles())
+        if not organization_wide:
             if not principal.project_ids:
                 return ()
-            clauses.append("project_id = ANY(CAST(:project_ids AS uuid[]))")
             parameters["project_ids"] = list(principal.project_ids)
         with self._engine.connect() as connection:
-            rows = connection.execute(
-                text(
-                    f"""
+            if organization_wide:
+                query = text("""
                     SELECT project_id, organization_id, code, name, status, created_at
                     FROM platform.projects
-                    WHERE {" AND ".join(clauses)}
+                    WHERE organization_id = :organization_id
                     ORDER BY code
-                    """
-                ),
-                parameters,
-            ).mappings()
+                """)
+            else:
+                query = text("""
+                    SELECT project_id, organization_id, code, name, status, created_at
+                    FROM platform.projects
+                    WHERE organization_id = :organization_id
+                      AND project_id = ANY(CAST(:project_ids AS uuid[]))
+                    ORDER BY code
+                """)
+            rows = connection.execute(query, parameters).mappings()
             return tuple(ProjectView.model_validate(dict(row)) for row in rows)
 
     def create_lead(
@@ -326,27 +3031,29 @@ class PostgresOperationalStore:
     def list_work_items(
         self, principal: Principal, project_id: UUID | None
     ) -> tuple[WorkItemView, ...]:
-        clauses = ["wi.organization_id = :organization_id"]
-        parameters: dict[str, Any] = {"organization_id": principal.organization_id}
-        if project_id is not None:
-            clauses.append("wi.project_id = :project_id")
-            parameters["project_id"] = project_id
-        if principal.division_codes and not principal.has_any_role(
-            *self._organization_wide_roles()
-        ):
-            clauses.append("d.code = ANY(:division_codes)")
-            parameters["division_codes"] = list(principal.division_codes)
-        query = f"""
+        organization_wide = principal.has_any_role(*self._organization_wide_roles())
+        if not organization_wide and not principal.division_codes:
+            return ()
+        parameters: dict[str, Any] = {
+            "organization_id": principal.organization_id,
+            "project_id": project_id,
+            "organization_wide": organization_wide,
+            "division_codes": list(principal.division_codes),
+        }
+        query = text("""
             SELECT wi.work_item_id, wi.organization_id, wi.project_id, d.code AS division_code,
                    wi.title, wi.work_type, wi.priority, wi.status, wi.owner_user_id,
                    wi.due_at, wi.correlation_id, wi.created_at
             FROM platform.work_items wi
             JOIN identity.divisions d ON d.division_id = wi.division_id
-            WHERE {" AND ".join(clauses)}
+            WHERE wi.organization_id = :organization_id
+              AND (CAST(:project_id AS uuid) IS NULL OR wi.project_id = :project_id)
+              AND (CAST(:organization_wide AS boolean)
+                   OR d.code = ANY(CAST(:division_codes AS text[])))
             ORDER BY wi.due_at NULLS LAST, wi.created_at
-        """
+        """)
         with self._engine.connect() as connection:
-            rows = connection.execute(text(query), parameters).mappings()
+            rows = connection.execute(query, parameters).mappings()
             return tuple(WorkItemView.model_validate(dict(row)) for row in rows)
 
     def assign_sales_pic(
@@ -628,13 +3335,16 @@ class PostgresOperationalStore:
                     text(
                         """
                         INSERT INTO governance.exceptions
-                            (work_item_id, category, severity, status, owner_user_id, created_at)
+                            (organization_id, work_item_id, category, severity, status,
+                             owner_user_id, created_at)
                         VALUES
-                            (:work_item_id, 'SALES_INTERACTION', 'MEDIUM', 'OPEN', :owner, :now)
+                            (:organization_id, :work_item_id, 'SALES_INTERACTION',
+                             'MEDIUM', 'OPEN', :owner, :now)
                         """
                     ),
                     {
                         "work_item_id": context["work_item_id"],
+                        "organization_id": principal.organization_id,
                         "owner": context["owner_user_id"],
                         "now": now,
                     },
@@ -828,6 +3538,146 @@ class PostgresOperationalStore:
             terminal=terminal,
             correlation_id=context["correlation_id"],
         )
+
+    @staticmethod
+    def _load_payment(
+        connection: Any, payment_request_id: UUID, principal: Principal
+    ) -> Mapping[str, Any]:
+        row = (
+            connection.execute(
+                text("""
+            SELECT pr.payment_request_id, pr.work_item_id, pr.workflow_run_id,
+                   pr.approval_request_id, pr.requester_user_id, pr.project_id,
+                   pr.budget_id, pr.amount, pr.currency, pr.status,
+                   wr.current_step, wr.correlation_id
+            FROM finance.payment_requests pr
+            JOIN workflow.workflow_runs wr ON wr.workflow_run_id = pr.workflow_run_id
+            WHERE pr.payment_request_id = :payment_request_id
+              AND pr.organization_id = :organization_id
+            FOR UPDATE OF pr, wr
+        """),
+                {
+                    "payment_request_id": payment_request_id,
+                    "organization_id": principal.organization_id,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise KeyError("Payment request tidak ditemukan")
+        if not principal.can_access_project(row["project_id"]):
+            raise AuthorizationDenied("Pengguna tidak memiliki akses ke payment request")
+        return row
+
+    @staticmethod
+    def _update_payment_state(
+        connection: Any,
+        context: Mapping[str, Any],
+        current_step: str,
+        payment_status: str,
+        work_status: str,
+        terminal: bool,
+        now: datetime,
+    ) -> None:
+        connection.execute(
+            text("""
+            UPDATE finance.payment_requests SET status = :status, updated_at = :now,
+                version = version + 1 WHERE payment_request_id = :payment_request_id
+        """),
+            {
+                "status": payment_status,
+                "now": now,
+                "payment_request_id": context["payment_request_id"],
+            },
+        )
+        connection.execute(
+            text("""
+            UPDATE platform.work_items SET status = :status, updated_at = :now,
+                version = version + 1 WHERE work_item_id = :work_item_id
+        """),
+            {"status": work_status, "now": now, "work_item_id": context["work_item_id"]},
+        )
+        connection.execute(
+            text("""
+            UPDATE workflow.workflow_runs SET current_step = :step, status = :status,
+                completed_at = :completed_at, version = version + 1
+            WHERE workflow_run_id = :workflow_run_id
+        """),
+            {
+                "step": current_step,
+                "status": "COMPLETED" if terminal else "ACTIVE",
+                "completed_at": now if terminal else None,
+                "workflow_run_id": context["workflow_run_id"],
+            },
+        )
+
+    @staticmethod
+    def _finance_result(
+        context: Mapping[str, Any],
+        current_step: str,
+        payment_status: str,
+        work_item_status: str,
+        terminal: bool,
+        reconciliation_status: str | None = None,
+        difference_amount: Any | None = None,
+    ) -> FinanceWorkflowResult:
+        return FinanceWorkflowResult(
+            payment_request_id=context["payment_request_id"],
+            work_item_id=context["work_item_id"],
+            workflow_run_id=context["workflow_run_id"],
+            approval_request_id=context["approval_request_id"],
+            current_step=current_step,
+            workflow_status="COMPLETED" if terminal else "ACTIVE",
+            payment_status=payment_status,
+            work_item_status=WorkItemStatus(work_item_status),
+            terminal=terminal,
+            correlation_id=context["correlation_id"],
+            reconciliation_status=reconciliation_status,
+            difference_amount=difference_amount,
+        )
+
+    @staticmethod
+    def _assert_project(connection: Any, project_id: UUID, principal: Principal) -> None:
+        row = connection.execute(
+            text("""
+                SELECT project_id FROM platform.projects
+                WHERE project_id = :project_id AND organization_id = :organization_id
+            """),
+            {"project_id": project_id, "organization_id": principal.organization_id},
+        ).first()
+        if row is None or not principal.can_access_project(project_id):
+            raise AuthorizationDenied("Pengguna tidak memiliki akses ke project")
+
+    @staticmethod
+    def _assert_work_item(
+        connection: Any, work_item_id: UUID, principal: Principal
+    ) -> Mapping[str, Any]:
+        row = (
+            connection.execute(
+                text("""
+                SELECT wi.work_item_id, wi.project_id, wi.organization_id,
+                       d.code AS division_code
+                FROM platform.work_items wi
+                JOIN identity.divisions d ON d.division_id = wi.division_id
+                WHERE wi.work_item_id = :work_item_id
+                  AND wi.organization_id = :organization_id
+            """),
+                {"work_item_id": work_item_id, "organization_id": principal.organization_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise KeyError("Work item tidak ditemukan")
+        if row["project_id"] is not None and not principal.can_access_project(row["project_id"]):
+            raise AuthorizationDenied("Pengguna tidak memiliki akses ke work item")
+        if (
+            not principal.has_any_role(*PostgresOperationalStore._organization_wide_roles())
+            and row["division_code"] not in principal.division_codes
+        ):
+            raise AuthorizationDenied("Pengguna tidak memiliki akses ke divisi work item")
+        return row
 
     @staticmethod
     def _organization_wide_roles() -> tuple[Any, ...]:

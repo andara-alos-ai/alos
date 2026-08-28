@@ -45,7 +45,7 @@ class UserCreate(BaseModel):
 
     email: str = Field(min_length=5, max_length=254)
     display_name: str = Field(min_length=2, max_length=160)
-    division_code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,31}$")
+    division_code: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{1,31}$")
     role: Role
 
 
@@ -54,6 +54,6 @@ class UserView(BaseModel):
     email: str
     display_name: str
     status: str
-    division_code: str
+    division_code: str | None
     role: Role
     created_at: datetime

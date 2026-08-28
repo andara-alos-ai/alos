@@ -22,9 +22,10 @@ alos-migrate = "alos.persistence.migrations:main"
 
 [project.optional-dependencies]
 dev = [
-  "httpx>=0.28,<1",
+  "httpx2>=2.12,<3",
   "mypy>=1.17,<2",
-  "pytest>=8.4,<9",
+  "pip-audit>=2.9,<3",
+  "pytest>=9.0.3,<10",
   "pytest-asyncio>=1.1,<2",
   "ruff>=0.12,<1"
 ]

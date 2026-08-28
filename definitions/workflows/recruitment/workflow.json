@@ -2,7 +2,7 @@
   "workflow_id": "FLOW-005",
   "name": "Rekrutmen",
   "purpose": "Memproses kebutuhan rekrutmen sampai review kandidat manusia dan persiapan berkas onboarding.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "STAGED",
   "owner": "Kepala HR",
   "trigger": ["Recruitment Request diajukan"],

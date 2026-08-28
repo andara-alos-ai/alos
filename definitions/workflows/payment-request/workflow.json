@@ -2,7 +2,7 @@
   "workflow_id": "FLOW-002",
   "name": "Permintaan Pembayaran",
   "purpose": "Memastikan pembayaran memiliki dokumen, bukti, anggaran, approval, tindakan manusia, dan rekonsiliasi.",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "status": "STAGED",
   "owner": "Kepala Keuangan",
   "trigger": ["Payment Request diajukan"],
@@ -31,6 +31,7 @@
     {"from_step": "approval-routing", "outcome": "routed", "to_step": "finance-approval"},
     {"from_step": "finance-approval", "outcome": "approved", "to_step": "payment-action"},
     {"from_step": "finance-approval", "outcome": "rejected", "to_step": "exception-open"},
+    {"from_step": "finance-approval", "outcome": "revision_requested", "to_step": "exception-open"},
     {"from_step": "payment-action", "outcome": "recorded", "to_step": "reconciliation"},
     {"from_step": "reconciliation", "outcome": "matched", "to_step": "reconciled"},
     {"from_step": "reconciliation", "outcome": "mismatch", "to_step": "exception-open"}

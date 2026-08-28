@@ -131,3 +131,23 @@ def test_sales_cannot_create_project() -> None:
             ProjectCreate(code="PILOT", name="Proyek Pilot"),
             sales_principal(project_id),
         )
+
+
+def test_sales_role_outside_sales_division_cannot_run_sales_workflow() -> None:
+    project_id = uuid4()
+    mismatched_principal = sales_principal(project_id).model_copy(
+        update={"division_codes": frozenset({"FINANCE"})}
+    )
+
+    with pytest.raises(AuthorizationDenied, match="SALES_MARKETING"):
+        service(RecordingStore()).intake_lead(
+            LeadIntake(
+                project_id=project_id,
+                full_name="Lead Salah Divisi",
+                phone="081234567890",
+                source="form-internal",
+                consent_recorded=True,
+            ),
+            mismatched_principal,
+            "lead-test-003",
+        )

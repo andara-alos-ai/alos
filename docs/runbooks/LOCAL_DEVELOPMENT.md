@@ -39,7 +39,7 @@ Endpoint `POST /api/v1/auth/local-token` hanya tersedia pada lingkungan `local` 
 menyimpan kata sandi. Gunakan UUID organisasi dari PostgreSQL dan role pilot yang
 sesuai. Endpoint tersebut tidak boleh diaktifkan pada staging atau production.
 
-Operasi project, lead, dan work queue menggunakan header berikut:
+Operasi project, workflow Sales, workflow Finance, dan work queue menggunakan header berikut:
 
 ```text
 Authorization: Bearer <token-lokal>
@@ -50,6 +50,31 @@ X-Correlation-ID: <uuid-opsional>
 Alur lead menjalankan validasi deterministik melalui SLA, penugasan Sales Human,
 penjadwalan follow-up oleh CFA, pencatatan interaksi, dan hasil pipeline/reservasi.
 Tidak ada pesan pelanggan yang dikirim otomatis.
+
+Alur pembayaran memerlukan dua pengguna Finance berbeda untuk membuktikan pemisahan
+tugas. Requester menyiapkan budget, metadata dokumen, dan payment request. Approver
+memberikan keputusan serta mencatat hasil pembayaran yang dilakukan di luar ALOS. FRA
+merekonsiliasi data transaksi; ALOS tidak mengakses atau mengeksekusi transfer bank.
+
+Alur Property memerlukan pengunggah dan reviewer berbeda. CEA memeriksa evidence, TPA
+menghitung variance, lalu keputusan reviewer menghasilkan snapshot progres KDA atau
+exception dan CAPA CRA. Data lokasi lapangan dan formula KPI final belum diwajibkan pada
+pilot sintetis karena kebijakannya masih TBD.
+
+Alur Legal memerlukan pengaju dan reviewer berbeda. DIA menyiapkan metadata dokumen,
+LPA atau CLA memproses izin atau kontrak, dan CEA memeriksa evidence. Persetujuan izin
+mewajibkan konfirmasi sumber resmi oleh Legal Human; agent tidak memberikan opini hukum
+atau persetujuan kontrak.
+
+Alur HR menggunakan dokumen kandidat yang telah disanitasi dan alias, bukan data pribadi
+mentah. SEA membentuk rencana, HRA mencatat kelengkapan administratif, dan HR Human
+memberi keputusan. HPA hanya membuat checklist untuk kandidat yang dipilih manusia.
+Data kandidat asli tidak boleh digunakan sebelum kebijakan akses dan retensi disahkan.
+
+Alur AI Executive membaca fakta terverifikasi dari seluruh modul, membuat snapshot
+ber-hash, menjalankan KDA/CRA/ARA/MCA pada shared runtime, dan berhenti untuk review
+Direktur. Role Direktur dan AI Executive dibuat dengan `division_code: null` karena
+keduanya berada pada tingkat organisasi, bukan salah satu dari enam divisi.
 
 Perintah migrasi aman dijalankan berulang. Runner menyimpan versi dan checksum migrasi
 sehingga file yang sudah diterapkan tidak dijalankan ulang atau diubah diam-diam. Setelah
@@ -71,13 +96,16 @@ Untuk memverifikasi persistence PostgreSQL secara end-to-end dengan data sinteti
 
 ```powershell
 $env:ALOS_RUN_POSTGRES_TESTS="1"
-.\.venv\Scripts\python.exe -m pytest services/platform/tests/test_postgres_smoke.py
+.\.venv\Scripts\python.exe -m pytest -c services/platform/pyproject.toml
 Remove-Item Env:ALOS_RUN_POSTGRES_TESTS
 ```
 
-Smoke test menjalankan Lead-to-Reservation secara end-to-end dan membersihkan kembali
-pengguna, project, lead, follow-up, interaksi, reservasi, work item, workflow run,
-agent run, transition event, serta audit entry sintetis.
+Smoke test menjalankan Lead-to-Reservation, Payment-to-Reconciliation, dua cabang
+Site-Evidence, Permit-and-Contract Review, Recruitment-to-Personnel-Checklist, serta
+Executive-Brief-to-Director-Review secara end-to-end. Seluruh pengguna, project,
+transaksi domain, work item, workflow run, agent run, transition event, evidence,
+approval, snapshot eksekutif, KPI snapshot, exception, CAPA, dan audit entry sintetis
+dibersihkan kembali setelah pengujian.
 
 ## Menghentikan Layanan
 
