@@ -32,6 +32,21 @@ pnpm dev:web
 
 Periksa API melalui `http://localhost:8000/api/v1/health` dan web melalui `http://localhost:3000`.
 
+### Masuk ke Web Pilot
+
+Pastikan `NEXT_PUBLIC_ALOS_PILOT_LOGIN_ENABLED=true` hanya pada lingkungan lokal. Buka
+`http://localhost:3000`, pilih **Profil pilot**, lalu isi Organization ID, User ID, role,
+kode divisi, dan Project ID sintetis yang sesuai. Web meminta token lokal, memverifikasinya
+melalui `GET /api/v1/auth/me`, dan menyimpan token hanya pada `sessionStorage` tab aktif.
+
+Mode **Token akses** menerima token yang sudah diterbitkan sistem identitas. Jangan masukkan
+kata sandi, API key, atau token produksi ke layar pilot. Pada staging/production, endpoint
+token lokal dan flag login pilot wajib dinonaktifkan serta diganti integrasi OIDC/SSO.
+
+Menu mengikuti role dan divisi. Konteks proyek pada topbar membatasi dashboard, antrean,
+dokumen, approval, serta exception/CAPA ke proyek yang dipilih. Backend tetap menjadi sumber
+otorisasi; menyembunyikan menu di web bukan pengganti pemeriksaan izin API.
+
 Jalankan worker scheduler/outbox pada terminal terpisah:
 
 ```powershell
@@ -122,6 +137,9 @@ pnpm build
 ```
 
 Registry valid hanya jika tepat 18 Core Agent dan enam workflow dapat dimuat. Workflow harus menolak transisi yang tidak didefinisikan.
+
+Pemeriksaan web juga mencakup redirect tanpa sesi, login pilot, dashboard data nyata,
+navigasi role/divisi, konteks proyek, tampilan kosong/error, serta breakpoint ponsel.
 
 Untuk memverifikasi persistence PostgreSQL secara end-to-end dengan data sintetis:
 

@@ -147,3 +147,26 @@ def test_local_environment_can_issue_signed_development_token() -> None:
 
     assert response.status_code == 200
     assert response.json()["access_token"].startswith("alos1.")
+
+
+def test_authenticated_principal_returns_verified_token_context() -> None:
+    user_id, organization_id = uuid4(), uuid4()
+    token_response = client.post(
+        "/api/v1/auth/local-token",
+        json={
+            "user_id": str(user_id),
+            "organization_id": str(organization_id),
+            "roles": ["SALES"],
+            "division_codes": ["SALES_MARKETING"],
+        },
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token_response.json()['access_token']}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user_id"] == str(user_id)
+    assert response.json()["organization_id"] == str(organization_id)
+    assert response.json()["roles"] == ["SALES"]

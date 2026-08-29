@@ -246,6 +246,12 @@ def issue_local_token(request: LocalTokenRequest, settings: SettingsDependency) 
     )
 
 
+@router.get("/auth/me", response_model=Principal, tags=["authentication"])
+def authenticated_principal(principal: PrincipalDependency) -> Principal:
+    """Return the server-validated identity context for the current bearer token."""
+    return principal
+
+
 @router.post("/projects", response_model=ProjectView, status_code=201, tags=["projects"])
 def create_project(
     request: ProjectCreate,

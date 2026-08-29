@@ -28,10 +28,14 @@
 | Identity & Access dasar | Selesai untuk backend pilot | direktori user, status, role assignment, project assignment, pencabutan, dan audit |
 | Operasi kerja & governance | Selesai untuk backend pilot | inbox personal/divisi, claim, delegasi, deadline, reminder/escalation, approval claim, Exception dan CAPA terkontrol |
 | Worker, outbox & integrasi | Selesai untuk backend pilot | scheduler deterministik, PostgreSQL outbox, lease/retry/dead-letter, notification internal, health, dan adaptor n8n bertanda tangan |
-| Workspace web operasional | Belum selesai | UI saat ini masih katalog foundation dan belum mengoperasikan seluruh workflow |
+| Workspace web operasional | Phase 6A selesai | login pilot, sesi, navigasi berbasis role/divisi, konteks proyek, dashboard, antrean kerja, dokumen, risiko, dan observability memakai API nyata |
 
 Status “selesai” di atas berarti siap untuk pengujian internal berbasis data sintetis,
 bukan persetujuan penggunaan data perusahaan atau integrasi produksi.
+
+Phase 6A menyediakan kerangka aplikasi dan jalur kerja harian tanpa menggantikan kontrol
+backend. Form transaksi domain untuk enam workflow, layar keputusan approval, AI Executive,
+administrasi identitas, dan pelaporan lengkap dilanjutkan pada Phase 6B–6C.
 
 ## 1. Tujuan
 

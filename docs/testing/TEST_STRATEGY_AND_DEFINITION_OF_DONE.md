@@ -5,7 +5,7 @@
 | Status | Rancangan untuk Pilot Internal |
 | Versi | 0.1.0 |
 | Cakupan | ALOS Internal Agent Pilot v0.1 |
-| Pembaruan terakhir | 28 Agustus 2026 |
+| Pembaruan terakhir | 29 Agustus 2026 |
 
 ## 1. Tujuan
 
@@ -35,6 +35,11 @@ Strategi ini memastikan ALOS tidak hanya menghasilkan keluaran AI yang terlihat 
 | Keamanan | penyalahgunaan dan kebocoran | akses lintas proyek, prompt injection, secret scan |
 | Ujung-ke-Ujung | perjalanan pengguna | enam alur dari pemicu sampai status akhir |
 | Kinerja | batas kapasitas pilot | antrean, unggahan, latensi agent, konkurensi |
+
+Antarmuka web memiliki unit test untuk katalog, pemetaan navigasi berbasis role, dan format
+data. Gate frontend menjalankan lint React, pemeriksaan tipe TypeScript, unit test, serta
+production build. Smoke test browser lokal memverifikasi redirect sesi, login pilot,
+dashboard berbasis API, halaman operasional, tidak adanya error console, dan sidebar responsif.
 
 ## 4. Data Pengujian
 

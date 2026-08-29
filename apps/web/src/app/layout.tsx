@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { AppShell } from "@/components/app-shell";
+import { SessionProvider } from "@/components/session-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="id">
-      <body><AppShell>{children}</AppShell></body>
+      <body><SessionProvider><AppShell>{children}</AppShell></SessionProvider></body>
     </html>
   );
 }
