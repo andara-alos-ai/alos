@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -43,6 +44,16 @@ class Settings(BaseSettings):
         default=25 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024
     )
     document_scan_mode: Literal["disabled", "external"] = "disabled"
+    worker_poll_seconds: int = Field(default=5, ge=1, le=300)
+    worker_batch_size: int = Field(default=50, ge=1, le=500)
+    worker_lease_seconds: int = Field(default=120, ge=30, le=3600)
+    worker_max_attempts: int = Field(default=5, ge=1, le=20)
+    deadline_horizon_minutes: int = Field(default=1440, ge=1, le=10080)
+    escalation_interval_minutes: int = Field(default=60, ge=15, le=1440)
+    n8n_enabled: bool = False
+    n8n_webhook_url: str | None = None
+    n8n_webhook_secret: SecretStr | None = None
+    n8n_timeout_seconds: float = Field(default=10.0, ge=1.0, le=30.0)
     repository_root: Path = Field(default_factory=default_repository_root)
 
     @model_validator(mode="after")
@@ -67,7 +78,25 @@ class Settings(BaseSettings):
         secret_key = self.object_storage_secret_key_value
         if bool(access_key) != bool(secret_key):
             raise ValueError("Access key dan secret key object storage harus diberikan bersama")
+        self._validate_n8n_configuration()
         return self
+
+    def _validate_n8n_configuration(self) -> None:
+        url = (self.n8n_webhook_url or "").strip()
+        secret = self.n8n_webhook_secret_value
+        if not self.n8n_enabled:
+            return
+        if not url or not secret:
+            raise ValueError("n8n aktif memerlukan webhook URL dan signing secret")
+        if len(secret) < 32:
+            raise ValueError("Signing secret n8n wajib minimal 32 karakter")
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("Webhook n8n wajib menggunakan URL HTTP(S) yang valid")
+        if parsed.username or parsed.password or parsed.fragment:
+            raise ValueError("Webhook n8n tidak boleh memuat credential atau fragment pada URL")
+        if self.environment in {"staging", "production"} and parsed.scheme != "https":
+            raise ValueError("Webhook n8n staging/production wajib menggunakan HTTPS")
 
     @property
     def definitions_root(self) -> Path:
@@ -96,6 +125,13 @@ class Settings(BaseSettings):
         if self.object_storage_secret_key is None:
             return None
         value = self.object_storage_secret_key.get_secret_value().strip()
+        return value or None
+
+    @property
+    def n8n_webhook_secret_value(self) -> str | None:
+        if self.n8n_webhook_secret is None:
+            return None
+        value = self.n8n_webhook_secret.get_secret_value().strip()
         return value or None
 
     @property

@@ -27,6 +27,7 @@
 | Operational Query API | Selesai untuk backend pilot | list/detail, pagination, filter, sorting, dan isolasi organisasi/divisi/project |
 | Identity & Access dasar | Selesai untuk backend pilot | direktori user, status, role assignment, project assignment, pencabutan, dan audit |
 | Operasi kerja & governance | Selesai untuk backend pilot | inbox personal/divisi, claim, delegasi, deadline, reminder/escalation, approval claim, Exception dan CAPA terkontrol |
+| Worker, outbox & integrasi | Selesai untuk backend pilot | scheduler deterministik, PostgreSQL outbox, lease/retry/dead-letter, notification internal, health, dan adaptor n8n bertanda tangan |
 | Workspace web operasional | Belum selesai | UI saat ini masih katalog foundation dan belum mengoperasikan seluruh workflow |
 
 Status “selesai” di atas berarti siap untuk pengujian internal berbasis data sintetis,

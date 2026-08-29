@@ -135,6 +135,12 @@ Amplop kejadian minimum:
 
 Kejadian diterbitkan melalui pola transactional outbox agar perubahan database dan publikasi kejadian tidak berbeda keadaan.
 
+Implementasi pilot menyimpan event per organisasi, destination, payload terstruktur,
+kunci idempotensi, jumlah percobaan, jadwal retry, lease, hasil delivery, dan dead-letter.
+Worker mengambil batch menggunakan row lock `SKIP LOCKED`. Lease kedaluwarsa dikembalikan
+ke antrean agar proses aman dilanjutkan setelah restart. Notification internal dan webhook
+n8n memakai event yang sama; n8n tidak dapat mengubah status workflow atau approval.
+
 ## 7. Ketahanan Alur Kerja
 
 Pilot menggunakan status alur kerja berbasis PostgreSQL dan worker. Setiap langkah mencatat versi alur, syarat transisi, jumlah percobaan, batas waktu, jadwal percobaan berikutnya, referensi masukan-keluaran, agent atau aktor, bukti, persetujuan, penyimpangan, korelasi, dan audit.

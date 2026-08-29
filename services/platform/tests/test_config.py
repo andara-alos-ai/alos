@@ -54,3 +54,34 @@ def test_production_object_storage_endpoint_requires_https() -> None:
             object_storage_endpoint_url="http://storage.internal:9000",
             document_scan_mode="external",
         )
+
+
+def test_enabled_n8n_requires_url_and_secret() -> None:
+    with pytest.raises(ValidationError, match="webhook URL dan signing secret"):
+        Settings(n8n_enabled=True)
+
+
+def test_n8n_rejects_short_secret_and_url_credentials() -> None:
+    with pytest.raises(ValidationError, match="minimal 32"):
+        Settings(
+            n8n_enabled=True,
+            n8n_webhook_url="http://localhost:5678/webhook/alos",
+            n8n_webhook_secret="short-secret",
+        )
+    with pytest.raises(ValidationError, match="credential"):
+        Settings(
+            n8n_enabled=True,
+            n8n_webhook_url="https://user:password@n8n.example.test/webhook/alos",
+            n8n_webhook_secret="secure-n8n-signing-secret-value-123456",
+        )
+
+
+def test_staging_n8n_requires_https() -> None:
+    with pytest.raises(ValidationError, match="n8n staging/production"):
+        Settings(
+            environment="staging",
+            auth_signing_secret="staging-signing-secret-value-9X7q2L",
+            n8n_enabled=True,
+            n8n_webhook_url="http://n8n.internal/webhook/alos",
+            n8n_webhook_secret="secure-n8n-signing-secret-value-123456",
+        )

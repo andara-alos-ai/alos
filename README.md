@@ -4,7 +4,7 @@ ALOS (Andara Leverage Operating System) adalah platform operasi internal PT Anda
 
 ## Status
 
-Tahap saat ini adalah **Backend Foundation / Pilot Internal**. Enam workflow backend, IAM dasar, query operasional, dan penyimpanan dokumen berversi telah tersedia. Seluruh contoh data wajib sintetis atau telah disanitasi. Integrasi produksi, keputusan material, dan penggunaan data perusahaan asli belum diaktifkan.
+Tahap saat ini adalah **Backend Foundation / Pilot Internal**. Enam workflow backend, IAM dasar, query operasional, penyimpanan dokumen berversi, work queue, worker/scheduler, notification outbox, dan adaptor n8n opsional telah tersedia. Seluruh contoh data wajib sintetis atau telah disanitasi. Integrasi produksi, keputusan material, dan penggunaan data perusahaan asli belum diaktifkan.
 
 ## Struktur Utama
 
@@ -28,6 +28,7 @@ Prasyarat: Node.js 22+, pnpm 11+, Python 3.12+, dan Docker Desktop dengan Compos
 3. Buat virtual environment Python dan instal backend dengan `pip install -e "services/platform[dev]"`.
 4. Jalankan layanan pendukung dengan `docker compose -f infra/compose/compose.yaml up -d`.
 5. Jalankan API dengan `pnpm dev:api` dan web dengan `pnpm dev:web`.
+6. Jalankan worker dengan `pnpm worker`; gunakan `pnpm worker:once` untuk satu siklus manual.
 
 API tersedia pada `http://localhost:8000`, dokumentasi API pada `/docs`, dan web pada `http://localhost:3000`.
 

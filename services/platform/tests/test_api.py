@@ -126,10 +126,13 @@ def test_phase_four_operational_contract_is_published() -> None:
     assert "/api/v1/approvals/{approval_request_id}/claim" in paths
     assert "/api/v1/exceptions/{exception_id}/transition" in paths
     assert "/api/v1/capas/{capa_id}/transition" in paths
+    assert "/api/v1/system/operations-health" in paths
+    assert "/api/v1/system/outbox/{outbox_event_id}/requeue" in paths
 
 
 def test_phase_four_operational_endpoint_requires_authentication() -> None:
     assert client.get("/api/v1/operational/work-queue").status_code == 401
+    assert client.get("/api/v1/system/operations-health").status_code == 401
 
 
 def test_local_environment_can_issue_signed_development_token() -> None:

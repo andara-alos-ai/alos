@@ -32,6 +32,15 @@ pnpm dev:web
 
 Periksa API melalui `http://localhost:8000/api/v1/health` dan web melalui `http://localhost:3000`.
 
+Jalankan worker scheduler/outbox pada terminal terpisah:
+
+```powershell
+pnpm worker
+```
+
+Untuk satu siklus pemeriksaan manual gunakan `pnpm worker:once`. Detail konfigurasi,
+retry, dead-letter, dan n8n tersedia pada runbook Worker dan Integrasi n8n.
+
 ## Penyimpanan Dokumen Lokal
 
 Konfigurasi default menyimpan berkas sintetis di `data/objects/alos-documents`. Direktori

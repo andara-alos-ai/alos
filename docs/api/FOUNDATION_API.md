@@ -73,6 +73,17 @@ Claim, delegasi, perubahan deadline, approval, Exception, dan CAPA ditulis ke au
 Scheduler hanya mengevaluasi waktu dan membuat record reminder; ia tidak memberi approval
 atau mengubah keputusan bisnis. IT Admin tidak dapat mengambil work item divisi bisnis.
 
+## System Operations API
+
+| Method | Path | Tujuan | Akses |
+|---|---|---|---|
+| `GET` | `/system/operations-health` | jumlah outbox pending/retry/processing/dead-letter dan worker terakhir | Direktur, AI Executive, IT Admin, Auditor |
+| `POST` | `/system/outbox/{id}/requeue` | memasukkan ulang dead-letter setelah penyebab diperbaiki | Direktur atau IT Admin; alasan wajib dan diaudit |
+
+API tidak mengeksekusi worker produksi. Worker berjalan sebagai proses terpisah dan memakai
+lease PostgreSQL agar pekerjaan dapat dilanjutkan setelah restart tanpa dua worker mengambil
+event yang sama.
+
 ## Operational Query API
 
 Endpoint query mengembalikan envelope konsisten: `items`, `page`, `page_size`, `total`,
