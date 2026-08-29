@@ -3,8 +3,8 @@
 | Metadata | Nilai |
 |---|---|
 | Status | Implementasi Pilot Internal |
-| Versi | 0.9.0 |
-| Cakupan | Enam workflow backend, governance bersama, dan AI Executive Brief |
+| Versi | 1.0.0 |
+| Cakupan | Enam workflow backend, operational query, IAM dasar, governance, dan AI Executive Brief |
 
 ## Prinsip
 
@@ -49,6 +49,48 @@
 | `POST` | `/approvals/{id}/decision` | keputusan approval terpisah dari pemohon | approver berwenang |
 | `POST` | `/exceptions` | membuka exception | governance role |
 | `POST` | `/capas` | membuat rencana corrective/preventive action | governance role |
+
+## Operational Query API
+
+Endpoint query mengembalikan envelope konsisten: `items`, `page`, `page_size`, `total`,
+dan `pages`. Parameter umum adalah `page`, `page_size` (maksimum 100), `search`,
+`status`, `project_id`, `sort_by`, dan `sort_order`. Kolom sorting dibatasi whitelist;
+nilai filter selalu dikirim sebagai parameter database.
+
+| Resource | Endpoint list/detail | Pembatasan utama |
+|---|---|---|
+| Work queue | `/operational/work-items` | organisasi, divisi, dan project |
+| Lead dan interaksi | `/leads`, `/leads/{id}/interactions` | Sales & Marketing dan pembaca organisasi |
+| Budget dan payment request | `/finance/budgets`, `/finance/payment-requests` | Finance dan pembaca organisasi |
+| Bukti site dan KPI | `/property/site-evidence`, `/kpi-snapshots` | Property dan pembaca organisasi |
+| Izin dan kontrak | `/legal/cases` | Legal dan pembaca organisasi |
+| Rekrutmen dan checklist | `/hr/recruitment-requests`, `/hr/recruitment-requests/{id}/personnel-checklist` | HR dan pembaca organisasi |
+| Dokumen dan evidence | `/documents`, `/evidence` | scope project dan divisi pengguna |
+| Approval, exception, CAPA | `/approvals`, `/exceptions`, `/capas` | scope organisasi/project/divisi dan role governance |
+| Executive brief | `/executive/briefs` | Direktur, AI Executive, atau Auditor |
+| Workflow dan Agent Run | `/workflow-runs`, `/agent-runs` | scope organisasi/project/divisi; metadata runtime |
+| Audit | `/audit-entries` | Direktur, AI Executive, IT Admin, atau Auditor |
+
+Setiap endpoint detail menggunakan scope yang sama dengan endpoint list. Data dari
+organisasi atau project di luar kewenangan dikembalikan sebagai tidak ditemukan atau
+daftar kosong, tanpa membocorkan keberadaan record. IT Admin tidak otomatis mendapat
+akses isi resource bisnis Sales, Finance, Property, Legal, atau HR.
+
+## Identity and Access API
+
+| Method | Path | Tujuan | Akses |
+|---|---|---|---|
+| `GET` | `/users` | direktori pengguna dengan role dan project aktif | Director, IT Admin, Auditor |
+| `GET` | `/users/{id}` | profil akses pengguna | Director, IT Admin, Auditor |
+| `PATCH` | `/users/{id}/status` | aktivasi atau suspensi akun | IT Admin; tidak dapat mengubah akun sendiri |
+| `POST` | `/users/{id}/role-assignments` | menambah role dengan divisi dan masa berlaku | IT Admin |
+| `POST` | `/users/{id}/role-assignments/{assignment_id}/revoke` | mencabut role aktif | IT Admin; alasan wajib |
+| `POST` | `/users/{id}/project-assignments` | memberi akses project dengan masa berlaku | IT Admin |
+| `POST` | `/users/{id}/project-assignments/{assignment_id}/revoke` | mencabut akses project | IT Admin; alasan wajib |
+
+Perubahan akses memakai alasan minimum, mencegah periode penugasan tumpang tindih,
+dan masuk ke audit chain. Pada staging dan production, klaim role, divisi, serta project
+dalam token divalidasi ulang terhadap penugasan aktif di database pada setiap request.
 
 ## Jalur Lead Saat Ini
 

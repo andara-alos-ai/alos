@@ -47,6 +47,12 @@ Idempotency-Key: <nilai-unik-minimal-8-karakter>
 X-Correlation-ID: <uuid-opsional>
 ```
 
+Setelah pengguna dibuat, berikan akses project melalui
+`POST /api/v1/users/{user_id}/project-assignments`. Penugasan role tambahan dan akses
+project wajib menyertakan alasan. Endpoint query operasional menggunakan pagination
+dan filter server-side; contoh pemeriksaan adalah
+`GET /api/v1/leads?page=1&page_size=25&project_id=<uuid>`.
+
 Alur lead menjalankan validasi deterministik melalui SLA, penugasan Sales Human,
 penjadwalan follow-up oleh CFA, pencatatan interaksi, dan hasil pipeline/reservasi.
 Tidak ada pesan pelanggan yang dikirim otomatis.
@@ -102,7 +108,9 @@ Remove-Item Env:ALOS_RUN_POSTGRES_TESTS
 
 Smoke test menjalankan Lead-to-Reservation, Payment-to-Reconciliation, dua cabang
 Site-Evidence, Permit-and-Contract Review, Recruitment-to-Personnel-Checklist, serta
-Executive-Brief-to-Director-Review secara end-to-end. Seluruh pengguna, project,
+Executive-Brief-to-Director-Review secara end-to-end. Test juga memverifikasi query
+list/detail, isolasi project, larangan baca lintas divisi, perubahan role/project/status,
+serta alasan perubahan akses pada audit. Seluruh pengguna, project,
 transaksi domain, work item, workflow run, agent run, transition event, evidence,
 approval, snapshot eksekutif, KPI snapshot, exception, CAPA, dan audit entry sintetis
 dibersihkan kembali setelah pengujian.

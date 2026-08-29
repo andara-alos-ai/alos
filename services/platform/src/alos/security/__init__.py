@@ -1,4 +1,17 @@
-from alos.security.models import Principal, Role, UserCreate, UserView
+from alos.security.models import (
+    Principal,
+    ProjectAssignmentCreate,
+    ProjectAssignmentView,
+    Role,
+    RoleAssignmentCreate,
+    RoleAssignmentView,
+    UserCreate,
+    UserDirectoryPage,
+    UserDirectoryView,
+    UserStatus,
+    UserStatusUpdate,
+    UserView,
+)
 from alos.security.tokens import AuthenticationError, TokenCodec
 
 __all__ = [
@@ -8,4 +21,12 @@ __all__ = [
     "TokenCodec",
     "UserCreate",
     "UserView",
+    "UserStatus",
+    "UserStatusUpdate",
+    "RoleAssignmentCreate",
+    "RoleAssignmentView",
+    "ProjectAssignmentCreate",
+    "ProjectAssignmentView",
+    "UserDirectoryView",
+    "UserDirectoryPage",
 ]

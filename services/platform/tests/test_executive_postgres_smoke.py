@@ -98,6 +98,20 @@ def test_system_facts_become_director_reviewed_executive_brief() -> None:
         assert result["brief_status"] == "PUBLISHED"
         assert result["terminal"] is True
 
+        brief_query = client.get(
+            f"/api/v1/executive/briefs/{brief['executive_brief_id']}",
+            headers=director_headers,
+        )
+        assert brief_query.status_code == 200, brief_query.text
+        assert brief_query.json()["status"] == "PUBLISHED"
+        briefs_query = client.get(
+            "/api/v1/executive/briefs",
+            headers=executive_headers,
+            params={"project_id": project_id, "status": "PUBLISHED"},
+        )
+        assert briefs_query.status_code == 200, briefs_query.text
+        assert briefs_query.json()["total"] == 1
+
         with psycopg.connect(database_url) as connection:
             agent_ids = connection.execute(
                 """

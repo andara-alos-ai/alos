@@ -158,6 +158,30 @@ def test_site_evidence_updates_kpi_or_opens_capa() -> None:
         assert variance_result["capa_id"] is not None
         assert variance_result["kpi_snapshot_id"] is None
 
+        evidence_query = client.get(
+            "/api/v1/property/site-evidence",
+            headers=reviewer_headers,
+            params={"project_id": project_id},
+        )
+        assert evidence_query.status_code == 200, evidence_query.text
+        assert evidence_query.json()["total"] == 2
+        kpi_query = client.get(
+            f"/api/v1/kpi-snapshots/{accepted_result['kpi_snapshot_id']}",
+            headers=reviewer_headers,
+        )
+        assert kpi_query.status_code == 200, kpi_query.text
+        assert kpi_query.json()["verification_status"] == "VERIFIED"
+        exception_query = client.get(
+            f"/api/v1/exceptions/{variance_result['exception_id']}",
+            headers=reviewer_headers,
+        )
+        assert exception_query.status_code == 200, exception_query.text
+        capa_query = client.get(
+            f"/api/v1/capas/{variance_result['capa_id']}", headers=reviewer_headers
+        )
+        assert capa_query.status_code == 200, capa_query.text
+        assert capa_query.json()["status"] == "OPEN"
+
         with psycopg.connect(database_url) as connection:
             snapshot = connection.execute(
                 """

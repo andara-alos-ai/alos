@@ -8,7 +8,7 @@
 | Tahap pelaksanaan | ALOS Internal Agent Pilot v0.1 |
 | Pemilik | PT Andara Rejo Makmur |
 | Pengelola teknis | Divisi IT |
-| Pembaruan terakhir | 28 Agustus 2026 |
+| Pembaruan terakhir | 29 Agustus 2026 |
 | Sumber utama | Dokumen Master Blueprint ALOS + GENESIS, 27 Agustus 2026 |
 
 ## Status Implementasi Saat Ini
@@ -24,6 +24,8 @@
 | FLOW-004 Legal | Selesai untuk backend pilot | izin dan kontrak mencapai keputusan Legal Human terkontrol |
 | FLOW-005 HR | Selesai untuk backend pilot | keputusan HR Human mengontrol pembuatan checklist personalia |
 | FLOW-006 AI Executive | Selesai untuk backend pilot | snapshot bersumber menghasilkan brief dan decision queue untuk Direktur |
+| Operational Query API | Selesai untuk backend pilot | list/detail, pagination, filter, sorting, dan isolasi organisasi/divisi/project |
+| Identity & Access dasar | Selesai untuk backend pilot | direktori user, status, role assignment, project assignment, pencabutan, dan audit |
 | Workspace web operasional | Belum selesai | UI saat ini masih katalog foundation dan belum mengoperasikan seluruh workflow |
 
 Status “selesai” di atas berarti siap untuk pengujian internal berbasis data sintetis,

@@ -115,7 +115,7 @@ def validate_released_principal(principal: Principal, settings: Settings) -> Non
     if settings.environment in {"local", "test"}:
         return
     with database_for_url(settings.database_url).engine.connect() as connection:
-        rows = connection.execute(
+        role_rows = connection.execute(
             text(
                 """
                 SELECT ra.role_code, d.code AS division_code
@@ -135,7 +135,28 @@ def validate_released_principal(principal: Principal, settings: Settings) -> Non
                 "organization_id": principal.organization_id,
             },
         ).mappings()
-        assignments = tuple(rows)
+        assignments = tuple(role_rows)
+        project_rows = connection.execute(
+            text(
+                """
+                SELECT pa.project_id
+                FROM identity.project_assignments pa
+                JOIN identity.users u ON u.user_id = pa.user_id
+                JOIN platform.projects p ON p.project_id = pa.project_id
+                WHERE pa.user_id = :user_id
+                  AND u.organization_id = :organization_id
+                  AND u.status = 'ACTIVE'
+                  AND p.organization_id = :organization_id
+                  AND pa.valid_from <= now()
+                  AND (pa.valid_until IS NULL OR pa.valid_until > now())
+                """
+            ),
+            {
+                "user_id": principal.user_id,
+                "organization_id": principal.organization_id,
+            },
+        ).scalars()
+        assigned_projects = frozenset(project_rows)
     assigned_roles = {row["role_code"] for row in assignments}
     assigned_divisions = {
         row["division_code"] for row in assignments if row["division_code"] is not None
@@ -144,6 +165,8 @@ def validate_released_principal(principal: Principal, settings: Settings) -> Non
         raise AuthenticationError("Akun atau penugasan role tidak aktif")
     if not principal.division_codes.issubset(assigned_divisions):
         raise AuthenticationError("Konteks divisi token tidak valid")
+    if not principal.project_ids.issubset(assigned_projects):
+        raise AuthenticationError("Konteks proyek token tidak valid")
 
 
 def current_principal(

@@ -143,6 +143,19 @@ def test_permit_and_contract_reach_controlled_legal_review() -> None:
         assert contract_result["current_step"] == "exception-open"
         assert contract_result["exception_id"] is not None
 
+        legal_query = client.get(
+            "/api/v1/legal/cases",
+            headers=reviewer_headers,
+            params={"project_id": project_id, "sort_by": "reference_code"},
+        )
+        assert legal_query.status_code == 200, legal_query.text
+        assert legal_query.json()["total"] == 2
+        permit_query = client.get(
+            f"/api/v1/legal/cases/{permit['legal_case_id']}", headers=reviewer_headers
+        )
+        assert permit_query.status_code == 200, permit_query.text
+        assert permit_query.json()["official_source_verified"] is True
+
         with psycopg.connect(database_url) as connection:
             agent_ids = connection.execute(
                 """

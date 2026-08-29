@@ -127,6 +127,23 @@ def test_recruitment_decision_controls_personnel_checklist() -> None:
         assert rejected_result["current_step"] == "request-closed"
         assert rejected_result["personnel_checklist_id"] is None
 
+        recruitment_query = client.get(
+            "/api/v1/hr/recruitment-requests",
+            headers=reviewer_headers,
+            params={"project_id": project_id},
+        )
+        assert recruitment_query.status_code == 200, recruitment_query.text
+        assert recruitment_query.json()["total"] == 2
+        checklist_query = client.get(
+            (
+                "/api/v1/hr/recruitment-requests/"
+                f"{selected['recruitment_request_id']}/personnel-checklist"
+            ),
+            headers=reviewer_headers,
+        )
+        assert checklist_query.status_code == 200, checklist_query.text
+        assert len(checklist_query.json()["requirements"]) == 3
+
         with psycopg.connect(database_url) as connection:
             requirements = connection.execute(
                 """

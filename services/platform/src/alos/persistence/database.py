@@ -109,14 +109,21 @@ class PostgresOperationalStore:
                 text(
                     """
                     INSERT INTO identity.role_assignments
-                        (user_id, division_id, role_code, created_at)
-                    VALUES (:user_id, :division_id, :role_code, :now)
+                        (user_id, division_id, role_code, reason, created_by, created_at)
+                    VALUES (:user_id, :division_id, :role_code, 'Pembuatan pengguna awal',
+                            (
+                                SELECT user_id FROM identity.users
+                                WHERE user_id = :created_by
+                                  AND organization_id = :organization_id
+                            ), :now)
                     """
                 ),
                 {
                     "user_id": user_id,
                     "division_id": division_id,
                     "role_code": command.role.value,
+                    "created_by": principal.user_id,
+                    "organization_id": principal.organization_id,
                     "now": now,
                 },
             )
@@ -3741,6 +3748,7 @@ class PostgresOperationalStore:
         correlation_id: UUID,
         before: Mapping[str, Any] | None,
         after: Mapping[str, Any] | None,
+        reason: str | None = None,
     ) -> None:
         connection.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(CAST(:organization_id AS text)))"),
@@ -3766,6 +3774,7 @@ class PostgresOperationalStore:
                 "entity_type": entity_type,
                 "entity_id": str(entity_id),
                 "correlation_id": str(correlation_id),
+                "reason": reason,
                 "before": before,
                 "after": after,
                 "occurred_at": occurred_at.isoformat(),
@@ -3781,11 +3790,11 @@ class PostgresOperationalStore:
                 """
                 INSERT INTO audit.entries
                     (organization_id, occurred_at, actor_type, actor_id, active_role,
-                     action, entity_type, entity_id, before_masked, after_masked,
+                     action, entity_type, entity_id, reason, before_masked, after_masked,
                      correlation_id, previous_hash, entry_hash)
                 VALUES
                     (:organization_id, :occurred_at, 'HUMAN', :actor_id, :active_role,
-                     :action, :entity_type, :entity_id, CAST(:before AS jsonb),
+                     :action, :entity_type, :entity_id, :reason, CAST(:before AS jsonb),
                      CAST(:after AS jsonb), :correlation_id, :previous_hash, :entry_hash)
                 """
             ),
@@ -3797,6 +3806,7 @@ class PostgresOperationalStore:
                 "action": action,
                 "entity_type": entity_type,
                 "entity_id": str(entity_id),
+                "reason": reason,
                 "before": json.dumps(before, default=str) if before is not None else None,
                 "after": json.dumps(after, default=str) if after is not None else None,
                 "correlation_id": correlation_id,

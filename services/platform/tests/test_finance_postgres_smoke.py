@@ -142,6 +142,26 @@ def test_payment_request_is_approved_paid_and_reconciled() -> None:
         assert result["current_step"] == "reconciled"
         assert result["reconciliation_status"] == "MATCHED"
         assert result["terminal"] is True
+        budgets_query = client.get(
+            "/api/v1/finance/budgets",
+            headers=requester_headers,
+            params={"project_id": project_id, "status": "ACTIVE"},
+        )
+        assert budgets_query.status_code == 200, budgets_query.text
+        assert budgets_query.json()["items"][0]["available_amount"] == "900000.00"
+        payment_query = client.get(
+            f"/api/v1/finance/payment-requests/{payment['payment_request_id']}",
+            headers=requester_headers,
+        )
+        assert payment_query.status_code == 200, payment_query.text
+        assert payment_query.json()["status"] == "RECONCILED"
+        approval_query = client.get(
+            "/api/v1/approvals",
+            headers=requester_headers,
+            params={"project_id": project_id, "status": "APPROVED"},
+        )
+        assert approval_query.status_code == 200, approval_query.text
+        assert approval_query.json()["total"] == 1
         with psycopg.connect(database_url) as connection:
             amounts = connection.execute(
                 "SELECT committed_amount, spent_amount FROM finance.budgets WHERE budget_id = %s",

@@ -18,6 +18,12 @@ class Role(StrEnum):
     AUDITOR = "AUDITOR"
 
 
+class UserStatus(StrEnum):
+    INVITED = "INVITED"
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+
+
 class Principal(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -57,3 +63,67 @@ class UserView(BaseModel):
     division_code: str | None
     role: Role
     created_at: datetime
+
+
+class UserStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: UserStatus
+    reason: str = Field(min_length=8, max_length=500)
+
+
+class RoleAssignmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Role
+    division_code: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{1,31}$")
+    valid_until: datetime | None = None
+    reason: str = Field(min_length=8, max_length=500)
+
+
+class RoleAssignmentView(BaseModel):
+    assignment_id: UUID
+    role: Role
+    division_code: str | None
+    valid_from: datetime
+    valid_until: datetime | None
+    reason: str
+    created_at: datetime
+
+
+class ProjectAssignmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: UUID
+    valid_until: datetime | None = None
+    reason: str = Field(min_length=8, max_length=500)
+
+
+class ProjectAssignmentView(BaseModel):
+    assignment_id: UUID
+    project_id: UUID
+    project_code: str
+    project_name: str
+    valid_from: datetime
+    valid_until: datetime | None
+    reason: str
+    created_at: datetime
+
+
+class UserDirectoryView(BaseModel):
+    user_id: UUID
+    email: str
+    display_name: str
+    status: UserStatus
+    roles: list[RoleAssignmentView]
+    projects: list[ProjectAssignmentView]
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserDirectoryPage(BaseModel):
+    items: list[UserDirectoryView]
+    page: int
+    page_size: int
+    total: int
+    pages: int
