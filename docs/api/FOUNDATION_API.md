@@ -49,9 +49,29 @@
 | `POST` | `/documents` | metadata-only untuk data sintetis | deprecated; hanya local/test |
 | `POST` | `/evidence` | mengaitkan versi dokumen sebagai evidence | pengguna domain terautentikasi |
 | `POST` | `/approvals` | membuat permintaan approval | pemilik approval terautentikasi |
+| `POST` | `/approvals/{id}/claim` | mengambil approval pending secara eksklusif | approver aktif pada scope terkait |
 | `POST` | `/approvals/{id}/decision` | keputusan approval terpisah dari pemohon | approver berwenang |
 | `POST` | `/exceptions` | membuka exception | governance role |
+| `POST` | `/exceptions/{id}/transition` | investigasi atau menyelesaikan exception dengan evidence | owner atau kepala divisi |
 | `POST` | `/capas` | membuat rencana corrective/preventive action | governance role |
+| `POST` | `/capas/{id}/assign` | menetapkan owner CAPA sesuai divisi dan project | kepala divisi atau Direktur |
+| `POST` | `/capas/{id}/transition` | menjalankan siklus CAPA dan verifikasi independen | owner; penutupan oleh kepala divisi |
+
+## Operational Work API
+
+| Method | Path | Tujuan |
+|---|---|---|
+| `GET` | `/operational/work-queue` | inbox `mine`, `unassigned`, `division`, atau `overdue` |
+| `POST` | `/operational/work-items/{id}/claim` | mengambil work item yang belum dimiliki |
+| `POST` | `/operational/work-items/{id}/delegate` | menugaskan atau mendelegasikan kepada pengguna aktif dalam scope yang sama |
+| `POST` | `/operational/work-items/{id}/release` | melepas owner dengan alasan tercatat |
+| `PATCH` | `/operational/work-items/{id}/deadline` | mengubah deadline dan membatalkan reminder lama |
+| `POST` | `/operational/deadlines/evaluate` | membuat reminder dan escalation deterministik; dijalankan scheduler/IT |
+| `GET` | `/operational/reminders` | membaca reminder personal atau divisi yang berwenang |
+
+Claim, delegasi, perubahan deadline, approval, Exception, dan CAPA ditulis ke audit trail.
+Scheduler hanya mengevaluasi waktu dan membuat record reminder; ia tidak memberi approval
+atau mengubah keputusan bisnis. IT Admin tidak dapat mengambil work item divisi bisnis.
 
 ## Operational Query API
 

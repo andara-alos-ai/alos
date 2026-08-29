@@ -127,7 +127,8 @@ Lead-to-Reservation, Payment-to-Reconciliation, dua cabang
 Site-Evidence, Permit-and-Contract Review, Recruitment-to-Personnel-Checklist, serta
 Executive-Brief-to-Director-Review secara end-to-end. Test juga memverifikasi query
 list/detail, isolasi project, larangan baca lintas divisi, perubahan role/project/status,
-serta alasan perubahan akses pada audit. Seluruh pengguna, project,
+claim/delegasi work item, reminder/escalation idempotent, approval claim dan SoD, serta
+siklus Exception-CAPA dengan evidence. Seluruh pengguna, project,
 transaksi domain, work item, workflow run, agent run, transition event, evidence,
 approval, snapshot eksekutif, KPI snapshot, exception, CAPA, dan audit entry sintetis
 dibersihkan kembali setelah pengujian.

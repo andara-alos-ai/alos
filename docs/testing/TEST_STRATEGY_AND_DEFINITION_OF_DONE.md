@@ -73,6 +73,9 @@ Penilaian AI menggunakan bidang terstruktur, cakupan fakta, akurasi sumber, temu
 10. persetujuan digunakan setelah data material berubah;
 11. laporan atau audit yang sudah final dicoba diubah;
 12. nilai konfigurasi material masih `TBD` tetapi proses dipaksa lanjut.
+13. IT Admin mencoba mengambil atau membaca pekerjaan divisi bisnis;
+14. owner CAPA mencoba menutup dan memverifikasi pekerjaannya sendiri;
+15. scheduler deadline dijalankan ulang dan menghasilkan reminder duplikat pada level sama.
 
 Setiap skenario harus menghasilkan penolakan aman, status yang tepat, pesan yang dapat ditindaklanjuti, dan audit.
 

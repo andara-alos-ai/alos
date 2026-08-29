@@ -680,6 +680,8 @@ def request_approval(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="Approval tidak dapat dibuat") from exc
     except OperationalError as exc:

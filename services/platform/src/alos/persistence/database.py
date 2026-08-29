@@ -283,15 +283,17 @@ class PostgresOperationalStore:
         self, command: ApprovalRequestCreate, principal: Principal
     ) -> ApprovalRequestView:
         approval_id, now = uuid4(), datetime.now(UTC)
+        if command.due_at is not None and command.due_at <= now:
+            raise ValueError("Deadline approval wajib berada di masa depan")
         with self._engine.begin() as connection:
             self._assert_work_item(connection, command.work_item_id, principal)
             connection.execute(
                 text("""
                 INSERT INTO governance.approval_requests
                     (approval_request_id, work_item_id, requester_user_id, policy_code,
-                     policy_version, status, material_fingerprint, created_at)
+                     policy_version, status, material_fingerprint, due_at, created_at)
                 VALUES (:approval_id, :work_item_id, :requester, :policy_code, '0.1.0',
-                        'PENDING', :fingerprint, :now)
+                        'PENDING', :fingerprint, :due_at, :now)
             """),
                 {
                     "approval_id": approval_id,
@@ -299,6 +301,7 @@ class PostgresOperationalStore:
                     "requester": principal.user_id,
                     "policy_code": command.policy_code,
                     "fingerprint": command.material_fingerprint.lower(),
+                    "due_at": command.due_at,
                     "now": now,
                 },
             )
@@ -334,7 +337,7 @@ class PostgresOperationalStore:
                     text("""
                 SELECT ar.approval_request_id, ar.work_item_id, ar.requester_user_id,
                        ar.policy_code, ar.policy_version, ar.status, ar.material_fingerprint,
-                       ar.created_at, ar.decided_at
+                       ar.created_at, ar.decided_at, ar.assigned_approver_user_id
                 FROM governance.approval_requests ar
                 JOIN platform.work_items wi ON wi.work_item_id = ar.work_item_id
                 WHERE ar.approval_request_id = :approval_id
@@ -353,6 +356,8 @@ class PostgresOperationalStore:
                 raise KeyError("Approval request tidak ditemukan")
             if row["requester_user_id"] == principal.user_id:
                 raise AuthorizationDenied("Pemohon tidak dapat menyetujui permintaannya sendiri")
+            if row["assigned_approver_user_id"] not in {None, principal.user_id}:
+                raise AuthorizationDenied("Approval telah ditugaskan kepada approver lain")
             if row["status"] != "PENDING":
                 raise ValueError("Approval request sudah diputuskan")
             self._assert_work_item(connection, row["work_item_id"], principal)
@@ -380,6 +385,13 @@ class PostgresOperationalStore:
                     "now": now,
                     "approval_id": approval_request_id,
                 },
+            )
+            connection.execute(
+                text("""
+                UPDATE platform.reminders SET status = 'CANCELLED'
+                WHERE approval_request_id = :approval_id AND status = 'PENDING'
+            """),
+                {"approval_id": approval_request_id},
             )
             self._append_audit(
                 connection,
@@ -3039,7 +3051,7 @@ class PostgresOperationalStore:
     def list_work_items(
         self, principal: Principal, project_id: UUID | None
     ) -> tuple[WorkItemView, ...]:
-        organization_wide = principal.has_any_role(*self._organization_wide_roles())
+        organization_wide = principal.has_any_role(*self._business_wide_roles())
         if not organization_wide and not principal.division_codes:
             return ()
         parameters: dict[str, Any] = {
@@ -3681,7 +3693,7 @@ class PostgresOperationalStore:
         if row["project_id"] is not None and not principal.can_access_project(row["project_id"]):
             raise AuthorizationDenied("Pengguna tidak memiliki akses ke work item")
         if (
-            not principal.has_any_role(*PostgresOperationalStore._organization_wide_roles())
+            not principal.has_any_role(*PostgresOperationalStore._business_wide_roles())
             and row["division_code"] not in principal.division_codes
         ):
             raise AuthorizationDenied("Pengguna tidak memiliki akses ke divisi work item")
@@ -3692,6 +3704,13 @@ class PostgresOperationalStore:
         from alos.security import Role
 
         return (Role.DIRECTOR, Role.AI_EXECUTIVE, Role.IT_ADMIN, Role.AUDITOR)
+
+    @staticmethod
+    def _business_wide_roles() -> tuple[Any, ...]:
+        """Roles allowed to inspect business records across all divisions."""
+        from alos.security import Role
+
+        return (Role.DIRECTOR, Role.AI_EXECUTIVE, Role.AUDITOR)
 
     @staticmethod
     def _upsert_workflow_release(connection: Any, definition: WorkflowDefinition) -> UUID:

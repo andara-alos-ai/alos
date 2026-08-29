@@ -76,6 +76,12 @@ erDiagram
 
 `WorkItem` menjadi unit kerja universal dengan pemilik, divisi, proyek, prioritas, status, tenggat, asal, dan referensi alur kerja. Penugasan ulang, perubahan tenggat, dan penutupan wajib menghasilkan kejadian dan audit.
 
+`WorkItemAssignment` menyimpan riwayat claim, assignment, delegasi, dan release beserta
+aktor, owner sebelum/sesudah, alasan, dan waktu. `Reminder` mengacu pada work item atau
+approval, penerima pengguna/divisi, jenis `DUE_SOON`, `OVERDUE`, atau `ESCALATION`, level,
+serta status pengiriman. Evaluasi deadline bersifat deterministik, idempotent pada level
+yang sama, dan berhenti pada level maksimum yang dikonfigurasi dalam schema.
+
 Siklus umum:
 
 `DRAFT -> OPEN -> IN_PROGRESS -> NEEDS_REVIEW -> PENDING_APPROVAL -> COMPLETED`
@@ -104,6 +110,7 @@ Invariant minimum:
 - keputusan harus eksplisit: setuju, tolak, atau minta revisi;
 - persetujuan tidak dapat digunakan ulang setelah data material berubah;
 - keterlambatan menghasilkan pengingat dan dapat menjadi penyimpangan, bukan persetujuan otomatis.
+- approval yang telah diklaim hanya dapat diputuskan approver tersebut; claim tidak menghapus larangan self-approval.
 
 ### 6.2 Penyimpangan dan CAPA
 
@@ -114,6 +121,9 @@ Siklus CAPA:
 `OPEN -> ANALYSIS -> ACTION_IN_PROGRESS -> VERIFICATION -> CLOSED`
 
 Penutupan wajib memiliki bukti dan verifikasi pihak berwenang. Status `CLOSED` tidak menghapus penyimpangan asal.
+Owner CAPA tidak dapat menjadi reviewer penutup untuk pekerjaannya sendiri. Exception tidak
+dapat diselesaikan selama masih memiliki CAPA terbuka dan resolution wajib menunjuk versi
+dokumen evidence yang berada pada organisasi, divisi, dan project yang sesuai.
 
 ## 7. Alur Kerja dan Agent
 

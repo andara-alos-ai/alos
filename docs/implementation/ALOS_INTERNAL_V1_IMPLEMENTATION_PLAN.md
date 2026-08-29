@@ -26,6 +26,7 @@
 | FLOW-006 AI Executive | Selesai untuk backend pilot | snapshot bersumber menghasilkan brief dan decision queue untuk Direktur |
 | Operational Query API | Selesai untuk backend pilot | list/detail, pagination, filter, sorting, dan isolasi organisasi/divisi/project |
 | Identity & Access dasar | Selesai untuk backend pilot | direktori user, status, role assignment, project assignment, pencabutan, dan audit |
+| Operasi kerja & governance | Selesai untuk backend pilot | inbox personal/divisi, claim, delegasi, deadline, reminder/escalation, approval claim, Exception dan CAPA terkontrol |
 | Workspace web operasional | Belum selesai | UI saat ini masih katalog foundation dan belum mengoperasikan seluruh workflow |
 
 Status “selesai” di atas berarti siap untuk pengujian internal berbasis data sintetis,

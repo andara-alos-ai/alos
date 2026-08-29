@@ -117,6 +117,21 @@ def test_operational_endpoint_requires_authentication() -> None:
     assert response.status_code == 401
 
 
+def test_phase_four_operational_contract_is_published() -> None:
+    paths = app.openapi()["paths"]
+
+    assert "/api/v1/operational/work-queue" in paths
+    assert "/api/v1/operational/work-items/{work_item_id}/claim" in paths
+    assert "/api/v1/operational/deadlines/evaluate" in paths
+    assert "/api/v1/approvals/{approval_request_id}/claim" in paths
+    assert "/api/v1/exceptions/{exception_id}/transition" in paths
+    assert "/api/v1/capas/{capa_id}/transition" in paths
+
+
+def test_phase_four_operational_endpoint_requires_authentication() -> None:
+    assert client.get("/api/v1/operational/work-queue").status_code == 401
+
+
 def test_local_environment_can_issue_signed_development_token() -> None:
     response = client.post(
         "/api/v1/auth/local-token",
