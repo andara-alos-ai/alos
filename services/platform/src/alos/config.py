@@ -30,6 +30,19 @@ class Settings(BaseSettings):
         default=SecretStr("local-development-only-change-me"), min_length=32
     )
     auth_token_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
+    object_storage_provider: Literal["filesystem", "s3"] = "filesystem"
+    object_storage_bucket: str = Field(
+        default="alos-documents", pattern=r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    )
+    object_storage_path: Path = Path("./data/objects")
+    object_storage_endpoint_url: str | None = None
+    object_storage_region: str = Field(default="us-east-1", min_length=3, max_length=40)
+    object_storage_access_key: SecretStr | None = None
+    object_storage_secret_key: SecretStr | None = None
+    object_storage_max_upload_bytes: int = Field(
+        default=25 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024
+    )
+    document_scan_mode: Literal["disabled", "external"] = "disabled"
     repository_root: Path = Field(default_factory=default_repository_root)
 
     @model_validator(mode="after")
@@ -40,11 +53,54 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "ALOS_AUTH_SIGNING_SECRET wajib unik dan kuat pada staging/production"
                 )
+        if self.environment == "production" and self.object_storage_provider == "filesystem":
+            raise ValueError("Production wajib menggunakan object storage provider s3")
+        if self.environment == "production" and self.document_scan_mode == "disabled":
+            raise ValueError("Production wajib mengaktifkan pemeriksaan malware dokumen")
+        if (
+            self.environment == "production"
+            and self.object_storage_endpoint is not None
+            and not self.object_storage_endpoint.startswith("https://")
+        ):
+            raise ValueError("Endpoint object storage production wajib menggunakan HTTPS")
+        access_key = self.object_storage_access_key_value
+        secret_key = self.object_storage_secret_key_value
+        if bool(access_key) != bool(secret_key):
+            raise ValueError("Access key dan secret key object storage harus diberikan bersama")
         return self
 
     @property
     def definitions_root(self) -> Path:
         return self.repository_root / "definitions"
+
+    @property
+    def resolved_object_storage_path(self) -> Path:
+        if self.object_storage_path.is_absolute():
+            return self.object_storage_path.resolve()
+        return (self.repository_root / self.object_storage_path).resolve()
+
+    @property
+    def object_storage_endpoint(self) -> str | None:
+        value = (self.object_storage_endpoint_url or "").strip()
+        return value or None
+
+    @property
+    def object_storage_access_key_value(self) -> str | None:
+        if self.object_storage_access_key is None:
+            return None
+        value = self.object_storage_access_key.get_secret_value().strip()
+        return value or None
+
+    @property
+    def object_storage_secret_key_value(self) -> str | None:
+        if self.object_storage_secret_key is None:
+            return None
+        value = self.object_storage_secret_key.get_secret_value().strip()
+        return value or None
+
+    @property
+    def max_request_body_bytes(self) -> int:
+        return self.object_storage_max_upload_bytes + 1024 * 1024
 
 
 @lru_cache

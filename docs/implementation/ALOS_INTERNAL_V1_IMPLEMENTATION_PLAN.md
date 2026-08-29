@@ -17,7 +17,7 @@
 |---|---|---|
 | Foundation platform | Selesai | identitas lokal, project, work queue, migrasi, dan audit |
 | Registry dan runtime | Selesai | tepat 18 Core Agent valid pada satu shared runtime |
-| Governance bersama | Selesai | dokumen, evidence, approval, exception, dan CAPA tersedia |
+| Governance bersama | Selesai untuk backend pilot | object storage lokal/S3-compatible, versioning, hash, evidence, approval, exception, CAPA, dan audit tersedia |
 | FLOW-001 Sales | Selesai untuk backend pilot | Lead-to-Reservation lulus integration test PostgreSQL |
 | FLOW-002 Finance | Selesai untuk backend pilot | Payment-to-Reconciliation lulus dengan SoD dan pembaruan budget |
 | FLOW-003 Property | Selesai untuk backend pilot | review terpisah menghasilkan KPI atau exception dan CAPA |

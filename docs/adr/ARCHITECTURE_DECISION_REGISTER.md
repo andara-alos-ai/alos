@@ -4,7 +4,7 @@
 |---|---|
 | Status | Aktif untuk Dasar Pilot |
 | Versi | 0.1.0 |
-| Pembaruan terakhir | 28 Agustus 2026 |
+| Pembaruan terakhir | 29 Agustus 2026 |
 
 ## 1. Tujuan
 
@@ -121,6 +121,23 @@ Status keputusan: `PROPOSED`, `ACCEPTED`, `SUPERSEDED`, atau `REJECTED`.
 **Keputusan:** aplikasi web menggunakan Next.js dan TypeScript; backend modular, workflow, serta shared Agent Runtime menggunakan FastAPI dan Python; database menggunakan PostgreSQL. Versi dependency dikunci melalui `pnpm-lock.yaml` dan environment Python terisolasi. Dokumen pilot memakai adaptor filesystem lokal; penyimpanan objek produksi tetap berada di balik kontrak netral vendor.
 
 **Konsekuensi:** frontend dan backend dapat berkembang secara independen dalam satu monorepo tanpa menjadi microservice per agent. Pemilihan penyedia object storage, identitas, LLM, dan hosting produksi tetap memerlukan evaluasi serta persetujuan terpisah.
+
+## ADR-012 — Object Storage Netral Vendor
+
+**Status:** `ACCEPTED`
+
+**Konteks:** dokumen dan evidence memerlukan isi berkas nyata, versioning, integritas,
+kontrol akses, dan jalur migrasi tanpa mengunci domain pada satu produk storage.
+
+**Keputusan:** modul dokumen bergantung pada kontrak object storage. Local/test memakai
+filesystem terisolasi; production memakai API S3 atau S3-compatible yang disahkan. Server
+menghasilkan object key, hash, ukuran, dan metadata versi. Database tetap menjadi sumber
+relasi dan otorisasi, sedangkan bucket menyimpan isi immutable.
+
+**Konsekuensi:** pemilihan AWS S3 atau layanan compatible lain tidak mengubah workflow.
+Production wajib memakai bucket private terenkripsi, HTTPS, kredensial minimum, malware
+scan, backup, lifecycle, dan uji pemulihan. Produk server tertentu tidak menjadi dependency
+inti repository; vendor dan lokasi hosting tetap `TBD` sampai review deployment.
 
 ## 2. Keputusan yang Belum Dibuat
 

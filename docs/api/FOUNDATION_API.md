@@ -43,7 +43,10 @@
 | `GET` | `/work-items` | antrean kerja terfilter organisasi/divisi/project | pengguna terautentikasi |
 | `POST` | `/workflow-runs/{id}/sales-assignment` | menetapkan Sales PIC dan follow-up awal | Sales atau Head divisi Sales & Marketing |
 | `POST` | `/workflow-runs/{id}/interactions` | mencatat interaksi dan hasil pipeline | Sales PIC atau Head divisi Sales & Marketing |
-| `POST` | `/documents` | mencatat metadata dokumen dan versinya | pengguna domain terautentikasi |
+| `POST` | `/documents/upload` | upload versi pertama; validasi tipe, ukuran, hash, klasifikasi, dan scope dilakukan server | pemilik bisnis sesuai divisi/project |
+| `POST` | `/documents/{id}/versions` | menambah versi immutable | pemilik bisnis dokumen atau Direktur |
+| `GET` | `/documents/{id}/content` | download versi terbaru atau versi tertentu | pembaca yang lolos scope dan klasifikasi |
+| `POST` | `/documents` | metadata-only untuk data sintetis | deprecated; hanya local/test |
 | `POST` | `/evidence` | mengaitkan versi dokumen sebagai evidence | pengguna domain terautentikasi |
 | `POST` | `/approvals` | membuat permintaan approval | pemilik approval terautentikasi |
 | `POST` | `/approvals/{id}/decision` | keputusan approval terpisah dari pemohon | approver berwenang |
@@ -75,6 +78,23 @@ Setiap endpoint detail menggunakan scope yang sama dengan endpoint list. Data da
 organisasi atau project di luar kewenangan dikembalikan sebagai tidak ditemukan atau
 daftar kosong, tanpa membocorkan keberadaan record. IT Admin tidak otomatis mendapat
 akses isi resource bisnis Sales, Finance, Property, Legal, atau HR.
+
+## Dokumen dan Object Storage
+
+Upload menerima PDF, DOCX, XLSX, CSV UTF-8, TXT UTF-8, PNG, dan JPEG dengan batas awal
+25 MB dan batas request diterapkan sebelum pemrosesan penuh. Server membuat object key internal, memeriksa signature/struktur dasar berkas,
+menghitung SHA-256, serta menyimpan nama asli hanya sebagai metadata. Object key, bucket,
+dan kredensial penyimpanan tidak dikirim pada response publik.
+
+Dokumen dimiliki organisasi serta divisi terkait; project bersifat opsional. Versi lama
+tidak ditimpa dan duplikasi hash pada dokumen yang sama ditolak. Upload, versi baru, dan
+download berhasil masuk audit chain. Dokumen `RESTRICTED` tidak dapat dibaca AI Executive;
+IT hanya membaca dokumen divisi IT. Auditor dan Direktur memiliki hak baca organisasi
+sesuai tanggung jawabnya.
+
+Pilot lokal memakai filesystem yang diabaikan Git. Production wajib memakai adaptor S3,
+endpoint HTTPS, enkripsi bucket/provider, dan pemeriksaan malware eksternal. Selama status
+scan belum `CLEAN`, download production diblokir. Vendor storage tetap keputusan deployment.
 
 ## Identity and Access API
 

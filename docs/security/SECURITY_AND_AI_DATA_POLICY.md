@@ -3,9 +3,9 @@
 | Metadata | Nilai |
 |---|---|
 | Status | Rancangan untuk Pilot Internal |
-| Versi | 0.1.0 |
+| Versi | 0.2.0 |
 | Pemilik kebijakan | Manajemen dan IT; pemilik data sesuai divisi |
-| Pembaruan terakhir | 28 Agustus 2026 |
+| Pembaruan terakhir | 29 Agustus 2026 |
 
 ## 1. Tujuan
 
@@ -79,7 +79,7 @@ Dokumen, halaman web, email, dan hasil integrasi diperlakukan sebagai data tidak
 
 ## 8. Dokumen dan Unggahan
 
-Unggahan dibatasi ukuran dan tipe, diberi nama internal, dipindai, dihitung hash-nya, diklasifikasikan, dan disimpan pada penyimpanan objek. Ekstensi file tidak menjadi satu-satunya validasi. Pratinjau dan ekstraksi dilakukan pada proses terisolasi. Tautan unduh bersifat terbatas waktu dan terotorisasi.
+Unggahan dibatasi pada tingkat request dan berkas, dibatasi tipe, diberi nama internal, dihitung hash-nya, diklasifikasikan, dan disimpan pada penyimpanan objek. Ekstensi file tidak menjadi satu-satunya validasi; struktur Office juga dibatasi untuk mengurangi risiko ZIP bomb. Pilot lokal hanya memakai data sintetis dan menandai scan `NOT_CONFIGURED`; production wajib memakai pemeriksaan malware eksternal dan memblokir download sampai status `CLEAN`. Dokumen bersama berklasifikasi rahasia hanya tersedia bagi peran tingkat organisasi. Pratinjau dan ekstraksi dilakukan pada proses terisolasi. Download dilakukan melalui API terotorisasi atau tautan terbatas waktu bila kelak diaktifkan.
 
 ## 9. Rahasia dan Integrasi
 

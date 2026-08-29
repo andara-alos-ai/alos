@@ -624,11 +624,25 @@ def review_executive_brief(
         raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
 
 
-@router.post("/documents", response_model=DocumentView, status_code=201, tags=["documents"])
+@router.post(
+    "/documents",
+    response_model=DocumentView,
+    status_code=201,
+    tags=["documents"],
+    deprecated=True,
+)
 def create_document(
-    request: DocumentCreate, principal: PrincipalDependency, service: OperationsDependency
+    request: DocumentCreate,
+    principal: PrincipalDependency,
+    service: OperationsDependency,
+    settings: SettingsDependency,
 ) -> DocumentView:
     try:
+        if settings.environment not in {"local", "test"}:
+            raise HTTPException(
+                status_code=409,
+                detail="Endpoint metadata-only dinonaktifkan; gunakan /documents/upload",
+            )
         return service.create_document(request, principal)
     except AuthorizationDenied as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc

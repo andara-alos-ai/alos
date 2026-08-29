@@ -163,6 +163,25 @@ class DocumentView(BaseModel):
     created_at: datetime
 
 
+class StoredDocumentView(BaseModel):
+    document_id: UUID
+    document_version_id: UUID
+    organization_id: UUID
+    division_code: str | None
+    project_id: UUID | None
+    logical_name: str
+    classification: str
+    version_number: int
+    original_filename: str
+    sha256: str
+    media_type: str
+    size_bytes: int
+    storage_provider: str
+    scan_status: str
+    verification_status: str
+    created_at: datetime
+
+
 class EvidenceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -19,6 +19,10 @@ class ResourceSpec:
     status_expression: str | None
     search_expression: str | None
     sort_columns: dict[str, str]
+    allow_shared_project: bool = False
+    allow_shared_division: bool = False
+    shared_division_filter: str | None = None
+    ai_executive_filter: str | None = None
 
 
 RESOURCE_SPECS: dict[str, ResourceSpec] = {
@@ -223,16 +227,20 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
     ),
     "documents": ResourceSpec(
         select_sql="""
-            d.document_id, d.project_id, d.logical_name, d.classification,
-            dv.document_version_id, dv.version_number, dv.object_key, dv.sha256,
-            dv.media_type, dv.size_bytes, dv.verification_status,
+            d.document_id, d.project_id, div.code AS division_code,
+            d.logical_name, d.classification, dv.document_version_id,
+            dv.version_number, dv.original_filename, dv.sha256,
+            dv.media_type, dv.size_bytes, dv.storage_provider, dv.scan_status,
+            dv.verification_status,
             dv.created_at, d.updated_at
         """,
         from_sql="""
             platform.documents d
+            LEFT JOIN identity.divisions div ON div.division_id = d.division_id
             JOIN LATERAL (
-                SELECT document_version_id, version_number, object_key, sha256,
-                       media_type, size_bytes, verification_status, created_at
+                SELECT document_version_id, version_number, original_filename, sha256,
+                       media_type, size_bytes, storage_provider, scan_status,
+                       verification_status, created_at
                 FROM platform.document_versions
                 WHERE document_id = d.document_id
                 ORDER BY version_number DESC LIMIT 1
@@ -241,7 +249,7 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
         id_expression="d.document_id",
         organization_expression="d.organization_id",
         project_expression="d.project_id",
-        division_expression=None,
+        division_expression="div.code",
         status_expression="dv.verification_status",
         search_expression="concat_ws(' ', d.logical_name, d.classification, dv.media_type)",
         sort_columns={
@@ -250,6 +258,10 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
             "logical_name": "d.logical_name",
             "status": "dv.verification_status",
         },
+        allow_shared_project=True,
+        allow_shared_division=True,
+        shared_division_filter="d.classification IN ('PUBLIC', 'INTERNAL')",
+        ai_executive_filter="d.classification <> 'RESTRICTED'",
     ),
     "evidence": ResourceSpec(
         select_sql="""
@@ -580,9 +592,7 @@ class PostgresQueryStore:
     ) -> tuple[list[str], dict[str, Any]]:
         conditions = [f"{spec.organization_expression} = :organization_id"]
         parameters: dict[str, Any] = {"organization_id": principal.organization_id}
-        organization_wide = principal.has_any_role(
-            Role.DIRECTOR, Role.AI_EXECUTIVE, Role.IT_ADMIN, Role.AUDITOR
-        )
+        organization_wide = principal.has_any_role(Role.DIRECTOR, Role.AI_EXECUTIVE, Role.AUDITOR)
         if request.project_id is not None:
             if spec.project_expression is None:
                 raise ValueError("Resource ini tidak mendukung filter project_id")
@@ -593,16 +603,45 @@ class PostgresQueryStore:
             parameters["project_id"] = request.project_id
         elif spec.project_expression is not None and not organization_wide:
             if not principal.project_ids:
-                parameters["empty_scope"] = True
-                return conditions, parameters
-            conditions.append(f"{spec.project_expression} = ANY(CAST(:project_ids AS uuid[]))")
-            parameters["project_ids"] = [str(value) for value in principal.project_ids]
+                if spec.allow_shared_project:
+                    conditions.append(f"{spec.project_expression} IS NULL")
+                else:
+                    parameters["empty_scope"] = True
+                    return conditions, parameters
+            else:
+                project_condition = (
+                    f"{spec.project_expression} = ANY(CAST(:project_ids AS uuid[]))"
+                )
+                if spec.allow_shared_project:
+                    project_condition = (
+                        f"({spec.project_expression} IS NULL OR {project_condition})"
+                    )
+                conditions.append(project_condition)
+                parameters["project_ids"] = [str(value) for value in principal.project_ids]
         if spec.division_expression is not None and not organization_wide:
             if not principal.division_codes:
                 parameters["empty_scope"] = True
                 return conditions, parameters
-            conditions.append(f"{spec.division_expression} = ANY(CAST(:division_codes AS text[]))")
+            division_condition = (
+                f"{spec.division_expression} = ANY(CAST(:division_codes AS text[]))"
+            )
+            if spec.allow_shared_division and Role.IT_ADMIN not in principal.roles:
+                shared_condition = f"{spec.division_expression} IS NULL"
+                if spec.shared_division_filter is not None:
+                    shared_condition = (
+                        f"({shared_condition} AND {spec.shared_division_filter})"
+                    )
+                division_condition = (
+                    f"({shared_condition} OR {division_condition})"
+                )
+            conditions.append(division_condition)
             parameters["division_codes"] = sorted(principal.division_codes)
+        if (
+            spec.ai_executive_filter is not None
+            and Role.AI_EXECUTIVE in principal.roles
+            and not principal.has_any_role(Role.DIRECTOR, Role.AUDITOR)
+        ):
+            conditions.append(spec.ai_executive_filter)
         if request.status is not None:
             if spec.status_expression is None:
                 raise ValueError("Resource ini tidak mendukung filter status")

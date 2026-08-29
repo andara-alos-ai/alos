@@ -4,8 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from alos import __version__
 from alos.config import get_settings
 from alos.entrypoints.api import router
+from alos.entrypoints.document_api import router as document_router
 from alos.entrypoints.identity_api import router as identity_router
 from alos.entrypoints.query_api import router as query_router
+from alos.security.request_limits import RequestBodyLimitMiddleware
 
 settings = get_settings()
 
@@ -24,6 +26,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Correlation-ID"],
 )
+app.add_middleware(RequestBodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
 app.include_router(router, prefix=settings.api_prefix)
+app.include_router(document_router, prefix=settings.api_prefix)
 app.include_router(query_router, prefix=settings.api_prefix)
 app.include_router(identity_router, prefix=settings.api_prefix)

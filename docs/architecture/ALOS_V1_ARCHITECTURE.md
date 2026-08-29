@@ -171,6 +171,7 @@ Agent tidak memperoleh akses bebas ke database, sistem berkas, shell, jaringan, 
 
 - PostgreSQL menjadi sistem pencatatan operasional utama.
 - Berkas dokumen dan bukti disimpan di penyimpanan objek; database menyimpan metadata, hash, klasifikasi, versi, dan relasi.
+- Modul dokumen memakai kontrak netral vendor. Local/test menggunakan filesystem terisolasi; staging/production menggunakan S3 atau layanan S3-compatible yang disahkan tanpa mengubah domain.
 - Redis dapat ditambahkan untuk cache atau kunci jangka pendek, tetapi tidak menjadi sumber data resmi.
 - Model baca analitik diturunkan dari data operasional dan kejadian.
 - Indeks vektor, jika digunakan, hanya merupakan turunan dan tidak menggantikan dokumen kanonik.

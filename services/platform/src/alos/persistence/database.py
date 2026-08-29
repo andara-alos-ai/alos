@@ -231,6 +231,7 @@ class PostgresOperationalStore:
                       AND wi.organization_id = :organization_id
                       AND d.organization_id = wi.organization_id
                       AND (d.project_id IS NULL OR d.project_id = wi.project_id)
+                      AND (d.division_id IS NULL OR d.division_id = wi.division_id)
                 """),
                     {
                         "work_item_id": command.work_item_id,

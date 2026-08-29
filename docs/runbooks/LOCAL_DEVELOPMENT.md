@@ -32,6 +32,22 @@ pnpm dev:web
 
 Periksa API melalui `http://localhost:8000/api/v1/health` dan web melalui `http://localhost:3000`.
 
+## Penyimpanan Dokumen Lokal
+
+Konfigurasi default menyimpan berkas sintetis di `data/objects/alos-documents`. Direktori
+tersebut tidak masuk Git. Pertahankan `ALOS_OBJECT_STORAGE_PROVIDER=filesystem` hanya untuk
+local/test dan jangan memasukkan dokumen perusahaan asli.
+
+Gunakan `POST /api/v1/documents/upload` untuk upload multipart, bukan endpoint metadata
+lama. Tambahkan versi melalui `POST /api/v1/documents/{id}/versions` dan unduh melalui
+`GET /api/v1/documents/{id}/content`. Batas awal dikendalikan oleh
+`ALOS_OBJECT_STORAGE_MAX_UPLOAD_BYTES` dengan default 25 MB.
+
+Staging/production menggunakan provider `s3`, bucket private dan terenkripsi, HTTPS, serta
+kredensial terbatas dari secret manager atau IAM workload identity. Mode scan `external`
+memerlukan scanner malware yang mengubah status menjadi `CLEAN`; dokumen pending tidak
+dapat diunduh. Vendor object storage dan scanner production belum disahkan.
+
 ## Bootstrap Identitas Lokal
 
 Endpoint `POST /api/v1/auth/local-token` hanya tersedia pada lingkungan `local` dan
@@ -106,7 +122,8 @@ $env:ALOS_RUN_POSTGRES_TESTS="1"
 Remove-Item Env:ALOS_RUN_POSTGRES_TESTS
 ```
 
-Smoke test menjalankan Lead-to-Reservation, Payment-to-Reconciliation, dua cabang
+Smoke test menjalankan upload/version/download dokumen beserta pembatasan klasifikasinya,
+Lead-to-Reservation, Payment-to-Reconciliation, dua cabang
 Site-Evidence, Permit-and-Contract Review, Recruitment-to-Personnel-Checklist, serta
 Executive-Brief-to-Director-Review secara end-to-end. Test juga memverifikasi query
 list/detail, isolasi project, larangan baca lintas divisi, perubahan role/project/status,

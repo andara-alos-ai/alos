@@ -84,7 +84,12 @@ Status tambahan: `BLOCKED`, `CANCELLED`, dan `FAILED`. Transisi ditentukan defin
 
 ### 5.3 Dokumen dan bukti
 
-`Document` adalah identitas logis dokumen. `DocumentVersion` menyimpan referensi objek, hash, tipe media, ukuran, sumber, versi, klasifikasi, dan status verifikasi. `Evidence` menghubungkan versi dokumen atau data lain dengan klaim/tahap tertentu. Bukti tidak dianggap sah hanya karena berhasil diunggah.
+`Document` adalah identitas logis dokumen dengan pemilik organisasi, divisi bisnis, dan konteks proyek opsional. `DocumentVersion` bersifat immutable serta menyimpan referensi objek internal, nama berkas asal, hash, tipe media, ukuran, provider, versi, status scan, dan status verifikasi. Klasifikasi melekat pada identitas dokumen. `Evidence` menghubungkan versi tertentu dengan klaim/tahap tertentu. Bukti tidak dianggap sah hanya karena berhasil diunggah atau dipindai.
+
+Isi berkas tidak disimpan di PostgreSQL. Upload membuat object key dari UUID internal,
+sedangkan API menghitung hash dan ukuran tanpa mempercayai metadata klien. Versi tidak
+ditimpa; hash yang sama pada dokumen yang sama ditolak. Akses isi selalu diperiksa ulang
+berdasarkan organisasi, divisi, proyek, klasifikasi, dan peran.
 
 ## 6. Tata Kelola
 

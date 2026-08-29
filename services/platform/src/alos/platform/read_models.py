@@ -220,14 +220,17 @@ class PersonnelChecklistRead(BaseModel):
 class DocumentRead(BaseModel):
     document_id: UUID
     project_id: UUID | None
+    division_code: str | None
     logical_name: str
     classification: str
     document_version_id: UUID
     version_number: int
-    object_key: str
+    original_filename: str | None
     sha256: str
     media_type: str
     size_bytes: int
+    storage_provider: str
+    scan_status: str
     verification_status: str
     created_at: datetime
     updated_at: datetime
