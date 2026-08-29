@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.alos.internal/agents/agent-contract-1.0.0.schema.json",
+  "$defs": {
+    "AgentKind": {
+      "enum": ["CORE", "SUB_AGENT", "SUB_SUB_AGENT"],
+      "title": "AgentKind",
+      "type": "string"
+    },
+    "AgentReference": {
+      "additionalProperties": false,
+      "description": "Exact reference to a versioned Agent Contract.",
+      "properties": {
+        "agent_id": {
+          "pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": ["agent_id", "version"],
+      "title": "AgentReference",
+      "type": "object"
+    },
+    "AgentStatus": {
+      "enum": [
+        "DRAFT",
+        "VALIDATED",
+        "TESTED",
+        "REVIEWED",
+        "STAGED",
+        "RELEASED",
+        "DEPRECATED",
+        "RETIRED"
+      ],
+      "title": "AgentStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "agent_id": {
+      "pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 120,
+      "minLength": 3,
+      "title": "Name",
+      "type": "string"
+    },
+    "agent_kind": {
+      "$ref": "#/$defs/AgentKind"
+    },
+    "parent_agent_id": {
+      "anyOf": [
+        {"pattern": "^[A-Z][A-Z0-9_]{1,63}$", "type": "string"},
+        {"type": "null"}
+      ],
+      "default": null,
+      "title": "Parent Agent Id"
+    },
+    "parent_agent_version": {
+      "anyOf": [
+        {"pattern": "^\\d+\\.\\d+\\.\\d+$", "type": "string"},
+        {"type": "null"}
+      ],
+      "default": null,
+      "title": "Parent Agent Version"
+    },
+    "extends": {
+      "anyOf": [
+        {"$ref": "#/$defs/AgentReference"},
+        {"type": "null"}
+      ],
+      "default": null
+    },
+    "domain": {
+      "maxLength": 64,
+      "minLength": 2,
+      "title": "Domain",
+      "type": "string"
+    },
+    "purpose": {"minLength": 20, "title": "Purpose", "type": "string"},
+    "human_owner": {"minLength": 3, "title": "Human Owner", "type": "string"},
+    "triggers": {
+      "items": {"type": "string"},
+      "minItems": 1,
+      "title": "Triggers",
+      "type": "array"
+    },
+    "inputs": {
+      "items": {"type": "string"},
+      "minItems": 1,
+      "title": "Inputs",
+      "type": "array"
+    },
+    "source_of_truth": {
+      "items": {"type": "string"},
+      "minItems": 1,
+      "title": "Source Of Truth",
+      "type": "array"
+    },
+    "capabilities": {
+      "items": {"type": "string"},
+      "minItems": 1,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "outputs": {
+      "items": {"type": "string"},
+      "minItems": 1,
+      "title": "Outputs",
+      "type": "array"
+    },
+    "tools_allowed": {
+      "items": {"type": "string"},
+      "title": "Tools Allowed",
+      "type": "array"
+    },
+    "approval_boundary": {
+      "items": {"type": "string"},
+      "minItems": 1,
+      "title": "Approval Boundary",
+      "type": "array"
+    },
+    "evidence_requirement": {
+      "items": {"type": "string"},
+      "minItems": 1,
+      "title": "Evidence Requirement",
+      "type": "array"
+    },
+    "forbidden_actions": {
+      "items": {"type": "string"},
+      "minItems": 1,
+      "title": "Forbidden Actions",
+      "type": "array"
+    },
+    "metrics": {
+      "items": {"type": "string"},
+      "minItems": 1,
+      "title": "Metrics",
+      "type": "array"
+    },
+    "escalation": {
+      "items": {"type": "string"},
+      "minItems": 1,
+      "title": "Escalation",
+      "type": "array"
+    },
+    "version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    },
+    "status": {"$ref": "#/$defs/AgentStatus"}
+  },
+  "required": [
+    "contract_version",
+    "agent_id",
+    "name",
+    "agent_kind",
+    "domain",
+    "purpose",
+    "human_owner",
+    "triggers",
+    "inputs",
+    "source_of_truth",
+    "capabilities",
+    "outputs",
+    "tools_allowed",
+    "approval_boundary",
+    "evidence_requirement",
+    "forbidden_actions",
+    "metrics",
+    "escalation",
+    "version",
+    "status"
+  ],
+  "title": "AgentDefinition",
+  "type": "object"
+}

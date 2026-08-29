@@ -2,10 +2,10 @@
 
 | Metadata | Nilai |
 |---|---|
-| Status | Rancangan untuk Pilot Internal |
-| Versi | 0.1.0 |
+| Status | Diimplementasikan untuk Fondasi Genesis G1–G3 |
+| Versi | 1.0.0 |
 | Berlaku untuk | Seluruh Core, Sub, dan Sub-Sub Agent |
-| Pembaruan terakhir | 28 Agustus 2026 |
+| Pembaruan terakhir | 30 Agustus 2026 |
 
 ## 1. Tujuan
 
@@ -24,8 +24,13 @@ Agent Contract adalah kontrak berversi yang menentukan identitas, tugas, kewenan
 
 | Bidang | Ketentuan |
 |---|---|
+| `contract_version` | versi skema Agent Contract yang digunakan |
 | `agent_id` | pengenal stabil, unik, dan tidak berubah antarversi |
 | `name` | nama resmi agent |
+| `agent_kind` | `CORE`, `SUB_AGENT`, atau `SUB_SUB_AGENT` |
+| `parent_agent_id` | identitas parent; `null` untuk Core Agent |
+| `parent_agent_version` | versi parent yang dirujuk; `null` untuk Core Agent |
+| `extends` | referensi agent dan versi dasar yang diperluas; dapat `null` |
 | `domain` | domain bisnis atau `shared-enterprise` |
 | `purpose` | hasil bisnis yang menjadi tanggung jawab agent |
 | `human_owner` | peran manusia yang memiliki akuntabilitas bisnis |
@@ -38,12 +43,23 @@ Agent Contract adalah kontrak berversi yang menentukan identitas, tugas, kewenan
 | `approval_boundary` | kondisi yang memerlukan review atau persetujuan manusia |
 | `evidence_requirement` | bukti minimum dan aturan keabsahannya |
 | `forbidden_actions` | tindakan yang selalu dilarang |
-| `KPI/metrics` | ukuran kualitas, hasil, risiko, biaya, dan kecepatan |
+| `metrics` | ukuran kualitas, hasil, risiko, biaya, dan kecepatan |
 | `escalation` | pemicu, tujuan, batas waktu, dan jalur eskalasi |
 | `version` | versi semantik kontrak |
 | `status` | status siklus hidup definisi |
 
 Bidang tambahan yang dianjurkan: tingkat risiko, skema keyakinan, batas waktu eksekusi, kebijakan percobaan ulang, klasifikasi data, masa berlaku, dependensi kontrak, dan skenario pengujian.
+
+`KPI/metrics` tetap diterima sebagai alias kompatibilitas untuk definisi lama, tetapi representasi kanonik menggunakan `metrics`. JSON Schema resmi berada pada `definitions/schemas/agent-contract.schema.json`.
+
+### 3.1 Hierarki Agent
+
+- Core Agent tidak memiliki parent;
+- Sub-Agent wajib menunjuk Core Agent beserta versi yang tepat;
+- Sub-Sub-Agent wajib menunjuk Sub-Agent beserta versi yang tepat;
+- kombinasi `agent_id` dan `version` wajib unik;
+- parent dan `extends` yang tidak ditemukan, self-reference, serta dependency cycle ditolak;
+- penambahan Sub-Agent atau Sub-Sub-Agent tidak mengubah baseline tepat 18 identitas Core Agent.
 
 ## 4. Status Definisi
 
@@ -75,6 +91,10 @@ Setiap keluaran minimum memuat:
 - rekomendasi langkah berikutnya;
 - kebutuhan review/persetujuan;
 - waktu, model, prompt, kemampuan, dan alat yang digunakan.
+
+Setiap execution plan juga membawa `contract_version`, `agent_kind`, `agent_version`, dan SHA-256 `contract_digest`. Agent Release menyimpan konten kontrak lengkap beserta status lifecycle pada kolom terpisah. Snapshot dengan kombinasi `agent_id` dan `version` yang sama tidak boleh ditimpa dengan isi berbeda. Perubahan status seperti `STAGED` menjadi `RELEASED` tidak mengubah digest konten.
+
+Capability yang digunakan workflow diikat melalui invocation contract berisi mode deterministik/AI, referensi tool, versi agent, dan kebutuhan review. Detail teknisnya berada pada `TOOL_REGISTRY_AND_CAPABILITY_INVOCATION.md`.
 
 Keluaran yang gagal validasi skema berstatus `FAILED_OUTPUT_VALIDATION` dan tidak boleh diteruskan sebagai fakta atau dasar tindakan.
 
@@ -112,6 +132,8 @@ Volume eksekusi bukan satu-satunya ukuran keberhasilan.
 ## 11. Perubahan dan Kompatibilitas
 
 Perubahan mayor digunakan ketika makna hasil, batas kewenangan, atau skema tidak kompatibel. Perubahan minor menambah kemampuan kompatibel; patch memperbaiki perilaku tanpa mengubah kontrak. Rilis baru wajib memiliki perbandingan, pengujian regresi, review pemilik bisnis, dan rencana rollback.
+
+Registry memilih versi semantik terbaru jika pemanggil tidak menentukan versi. Eksekusi yang perlu reproduktif dapat meminta versi secara eksplisit. Perubahan isi kontrak selalu menggunakan versi baru; perubahan isi pada snapshot versi yang sama ditolak.
 
 ## 12. Validasi Minimum
 

@@ -1,3 +1,3 @@
-from alos.agents.registry.service import AgentRegistry
+from alos.agents.registry.service import CORE_AGENT_IDS, AgentRegistry, RegistryError
 
-__all__ = ["AgentRegistry"]
+__all__ = ["CORE_AGENT_IDS", "AgentRegistry", "RegistryError"]

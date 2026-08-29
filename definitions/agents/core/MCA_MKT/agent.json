@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "MCA_MKT",
   "name": "Marketing Content Agent",
   "domain": "sales-marketing",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Seluruh publikasi eksternal memerlukan review dan approval manusia"],
   "evidence_requirement": ["Brief, sumber klaim, guideline, dan hasil review tercatat"],
   "forbidden_actions": ["Menerbitkan konten", "Membuat klaim tanpa sumber", "Mengubah brand guideline"],
-  "KPI/metrics": ["Tingkat penerimaan draft", "Koreksi kepatuhan", "Waktu penyusunan"],
+  "metrics": ["Tingkat penerimaan draft", "Koreksi kepatuhan", "Waktu penyusunan"],
   "escalation": ["Brief tidak lengkap", "Klaim tidak memiliki bukti", "Guideline bertentangan"],
   "version": "0.1.0",
   "status": "STAGED"

@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "KDA",
   "name": "KPI Dashboard Agent",
   "domain": "shared-enterprise",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Rumus dan target hanya dapat dirilis oleh pemilik KPI"],
   "evidence_requirement": ["Rumus, versi, periode, dan rekaman input harus dapat ditelusuri"],
   "forbidden_actions": ["Membuat rumus sendiri", "Mengubah target", "Menggunakan LLM untuk arithmetic"],
-  "KPI/metrics": ["Reproducibility", "Freshness data", "Jumlah KPI terblokir"],
+  "metrics": ["Reproducibility", "Freshness data", "Jumlah KPI terblokir"],
   "escalation": ["Rumus berstatus TBD", "Input belum terverifikasi", "Data periode tidak lengkap"],
   "version": "0.1.0",
   "status": "STAGED"

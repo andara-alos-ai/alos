@@ -136,7 +136,7 @@ pnpm test
 pnpm build
 ```
 
-Registry valid hanya jika tepat 18 Core Agent dan enam workflow dapat dimuat. Workflow harus menolak transisi yang tidak didefinisikan.
+Registry valid hanya jika tepat 18 Core Agent, 38 tool, dan enam workflow dapat dimuat. Setiap langkah agent wajib memiliki capability invocation yang valid; workflow harus menolak transisi yang tidak didefinisikan.
 
 Pemeriksaan web juga mencakup redirect tanpa sesi, login pilot, dashboard data nyata,
 navigasi role/divisi, konteks proyek, tampilan kosong/error, serta breakpoint ponsel.

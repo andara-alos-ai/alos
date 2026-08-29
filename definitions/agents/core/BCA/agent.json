@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "BCA",
   "name": "Budget & Cashflow Agent",
   "domain": "finance",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Perubahan anggaran dan persetujuan pembayaran dilakukan manusia berwenang"],
   "evidence_requirement": ["Versi anggaran, baris anggaran, nilai, dan komitmen dapat ditelusuri"],
   "forbidden_actions": ["Menyetujui pembayaran", "Mengubah anggaran", "Menggunakan LLM untuk arithmetic"],
-  "KPI/metrics": ["Akurasi pemeriksaan", "Budget variance", "Permintaan terblokir"],
+  "metrics": ["Akurasi pemeriksaan", "Budget variance", "Permintaan terblokir"],
   "escalation": ["Anggaran tidak cukup", "RAB tidak ditemukan", "Aturan materialitas TBD"],
   "version": "0.1.0",
   "status": "STAGED"

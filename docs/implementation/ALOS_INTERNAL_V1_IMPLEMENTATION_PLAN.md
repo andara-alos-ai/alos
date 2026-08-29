@@ -8,7 +8,7 @@
 | Tahap pelaksanaan | ALOS Internal Agent Pilot v0.1 |
 | Pemilik | PT Andara Rejo Makmur |
 | Pengelola teknis | Divisi IT |
-| Pembaruan terakhir | 29 Agustus 2026 |
+| Pembaruan terakhir | 30 Agustus 2026 |
 | Sumber utama | Dokumen Master Blueprint ALOS + GENESIS, 27 Agustus 2026 |
 
 ## Status Implementasi Saat Ini
@@ -16,7 +16,8 @@
 | Area | Status | Bukti minimum |
 |---|---|---|
 | Foundation platform | Selesai | identitas lokal, project, work queue, migrasi, dan audit |
-| Registry dan runtime | Selesai | tepat 18 Core Agent valid pada satu shared runtime |
+| Registry dan runtime | Fondasi Genesis G1–G2 | 18 Core tetap utuh; contract universal, Tool Registry, invocation workflow, runtime generik, digest, dan snapshot release immutable |
+| Interface Genesis | Fondasi Genesis G3 | proposal REUSE/EXTEND/CREATE tervalidasi, diff deterministik, review manusia wajib, tanpa akses production |
 | Governance bersama | Selesai untuk backend pilot | object storage lokal/S3-compatible, versioning, hash, evidence, approval, exception, CAPA, dan audit tersedia |
 | FLOW-001 Sales | Selesai untuk backend pilot | Lead-to-Reservation lulus integration test PostgreSQL |
 | FLOW-002 Finance | Selesai untuk backend pilot | Payment-to-Reconciliation lulus dengan SoD dan pembaruan budget |
@@ -158,9 +159,11 @@ Seluruh agent menggunakan satu kontrak dan siklus eksekusi:
 
 Setiap definisi wajib memuat:
 
-`agent_id, name, domain, purpose, human_owner, triggers, inputs, source_of_truth, capabilities, outputs, tools_allowed, approval_boundary, evidence_requirement, forbidden_actions, KPI/metrics, escalation, version, status`.
+`contract_version, agent_id, name, agent_kind, parent_agent_id, parent_agent_version, extends, domain, purpose, human_owner, triggers, inputs, source_of_truth, capabilities, outputs, tools_allowed, approval_boundary, evidence_requirement, forbidden_actions, metrics, escalation, version, status`.
 
 Lingkungan eksekusi bertanggung jawab atas validasi kontrak, otorisasi, pembatasan kemampuan dan alat, validasi keluaran terstruktur, pencatatan sumber, penyerahan review manusia, idempotensi, percobaan ulang, penghentian darurat, audit, dan telemetri.
+
+Konfigurasi pemanggilan agent berada pada capability invocation di definisi workflow. Agent Runtime menyelesaikan agent, capability, dan tool melalui registry; service domain hanya memilih workflow, langkah, serta selector bisnis yang sah.
 
 ## 8. Alur Kerja Awal
 

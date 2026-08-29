@@ -26,3 +26,21 @@ def test_human_decisions_are_not_assigned_to_agents() -> None:
     ]
     assert decision_steps
     assert all(step.actor_type == "human" for step in decision_steps)
+
+
+def test_every_agent_step_has_registry_validated_invocation_contract() -> None:
+    workflows = WorkflowRegistry(REPOSITORY_ROOT / "definitions").load_all()
+    agent_steps = [
+        step for workflow in workflows for step in workflow.steps if step.actor_type == "agent"
+    ]
+
+    assert agent_steps
+    assert all(step.invocations for step in agent_steps)
+    assert all(step.actor_ref != "LPA_OR_CLA" for step in agent_steps)
+
+
+def test_legal_workflow_resolves_permit_and_contract_agents_without_placeholder() -> None:
+    workflow = WorkflowRegistry(REPOSITORY_ROOT / "definitions").get("FLOW-004")
+
+    assert workflow.resolve_invocations("legal-analysis", "PERMIT")[0].agent_id == "LPA"
+    assert workflow.resolve_invocations("legal-analysis", "CONTRACT")[0].agent_id == "CLA"

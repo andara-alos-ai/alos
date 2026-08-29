@@ -2,7 +2,7 @@
   "workflow_id": "FLOW-001",
   "name": "Lead ke Reservasi",
   "purpose": "Mencatat, menugaskan, menindaklanjuti, dan memproses lead sampai hasil pipeline yang sah.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "status": "STAGED",
   "owner": "Kepala Sales & Marketing",
   "trigger": ["Formulir lead internal", "Impor data sintetis"],
@@ -11,9 +11,9 @@
   "terminal_steps": ["pipeline-result", "exception-open"],
   "steps": [
     {"step_id": "lead-received", "name": "Lead diterima", "actor_type": "system", "actor_ref": "workflow-engine", "deterministic": true},
-    {"step_id": "lead-validation", "name": "Validasi dan deduplikasi", "actor_type": "agent", "actor_ref": "SLA", "deterministic": true, "requires_evidence": true},
+    {"step_id": "lead-validation", "name": "Validasi dan deduplikasi", "actor_type": "agent", "actor_ref": "SLA", "deterministic": true, "requires_evidence": true, "invocations": [{"agent_id": "SLA", "capability": "validate_lead_fields", "execution_mode": "DETERMINISTIC", "tools": []}]},
     {"step_id": "sales-assignment", "name": "Penugasan Sales PIC", "actor_type": "human", "actor_ref": "Sales Human", "deterministic": true},
-    {"step_id": "follow-up-plan", "name": "Rencana tindak lanjut", "actor_type": "agent", "actor_ref": "CFA", "deterministic": false},
+    {"step_id": "follow-up-plan", "name": "Rencana tindak lanjut", "actor_type": "agent", "actor_ref": "CFA", "deterministic": false, "invocations": [{"agent_id": "CFA", "capability": "schedule_follow_up_task", "execution_mode": "DETERMINISTIC", "tools": ["alos.work_item.create"]}]},
     {"step_id": "interaction-review", "name": "Interaksi dan hasil", "actor_type": "human", "actor_ref": "Sales Human", "deterministic": true, "requires_human_decision": true},
     {"step_id": "pipeline-result", "name": "Pipeline atau reservasi tercatat", "actor_type": "system", "actor_ref": "sales-domain", "deterministic": true},
     {"step_id": "exception-open", "name": "Exception dibuka", "actor_type": "system", "actor_ref": "governance", "deterministic": true}

@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "MCA",
   "name": "Master Control Agent",
   "domain": "shared-enterprise",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Brief wajib direview sebelum menjadi komunikasi resmi", "Keputusan tetap dibuat Direktur Utama"],
   "evidence_requirement": ["Setiap klaim material harus memiliki referensi rekaman ALOS"],
   "forbidden_actions": ["Membuat keputusan final", "Mengubah fakta atau status bisnis", "Mengubah struktur organisasi"],
-  "KPI/metrics": ["Kelengkapan sumber", "Tingkat koreksi manusia", "Usia decision item"],
+  "metrics": ["Kelengkapan sumber", "Tingkat koreksi manusia", "Usia decision item"],
   "escalation": ["Sumber bertentangan", "KPI belum memiliki rumus rilis", "Klaim tidak memiliki sumber"],
   "version": "0.1.0",
   "status": "STAGED"

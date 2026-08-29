@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "HPA",
   "name": "HR Personnel File Agent",
   "domain": "hr",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Pembukaan atau distribusi data personalia memerlukan kewenangan HR"],
   "evidence_requirement": ["Versi dokumen, klasifikasi, pemilik, dan masa berlaku tercatat"],
   "forbidden_actions": ["Membuka data kepada pihak tak berwenang", "Mengubah dokumen", "Menghapus riwayat"],
-  "KPI/metrics": ["Kelengkapan berkas", "Dokumen kedaluwarsa", "Pelanggaran akses"],
+  "metrics": ["Kelengkapan berkas", "Dokumen kedaluwarsa", "Pelanggaran akses"],
   "escalation": ["Dokumen wajib kurang", "Klasifikasi tidak jelas", "Permintaan akses tidak sah"],
   "version": "0.1.0",
   "status": "STAGED"

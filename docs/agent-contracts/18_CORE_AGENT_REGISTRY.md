@@ -2,14 +2,20 @@
 
 | Metadata | Nilai |
 |---|---|
-| Status | Dasar Implementasi Pilot |
-| Versi registry | 0.1.0 |
+| Status | Fondasi Genesis G1–G3 |
+| Versi registry | 1.0.0 |
 | Lingkungan eksekusi | Satu lingkungan eksekusi agent bersama |
-| Pembaruan terakhir | 28 Agustus 2026 |
+| Pembaruan terakhir | 30 Agustus 2026 |
 
 ## 1. Tujuan
 
-Registry ini menetapkan 18 Core Agent yang digunakan pada pilot. Registry menjelaskan tanggung jawab, pemilik manusia, masukan, keluaran, dan batas utamanya. Konfigurasi yang dapat dijalankan nantinya berada di `definitions/agents/core/` dan wajib mengikuti Agent Contract.
+Registry menetapkan 18 identitas Core Agent yang digunakan pada pilot sekaligus menjadi sumber tunggal definisi Core, Sub-Agent, dan Sub-Sub-Agent. Registry menjelaskan tanggung jawab, pemilik manusia, masukan, keluaran, hierarchy, versi, dan batas agent. Seluruh konfigurasi berada di bawah `definitions/agents/` dan wajib mengikuti Agent Contract.
+
+Registry membaca `definitions/agents/**/agent.json`, memvalidasi referensi silang, dan mengindeks kontrak berdasarkan kombinasi `agent_id` serta `version`. Tepat 18 hanya berlaku untuk identitas Core Agent; versi tambahan, Sub-Agent, dan Sub-Sub-Agent tidak dihitung sebagai Core baru.
+
+Pemanggilan tanpa versi menggunakan versi semantik terbaru. Runtime dapat meminta versi tertentu dan hanya menjalankan status yang diizinkan oleh release gate. Pada lingkungan pilot, `STAGED` dan `RELEASED` dapat dijalankan; production nantinya hanya menggunakan `RELEASED`.
+
+Agent Registry memvalidasi setiap `tools_allowed` terhadap Tool Registry. Penambahan agent oleh pipeline Genesis selalu berupa proposal DRAFT dan tidak mengubah 18 identitas Core.
 
 ## 2. Pemetaan Kepemilikan
 

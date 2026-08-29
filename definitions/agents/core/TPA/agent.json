@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "TPA",
   "name": "Technical Progress Agent",
   "domain": "property",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Persentase progres final dan implikasi pembayaran dikonfirmasi manusia"],
   "evidence_requirement": ["Berkas asli, hash, waktu, lokasi jika diwajibkan, dan pengukuran"],
   "forbidden_actions": ["Menyetujui pembayaran", "Menetapkan status izin", "Menentukan progres final tanpa pengukuran"],
-  "KPI/metrics": ["Akurasi variance", "Bukti ditolak", "Defect overdue", "Waktu verifikasi"],
+  "metrics": ["Akurasi variance", "Bukti ditolak", "Defect overdue", "Waktu verifikasi"],
   "escalation": ["Bukti tidak lengkap", "Variance melebihi kebijakan", "Izin dependensi tidak valid"],
   "version": "0.1.0",
   "status": "STAGED"

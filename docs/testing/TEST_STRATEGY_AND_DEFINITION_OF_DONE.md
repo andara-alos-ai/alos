@@ -5,7 +5,7 @@
 | Status | Rancangan untuk Pilot Internal |
 | Versi | 0.1.0 |
 | Cakupan | ALOS Internal Agent Pilot v0.1 |
-| Pembaruan terakhir | 29 Agustus 2026 |
+| Pembaruan terakhir | 30 Agustus 2026 |
 
 ## 1. Tujuan
 
@@ -52,7 +52,11 @@ Dokumen regresi tidak boleh mengandung nama, nomor identitas, rekening, kontrak,
 Setiap Core Agent wajib diuji untuk:
 
 - validasi kontrak dan masukan;
+- validasi jenis agent, parent version, inheritance, dan dependency cycle;
+- stabilitas contract digest serta immutability snapshot release;
 - pembatasan kemampuan dan alat;
+- validasi referensi Agent Registry, Tool Registry, dan capability invocation;
+- blokir tool AI pada langkah deterministik;
 - validasi skema keluaran;
 - sumber dan bukti;
 - hasil ketika data kurang atau bertentangan;
@@ -61,6 +65,7 @@ Setiap Core Agent wajib diuji untuk:
 - larangan tindakan;
 - audit versi model, prompt, agent, dan alat;
 - regresi kualitas antarversi.
+- proposal Genesis REUSE/EXTEND/CREATE tidak memiliki efek production dan selalu melewati review manusia.
 
 Penilaian AI menggunakan bidang terstruktur, cakupan fakta, akurasi sumber, temuan wajib, halusinasi, dan tingkat koreksi manusia. Nilai ambang kualitas per agent ditetapkan pada kontrak dan dapat berstatus pilot sebelum disahkan.
 

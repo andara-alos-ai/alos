@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "HRA",
   "name": "HR Recruitment & Attendance Agent",
   "domain": "hr",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Keputusan ketenagakerjaan hanya dibuat HR Human dan pejabat berwenang"],
   "evidence_requirement": ["Kriteria berversi, review manusia, dan dokumen sanitasi tercatat"],
   "forbidden_actions": ["Memutuskan penerimaan", "Memberi sanksi", "Memproses atribut sensitif yang dilarang"],
-  "KPI/metrics": ["Kelengkapan screening", "Waktu review", "Bias dan koreksi manusia", "Akses diblokir"],
+  "metrics": ["Kelengkapan screening", "Waktu review", "Bias dan koreksi manusia", "Akses diblokir"],
   "escalation": ["Akses tidak sah", "Kriteria berubah", "Data sensitif ditemukan", "Review lewat tenggat"],
   "version": "0.1.0",
   "status": "STAGED"

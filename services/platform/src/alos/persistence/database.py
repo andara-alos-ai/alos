@@ -58,6 +58,14 @@ from alos.workflow.models import WorkflowDefinition
 from alos.workflow.state_machine import StateMachine
 
 
+class AgentReleaseConflictError(RuntimeError):
+    """Raised when an immutable agent version is reused with different content."""
+
+
+class WorkflowReleaseConflictError(RuntimeError):
+    """Raised when an immutable workflow version is reused with different content."""
+
+
 class Database:
     def __init__(self, url: str) -> None:
         self.engine: Engine = create_engine(url, pool_pre_ping=True)
@@ -3004,11 +3012,14 @@ class PostgresOperationalStore:
                     INSERT INTO agents.agent_runs
                         (agent_run_id, agent_release_id, workflow_run_id, status,
                          input_reference, output_reference, correlation_id,
-                         idempotency_key, started_at, completed_at)
+                         idempotency_key, started_at, completed_at, capability,
+                         execution_mode, approved_tools, workflow_step_id, contract_digest)
                     VALUES
                         (:agent_run_id, :release_id, :workflow_run_id, 'COMPLETED',
                          CAST(:input_reference AS jsonb), CAST(:output_reference AS jsonb),
-                         :correlation_id, :idempotency_key, :now, :now)
+                         :correlation_id, :idempotency_key, :now, :now, :capability,
+                         :execution_mode, CAST(:approved_tools AS jsonb), :workflow_step_id,
+                         :contract_digest)
                     """
                 ),
                 {
@@ -3022,6 +3033,13 @@ class PostgresOperationalStore:
                     "correlation_id": correlation_id,
                     "idempotency_key": agent_plan.idempotency_key,
                     "now": now,
+                    "capability": agent_plan.capability,
+                    "execution_mode": agent_plan.execution_mode.value,
+                    "approved_tools": json.dumps(
+                        [item.model_dump(mode="json") for item in agent_plan.approved_tool_releases]
+                    ),
+                    "workflow_step_id": agent_plan.workflow_step_id,
+                    "contract_digest": agent_plan.contract_digest,
                 },
             )
             self._append_audit(
@@ -3485,11 +3503,14 @@ class PostgresOperationalStore:
                 INSERT INTO agents.agent_runs
                     (agent_run_id, agent_release_id, workflow_run_id, status,
                      input_reference, output_reference, correlation_id,
-                     idempotency_key, started_at, completed_at)
+                     idempotency_key, started_at, completed_at, capability,
+                     execution_mode, approved_tools, workflow_step_id, contract_digest)
                 VALUES
                     (:agent_run_id, :release_id, :workflow_run_id, 'COMPLETED',
                      CAST(:inputs AS jsonb), CAST(:output AS jsonb), :correlation_id,
-                     :idempotency_key, :occurred_at, :occurred_at)
+                     :idempotency_key, :occurred_at, :occurred_at, :capability,
+                     :execution_mode, CAST(:approved_tools AS jsonb), :workflow_step_id,
+                     :contract_digest)
                 """
             ),
             {
@@ -3501,6 +3522,13 @@ class PostgresOperationalStore:
                 "correlation_id": correlation_id,
                 "idempotency_key": plan.idempotency_key,
                 "occurred_at": occurred_at,
+                "capability": plan.capability,
+                "execution_mode": plan.execution_mode.value,
+                "approved_tools": json.dumps(
+                    [item.model_dump(mode="json") for item in plan.approved_tool_releases]
+                ),
+                "workflow_step_id": plan.workflow_step_id,
+                "contract_digest": plan.contract_digest,
             },
         )
         return plan.run_id
@@ -3714,49 +3742,186 @@ class PostgresOperationalStore:
 
     @staticmethod
     def _upsert_workflow_release(connection: Any, definition: WorkflowDefinition) -> UUID:
-        return connection.execute(
+        release_definition = definition.canonical_payload()
+        release_definition["definition_digest"] = definition.definition_digest
+        serialized_definition = json.dumps(
+            release_definition,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        release_id = connection.execute(
             text(
                 """
                 INSERT INTO workflow.workflow_releases
                     (workflow_id, version, definition, status)
-                VALUES (:workflow_id, :version, CAST(:definition AS jsonb), 'STAGED')
+                VALUES (:workflow_id, :version, CAST(:definition AS jsonb), :status)
                 ON CONFLICT (workflow_id, version)
-                DO UPDATE SET definition = EXCLUDED.definition
+                DO NOTHING
                 RETURNING workflow_release_id
                 """
             ),
             {
                 "workflow_id": definition.workflow_id,
                 "version": definition.version,
-                "definition": definition.model_dump_json(),
+                "definition": serialized_definition,
+                "status": definition.status,
             },
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if release_id is not None:
+            return release_id
+
+        existing = (
+            connection.execute(
+                text(
+                    """
+                    SELECT workflow_release_id, definition
+                    FROM workflow.workflow_releases
+                    WHERE workflow_id = :workflow_id AND version = :version
+                    FOR UPDATE
+                    """
+                ),
+                {"workflow_id": definition.workflow_id, "version": definition.version},
+            )
+            .mappings()
+            .one()
+        )
+        existing_definition = existing["definition"]
+        if existing_definition.get("definition_digest") == definition.definition_digest:
+            connection.execute(
+                text(
+                    """
+                    UPDATE workflow.workflow_releases
+                    SET status = :status,
+                        released_at = CASE
+                            WHEN :status = 'RELEASED' THEN COALESCE(released_at, now())
+                            ELSE released_at
+                        END
+                    WHERE workflow_release_id = :workflow_release_id
+                    """
+                ),
+                {
+                    "workflow_release_id": existing["workflow_release_id"],
+                    "status": definition.status,
+                },
+            )
+            return existing["workflow_release_id"]
+
+        if "definition_digest" not in existing_definition:
+            upgraded_release_id = connection.execute(
+                text(
+                    """
+                    UPDATE workflow.workflow_releases
+                    SET definition = CAST(:definition AS jsonb), status = :status
+                    WHERE workflow_release_id = :workflow_release_id
+                      AND NOT (definition ? 'definition_digest')
+                    RETURNING workflow_release_id
+                    """
+                ),
+                {
+                    "workflow_release_id": existing["workflow_release_id"],
+                    "definition": serialized_definition,
+                    "status": definition.status,
+                },
+            ).scalar_one_or_none()
+            if upgraded_release_id is not None:
+                return upgraded_release_id
+
+        raise WorkflowReleaseConflictError(
+            f"Workflow release immutable berbeda untuk "
+            f"{definition.workflow_id}@{definition.version}"
+        )
 
     @staticmethod
     def _upsert_agent_release(connection: Any, plan: AgentExecutionPlan) -> UUID:
-        definition = {
-            "agent_id": plan.agent_id,
-            "version": plan.agent_version,
-            "capability": plan.capability,
-            "approved_tools": plan.approved_tools,
-        }
-        return connection.execute(
+        definition = plan.contract_snapshot.canonical_payload()
+        definition["contract_digest"] = plan.contract_digest
+        serialized_definition = json.dumps(
+            definition,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        release_id = connection.execute(
             text(
                 """
                 INSERT INTO agents.agent_releases
                     (agent_id, version, definition, status)
-                VALUES (:agent_id, :version, CAST(:definition AS jsonb), 'STAGED')
+                VALUES (:agent_id, :version, CAST(:definition AS jsonb), :status)
                 ON CONFLICT (agent_id, version)
-                DO UPDATE SET definition = agents.agent_releases.definition || EXCLUDED.definition
+                DO NOTHING
                 RETURNING agent_release_id
                 """
             ),
             {
                 "agent_id": plan.agent_id,
                 "version": plan.agent_version,
-                "definition": json.dumps(definition),
+                "definition": serialized_definition,
+                "status": plan.contract_snapshot.status.value,
             },
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if release_id is not None:
+            return release_id
+
+        existing = (
+            connection.execute(
+                text(
+                    """
+                    SELECT agent_release_id, definition
+                    FROM agents.agent_releases
+                    WHERE agent_id = :agent_id AND version = :version
+                    FOR UPDATE
+                    """
+                ),
+                {"agent_id": plan.agent_id, "version": plan.agent_version},
+            )
+            .mappings()
+            .one()
+        )
+        existing_definition = existing["definition"]
+        if existing_definition.get("contract_digest") == plan.contract_digest:
+            connection.execute(
+                text(
+                    """
+                    UPDATE agents.agent_releases
+                    SET status = :status,
+                        released_at = CASE
+                            WHEN :status = 'RELEASED' THEN COALESCE(released_at, now())
+                            ELSE released_at
+                        END
+                    WHERE agent_release_id = :agent_release_id
+                    """
+                ),
+                {
+                    "agent_release_id": existing["agent_release_id"],
+                    "status": plan.contract_snapshot.status.value,
+                },
+            )
+            return existing["agent_release_id"]
+
+        if "contract_digest" not in existing_definition:
+            upgraded_release_id = connection.execute(
+                text(
+                    """
+                    UPDATE agents.agent_releases
+                    SET definition = CAST(:definition AS jsonb), status = :status
+                    WHERE agent_release_id = :agent_release_id
+                      AND NOT (definition ? 'contract_digest')
+                    RETURNING agent_release_id
+                    """
+                ),
+                {
+                    "agent_release_id": existing["agent_release_id"],
+                    "definition": serialized_definition,
+                    "status": plan.contract_snapshot.status.value,
+                },
+            ).scalar_one_or_none()
+            if upgraded_release_id is not None:
+                return upgraded_release_id
+
+        raise AgentReleaseConflictError(
+            f"Agent release immutable berbeda untuk {plan.agent_id}@{plan.agent_version}"
+        )
 
     @staticmethod
     def _append_audit(

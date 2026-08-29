@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "TIA",
   "name": "Tax & Invoice Agent",
   "domain": "finance",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Keputusan pajak final dan pelaporan dilakukan manusia berwenang"],
   "evidence_requirement": ["Invoice, aturan pajak, dan hasil hitung memiliki referensi versi"],
   "forbidden_actions": ["Melapor ke DJP", "Mengubah invoice", "Memberi keputusan pajak final"],
-  "KPI/metrics": ["Akurasi ekstraksi", "Koreksi invoice", "Tingkat review manusia"],
+  "metrics": ["Akurasi ekstraksi", "Koreksi invoice", "Tingkat review manusia"],
   "escalation": ["Aturan pajak TBD", "Identitas lawan transaksi tidak cocok", "Keyakinan rendah"],
   "version": "0.1.0",
   "status": "STAGED"

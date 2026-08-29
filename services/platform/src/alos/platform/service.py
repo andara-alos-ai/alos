@@ -1,7 +1,7 @@
 from typing import Protocol
 from uuid import UUID, uuid4
 
-from alos.agents.runtime import AgentExecutionPlan, AgentRunRequest, SharedAgentRuntime
+from alos.agents.runtime import AgentExecutionPlan, SharedAgentRuntime
 from alos.platform.models import (
     ApprovalDecisionCreate,
     ApprovalRequestCreate,
@@ -276,26 +276,16 @@ class OperationsService:
         require_division_role(principal, "FINANCE", Role.FINANCE)
         require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
-        plans = tuple(
-            self._runtime.prepare(
-                AgentRunRequest(
-                    agent_id=agent_id,
-                    capability=capability,
-                    input_references=[f"payment-request:{idempotency_key}"],
-                    requested_tools=tools,
-                    correlation_id=correlation_id,
-                    idempotency_key=f"{agent_id.lower()}-{idempotency_key}",
-                )
-            )
-            for agent_id, capability, tools in (
-                ("DIA", "extract_structured_fields", ["alos.document.read"]),
-                ("CEA", "check_completeness", ["alos.evidence.read"]),
-                ("BCA", "check_budget_deterministically", ["deterministic.calculator"]),
-                ("ARA", "check_separation_of_duties", ["alos.identity.read"]),
-            )
+        definition = self._payment_workflow()
+        plans = self._prepare_agent_steps(
+            definition,
+            ("document-extraction", "evidence-check", "budget-check", "approval-routing"),
+            [f"payment-request:{idempotency_key}"],
+            correlation_id,
+            idempotency_key,
         )
         return self._store.create_payment_request(
-            command, principal, self._payment_workflow(), plans, correlation_id, idempotency_key
+            command, principal, definition, plans, correlation_id, idempotency_key
         )
 
     def decide_payment(
@@ -322,18 +312,16 @@ class OperationsService:
         idempotency_key: str,
     ) -> FinanceWorkflowResult:
         require_division_role(principal, "FINANCE", Role.FINANCE)
-        plan = self._runtime.prepare(
-            AgentRunRequest(
-                agent_id="FRA",
-                capability="match_transactions_deterministically",
-                input_references=[f"payment-request:{payment_request_id}"],
-                requested_tools=["deterministic.calculator"],
-                correlation_id=uuid4(),
-                idempotency_key=f"fra-{idempotency_key}",
-            )
+        definition = self._payment_workflow()
+        plan = self._prepare_agent_step(
+            definition,
+            "reconciliation",
+            [f"payment-request:{payment_request_id}"],
+            uuid4(),
+            idempotency_key,
         )
         return self._store.reconcile_payment(
-            payment_request_id, command, principal, self._payment_workflow(), plan
+            payment_request_id, command, principal, definition, plan
         )
 
     def submit_site_evidence(
@@ -346,26 +334,18 @@ class OperationsService:
         require_division_role(principal, "PROPERTY", Role.PROPERTY)
         require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
-        plans = tuple(
-            self._runtime.prepare(
-                AgentRunRequest(
-                    agent_id=agent_id,
-                    capability=capability,
-                    input_references=[f"site-evidence:{idempotency_key}"],
-                    requested_tools=tools,
-                    correlation_id=correlation_id,
-                    idempotency_key=f"{agent_id.lower()}-{idempotency_key}",
-                )
-            )
-            for agent_id, capability, tools in (
-                ("CEA", "validate_evidence_metadata", ["alos.evidence.read"]),
-                ("TPA", "calculate_progress_variance", ["deterministic.calculator"]),
-            )
+        definition = self._property_workflow()
+        plans = self._prepare_agent_steps(
+            definition,
+            ("evidence-check", "progress-verification"),
+            [f"site-evidence:{idempotency_key}"],
+            correlation_id,
+            idempotency_key,
         )
         return self._store.submit_site_evidence(
             command,
             principal,
-            self._property_workflow(),
+            definition,
             plans,
             correlation_id,
             idempotency_key,
@@ -379,23 +359,17 @@ class OperationsService:
         idempotency_key: str,
     ) -> PropertyWorkflowResult:
         require_division_role(principal, "PROPERTY", Role.PROPERTY)
-        agent_id, capability, tools = (
-            ("KDA", "publish_kpi_snapshot", ["alos.kpi_snapshot.create"])
-            if command.decision == "ACCEPTED"
-            else ("CRA", "classify_exception", ["alos.exception.create"])
-        )
-        plan = self._runtime.prepare(
-            AgentRunRequest(
-                agent_id=agent_id,
-                capability=capability,
-                input_references=[f"site-evidence:{site_evidence_id}"],
-                requested_tools=tools,
-                correlation_id=uuid4(),
-                idempotency_key=f"{agent_id.lower()}-{idempotency_key}",
-            )
+        definition = self._property_workflow()
+        step_id = "kpi-updated" if command.decision == "ACCEPTED" else "capa-open"
+        plan = self._prepare_agent_step(
+            definition,
+            step_id,
+            [f"site-evidence:{site_evidence_id}"],
+            uuid4(),
+            idempotency_key,
         )
         return self._store.review_site_evidence(
-            site_evidence_id, command, principal, self._property_workflow(), plan
+            site_evidence_id, command, principal, definition, plan
         )
 
     def submit_legal_document(
@@ -408,32 +382,36 @@ class OperationsService:
         require_division_role(principal, "LEGAL", Role.LEGAL)
         require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
-        domain_agent, capability = (
-            ("LPA", "extract_permit_fields")
-            if command.document_type == "PERMIT"
-            else ("CLA", "extract_contract_clauses")
-        )
-        plans = tuple(
-            self._runtime.prepare(
-                AgentRunRequest(
-                    agent_id=agent_id,
-                    capability=agent_capability,
-                    input_references=[f"legal-document:{command.document_version_id}"],
-                    requested_tools=tools,
-                    correlation_id=correlation_id,
-                    idempotency_key=f"{agent_id.lower()}-{idempotency_key}",
-                )
-            )
-            for agent_id, agent_capability, tools in (
-                ("DIA", "extract_structured_fields", ["alos.document.read"]),
-                (domain_agent, capability, ["alos.legal.read"]),
-                ("CEA", "check_completeness", ["alos.evidence.read"]),
-            )
+        definition = self._legal_workflow()
+        input_references = [f"legal-document:{command.document_version_id}"]
+        plans = (
+            *self._runtime.prepare_workflow_step(
+                definition,
+                "document-extraction",
+                input_references,
+                correlation_id,
+                idempotency_key,
+            ),
+            *self._runtime.prepare_workflow_step(
+                definition,
+                "legal-analysis",
+                input_references,
+                correlation_id,
+                idempotency_key,
+                selector=command.document_type,
+            ),
+            *self._runtime.prepare_workflow_step(
+                definition,
+                "evidence-check",
+                input_references,
+                correlation_id,
+                idempotency_key,
+            ),
         )
         return self._store.submit_legal_document(
             command,
             principal,
-            self._legal_workflow(),
+            definition,
             plans,
             correlation_id,
             idempotency_key,
@@ -468,30 +446,18 @@ class OperationsService:
             )
         require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
-        plans = tuple(
-            self._runtime.prepare(
-                AgentRunRequest(
-                    agent_id=agent_id,
-                    capability=capability,
-                    input_references=[f"recruitment-request:{idempotency_key}"],
-                    requested_tools=tools,
-                    correlation_id=correlation_id,
-                    idempotency_key=f"{agent_id.lower()}-{idempotency_key}",
-                )
-            )
-            for agent_id, capability, tools in (
-                ("SEA", "compose_work_plan", ["alos.sop.read"]),
-                (
-                    "HRA",
-                    "screen_administrative_requirements",
-                    ["alos.hr.restricted_read"],
-                ),
-            )
+        definition = self._hr_workflow()
+        plans = self._prepare_agent_steps(
+            definition,
+            ("sop-plan", "candidate-screening"),
+            [f"recruitment-request:{idempotency_key}"],
+            correlation_id,
+            idempotency_key,
         )
         return self._store.submit_recruitment_request(
             command,
             principal,
-            self._hr_workflow(),
+            definition,
             plans,
             correlation_id,
             idempotency_key,
@@ -507,15 +473,12 @@ class OperationsService:
         require_division_role(principal, "HR", Role.HR)
         plan = None
         if command.decision == "SELECTED":
-            plan = self._runtime.prepare(
-                AgentRunRequest(
-                    agent_id="HPA",
-                    capability="check_personnel_file_completeness",
-                    input_references=[f"recruitment-request:{recruitment_request_id}"],
-                    requested_tools=["alos.hr.restricted_read"],
-                    correlation_id=uuid4(),
-                    idempotency_key=f"hpa-{idempotency_key}",
-                )
+            plan = self._prepare_agent_step(
+                self._hr_workflow(),
+                "onboarding-checklist",
+                [f"recruitment-request:{recruitment_request_id}"],
+                uuid4(),
+                idempotency_key,
             )
         return self._store.decide_recruitment(
             recruitment_request_id, command, principal, self._hr_workflow(), plan
@@ -532,34 +495,18 @@ class OperationsService:
         if command.project_id is not None:
             require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
-        plans = tuple(
-            self._runtime.prepare(
-                AgentRunRequest(
-                    agent_id=agent_id,
-                    capability=capability,
-                    input_references=[
-                        f"executive-period:{command.period_start}:{command.period_end}"
-                    ],
-                    requested_tools=tools,
-                    correlation_id=correlation_id,
-                    idempotency_key=f"{agent_id.lower()}-{idempotency_key}",
-                )
-            )
-            for agent_id, capability, tools in (
-                (
-                    "KDA",
-                    "calculate_kpi_deterministically",
-                    ["alos.verified_data.read", "deterministic.calculator"],
-                ),
-                ("CRA", "monitor_capa_deadline", ["alos.audit.read"]),
-                ("ARA", "schedule_escalation", ["alos.policy.read"]),
-                ("MCA", "aggregate_verified_facts", ["alos.executive.read"]),
-            )
+        definition = self._executive_workflow()
+        plans = self._prepare_agent_steps(
+            definition,
+            ("kpi-aggregation", "risk-aggregation", "approval-aggregation", "brief-generation"),
+            [f"executive-period:{command.period_start}:{command.period_end}"],
+            correlation_id,
+            idempotency_key,
         )
         return self._store.generate_executive_brief(
             command,
             principal,
-            self._executive_workflow(),
+            definition,
             plans,
             correlation_id,
             idempotency_key,
@@ -648,17 +595,13 @@ class OperationsService:
         if not command.consent_recorded:
             raise ValueError("Consent lead wajib tercatat sebelum diproses")
         correlation_id = correlation_id or uuid4()
-        definition = next(
-            item for item in self._workflows.load_all() if item.workflow_id == "FLOW-001"
-        )
-        plan = self._runtime.prepare(
-            AgentRunRequest(
-                agent_id="SLA",
-                capability="validate_lead_fields",
-                input_references=[f"lead-intake:{idempotency_key}"],
-                correlation_id=correlation_id,
-                idempotency_key=f"sla-{idempotency_key}",
-            )
+        definition = self._lead_workflow()
+        plan = self._prepare_agent_step(
+            definition,
+            "lead-validation",
+            [f"lead-intake:{idempotency_key}"],
+            correlation_id,
+            idempotency_key,
         )
         return self._store.create_lead(
             command,
@@ -685,15 +628,12 @@ class OperationsService:
     ) -> WorkflowActionResult:
         require_division_role(principal, "SALES_MARKETING", Role.SALES)
         definition = self._lead_workflow()
-        plan = self._runtime.prepare(
-            AgentRunRequest(
-                agent_id="CFA",
-                capability="schedule_follow_up_task",
-                input_references=[f"workflow-run:{workflow_run_id}"],
-                requested_tools=["alos.work_item.create"],
-                correlation_id=uuid4(),
-                idempotency_key=f"cfa-{idempotency_key}",
-            )
+        plan = self._prepare_agent_step(
+            definition,
+            "follow-up-plan",
+            [f"workflow-run:{workflow_run_id}"],
+            uuid4(),
+            idempotency_key,
         )
         return self._store.assign_sales_pic(workflow_run_id, command, principal, definition, plan)
 
@@ -708,34 +648,72 @@ class OperationsService:
         definition = self._lead_workflow()
         plan = None
         if command.outcome == InteractionOutcome.FOLLOW_UP:
-            plan = self._runtime.prepare(
-                AgentRunRequest(
-                    agent_id="CFA",
-                    capability="schedule_follow_up_task",
-                    input_references=[f"workflow-run:{workflow_run_id}"],
-                    requested_tools=["alos.work_item.create"],
-                    correlation_id=uuid4(),
-                    idempotency_key=f"cfa-{idempotency_key}",
-                )
+            plan = self._prepare_agent_step(
+                definition,
+                "follow-up-plan",
+                [f"workflow-run:{workflow_run_id}"],
+                uuid4(),
+                idempotency_key,
             )
         return self._store.record_sales_interaction(
             workflow_run_id, command, principal, definition, plan
         )
 
+    def _prepare_agent_steps(
+        self,
+        definition: WorkflowDefinition,
+        step_ids: tuple[str, ...],
+        input_references: list[str],
+        correlation_id: UUID,
+        idempotency_key: str,
+    ) -> tuple[AgentExecutionPlan, ...]:
+        return tuple(
+            plan
+            for step_id in step_ids
+            for plan in self._runtime.prepare_workflow_step(
+                definition,
+                step_id,
+                input_references,
+                correlation_id,
+                idempotency_key,
+            )
+        )
+
+    def _prepare_agent_step(
+        self,
+        definition: WorkflowDefinition,
+        step_id: str,
+        input_references: list[str],
+        correlation_id: UUID,
+        idempotency_key: str,
+        selector: str | None = None,
+    ) -> AgentExecutionPlan:
+        plans = self._runtime.prepare_workflow_step(
+            definition,
+            step_id,
+            input_references,
+            correlation_id,
+            idempotency_key,
+            selector,
+        )
+        if len(plans) != 1:
+            raise ValueError(f"Langkah {definition.workflow_id}/{step_id} wajib tepat satu agent")
+        return plans[0]
+
     def _lead_workflow(self) -> WorkflowDefinition:
-        return next(item for item in self._workflows.load_all() if item.workflow_id == "FLOW-001")
+        return self._workflows.get("FLOW-001")
 
     def _payment_workflow(self) -> WorkflowDefinition:
-        return next(item for item in self._workflows.load_all() if item.workflow_id == "FLOW-002")
+        return self._workflows.get("FLOW-002")
 
     def _property_workflow(self) -> WorkflowDefinition:
-        return next(item for item in self._workflows.load_all() if item.workflow_id == "FLOW-003")
+        return self._workflows.get("FLOW-003")
 
     def _legal_workflow(self) -> WorkflowDefinition:
-        return next(item for item in self._workflows.load_all() if item.workflow_id == "FLOW-004")
+        return self._workflows.get("FLOW-004")
 
     def _hr_workflow(self) -> WorkflowDefinition:
-        return next(item for item in self._workflows.load_all() if item.workflow_id == "FLOW-005")
+        return self._workflows.get("FLOW-005")
 
     def _executive_workflow(self) -> WorkflowDefinition:
-        return next(item for item in self._workflows.load_all() if item.workflow_id == "FLOW-006")
+        return self._workflows.get("FLOW-006")

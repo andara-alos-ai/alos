@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "CRA",
   "name": "CAPA & Risk Agent",
   "domain": "shared-enterprise",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Penutupan CAPA memerlukan bukti dan verifikasi manusia"],
   "evidence_requirement": ["Temuan, penyebab, tindakan, dan hasil verifikasi memiliki bukti"],
   "forbidden_actions": ["Menutup CAPA", "Menghapus exception", "Menurunkan tingkat risiko tanpa kewenangan"],
-  "KPI/metrics": ["Usia exception", "CAPA overdue", "Efektivitas tindakan", "Tingkat pembukaan ulang"],
+  "metrics": ["Usia exception", "CAPA overdue", "Efektivitas tindakan", "Tingkat pembukaan ulang"],
   "escalation": ["Risiko material", "CAPA lewat tenggat", "Bukti penutupan tidak cukup"],
   "version": "0.1.0",
   "status": "STAGED"

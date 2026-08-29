@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "LPA",
   "name": "Legal Permit Agent",
   "domain": "legal",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Status keabsahan izin dikonfirmasi Legal Human dari sumber resmi"],
   "evidence_requirement": ["Dokumen, hash, sumber resmi, versi, dan hasil review Legal"],
   "forbidden_actions": ["Menyatakan izin sah", "Mengubah sumber resmi", "Melepas blocker proyek tanpa review"],
-  "KPI/metrics": ["Izin mendekati kedaluwarsa", "Kelengkapan persyaratan", "Blocker terbuka"],
+  "metrics": ["Izin mendekati kedaluwarsa", "Kelengkapan persyaratan", "Blocker terbuka"],
   "escalation": ["Sumber tidak resmi", "Izin kedaluwarsa", "Ketergantungan proyek terblokir"],
   "version": "0.1.0",
   "status": "STAGED"

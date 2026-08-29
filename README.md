@@ -4,7 +4,7 @@ ALOS (Andara Leverage Operating System) adalah platform operasi internal PT Anda
 
 ## Status
 
-Tahap saat ini adalah **Backend Foundation / Pilot Internal**. Enam workflow backend, IAM dasar, query operasional, penyimpanan dokumen berversi, work queue, worker/scheduler, notification outbox, dan adaptor n8n opsional telah tersedia. Seluruh contoh data wajib sintetis atau telah disanitasi. Integrasi produksi, keputusan material, dan penggunaan data perusahaan asli belum diaktifkan.
+Tahap saat ini adalah **Backend Foundation / Pilot Internal**. Enam workflow backend, IAM dasar, query operasional, penyimpanan dokumen berversi, work queue, worker/scheduler, notification outbox, adaptor n8n opsional, Agent/Tool Registry, runtime generik, dan interface design-time Genesis telah tersedia. Seluruh contoh data wajib sintetis atau telah disanitasi. Integrasi produksi, full Genesis, keputusan material, dan penggunaan data perusahaan asli belum diaktifkan.
 
 ## Struktur Utama
 

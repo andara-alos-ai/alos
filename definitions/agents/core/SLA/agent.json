@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "SLA",
   "name": "Sales Lead Agent",
   "domain": "sales-marketing",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Harga, ketersediaan, dan reservasi final dikonfirmasi Sales Human"],
   "evidence_requirement": ["Sumber, consent, hasil deduplikasi, dan aturan penugasan tercatat"],
   "forbidden_actions": ["Menjanjikan harga", "Membuat reservasi final", "Menghubungi tanpa consent"],
-  "KPI/metrics": ["Duplicate rate", "Waktu penugasan", "Lead tanpa pemilik", "SLA respons"],
+  "metrics": ["Duplicate rate", "Waktu penugasan", "Lead tanpa pemilik", "SLA respons"],
   "escalation": ["Consent tidak jelas", "Duplikasi ambigu", "Tidak ada Sales PIC yang tersedia"],
   "version": "0.1.0",
   "status": "STAGED"

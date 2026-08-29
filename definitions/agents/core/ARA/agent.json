@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "ARA",
   "name": "Approval & RACI Agent",
   "domain": "shared-enterprise",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Keputusan setuju, tolak, atau revisi hanya dibuat manusia berwenang"],
   "evidence_requirement": ["Kebijakan, versi, pemohon, approver, alasan, dan bukti tercatat"],
   "forbidden_actions": ["Memberikan approval", "Menganggap diam sebagai setuju", "Mengizinkan self-approval"],
-  "KPI/metrics": ["Waktu approval", "Pelanggaran SoD yang diblokir", "Approval kedaluwarsa"],
+  "metrics": ["Waktu approval", "Pelanggaran SoD yang diblokir", "Approval kedaluwarsa"],
   "escalation": ["Approver tidak tersedia", "Kebijakan TBD", "SLA terlewati", "Konflik peran"],
   "version": "0.1.0",
   "status": "STAGED"

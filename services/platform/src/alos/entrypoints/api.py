@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
@@ -69,6 +70,7 @@ from alos.security import (
     UserView,
 )
 from alos.security.authorization import AuthorizationDenied
+from alos.tools import ToolRegistry
 from alos.workflow.models import WorkflowDefinition
 from alos.workflow.registry import WorkflowRegistry
 
@@ -79,20 +81,47 @@ bearer = HTTPBearer(auto_error=False)
 SettingsDependency = Annotated[Settings, Depends(get_settings)]
 
 
+@lru_cache(maxsize=4)
+def agent_registry_for_root(definitions_root: Path) -> AgentRegistry:
+    registry = AgentRegistry(definitions_root)
+    registry.load_core()
+    return registry
+
+
 def agent_registry(settings: SettingsDependency) -> AgentRegistry:
-    return AgentRegistry(settings.definitions_root)
+    return agent_registry_for_root(settings.definitions_root)
 
 
-def workflow_registry(settings: SettingsDependency) -> WorkflowRegistry:
-    return WorkflowRegistry(settings.definitions_root)
+@lru_cache(maxsize=4)
+def tool_registry_for_root(definitions_root: Path) -> ToolRegistry:
+    registry = ToolRegistry(definitions_root)
+    registry.load_all()
+    return registry
+
+
+def tool_registry(settings: SettingsDependency) -> ToolRegistry:
+    return tool_registry_for_root(settings.definitions_root)
 
 
 AgentRegistryDependency = Annotated[AgentRegistry, Depends(agent_registry)]
+ToolRegistryDependency = Annotated[ToolRegistry, Depends(tool_registry)]
+
+
+def workflow_registry(
+    settings: SettingsDependency,
+    agents: AgentRegistryDependency,
+    tools: ToolRegistryDependency,
+) -> WorkflowRegistry:
+    return WorkflowRegistry(settings.definitions_root, agents, tools)
+
+
 WorkflowRegistryDependency = Annotated[WorkflowRegistry, Depends(workflow_registry)]
 
 
-def shared_runtime(registry: AgentRegistryDependency) -> SharedAgentRuntime:
-    return SharedAgentRuntime(registry)
+def shared_runtime(
+    registry: AgentRegistryDependency, tools: ToolRegistryDependency
+) -> SharedAgentRuntime:
+    return SharedAgentRuntime(registry, tools)
 
 
 SharedRuntimeDependency = Annotated[SharedAgentRuntime, Depends(shared_runtime)]
@@ -846,12 +875,15 @@ def list_agents(
 
 @router.get("/agents/{agent_id}", response_model=AgentDefinition, tags=["agent-registry"])
 def get_agent(
-    agent_id: str, principal: PrincipalDependency, registry: AgentRegistryDependency
+    agent_id: str,
+    principal: PrincipalDependency,
+    registry: AgentRegistryDependency,
+    version: Annotated[str | None, Query(pattern=r"^\d+\.\d+\.\d+$")] = None,
 ) -> AgentDefinition:
     try:
-        return registry.get(agent_id)
+        return registry.get(agent_id, version)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Core Agent tidak ditemukan") from exc
+        raise HTTPException(status_code=404, detail="Agent atau versi tidak ditemukan") from exc
 
 
 @router.get("/workflows", response_model=list[WorkflowDefinition], tags=["workflow"])
@@ -878,7 +910,7 @@ def prepare_agent_run(
             raise AuthorizationDenied("Endpoint runtime diagnostic hanya untuk IT Admin")
         return runtime.prepare(request)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Core Agent tidak ditemukan") from exc
+        raise HTTPException(status_code=404, detail="Agent atau versi tidak ditemukan") from exc
     except RuntimePolicyViolation as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except AuthorizationDenied as exc:

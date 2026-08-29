@@ -30,6 +30,18 @@ def test_agents_endpoint_returns_18_agents() -> None:
 
     assert response.status_code == 200
     assert len(response.json()) == 18
+    assert {agent["agent_kind"] for agent in response.json()} == {"CORE"}
+    assert {agent["contract_version"] for agent in response.json()} == {"1.0.0"}
+    assert all(agent["parent_agent_id"] is None for agent in response.json())
+
+    exact_response = client.get(
+        "/api/v1/agents/BCA",
+        headers={"Authorization": f"Bearer {token_response.json()['access_token']}"},
+        params={"version": "0.1.0"},
+    )
+    assert exact_response.status_code == 200
+    assert exact_response.json()["agent_id"] == "BCA"
+    assert exact_response.json()["version"] == "0.1.0"
 
 
 def test_registry_and_runtime_diagnostic_require_authentication() -> None:
@@ -63,6 +75,37 @@ def test_runtime_diagnostic_rejects_business_user() -> None:
     )
 
     assert response.status_code == 403
+
+
+def test_runtime_diagnostic_returns_versioned_contract_snapshot() -> None:
+    token_response = client.post(
+        "/api/v1/auth/local-token",
+        json={
+            "user_id": str(uuid4()),
+            "organization_id": str(uuid4()),
+            "roles": ["IT_ADMIN"],
+            "division_codes": ["IT"],
+        },
+    )
+    response = client.post(
+        "/api/v1/agent-runs/prepare",
+        headers={"Authorization": f"Bearer {token_response.json()['access_token']}"},
+        json={
+            "agent_id": "BCA",
+            "agent_version": "0.1.0",
+            "capability": "check_budget_deterministically",
+            "input_references": ["payment-request:runtime-contract-test"],
+            "requested_tools": ["deterministic.calculator"],
+            "correlation_id": str(uuid4()),
+            "idempotency_key": "runtime-contract-snapshot",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["contract_version"] == "1.0.0"
+    assert response.json()["agent_kind"] == "CORE"
+    assert len(response.json()["contract_digest"]) == 64
+    assert response.json()["contract_snapshot"]["agent_id"] == "BCA"
 
 
 def test_it_admin_cannot_operate_sales_business_workflow() -> None:

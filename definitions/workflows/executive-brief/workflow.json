@@ -2,7 +2,7 @@
   "workflow_id": "FLOW-006",
   "name": "Ringkasan Eksekutif",
   "purpose": "Menyusun brief kondisi perusahaan dari fakta ALOS dan membentuk antrean keputusan Direktur Utama.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "status": "STAGED",
   "owner": "Direktur Utama",
   "trigger": ["Jadwal brief", "Permintaan pengguna berwenang"],
@@ -11,10 +11,10 @@
   "terminal_steps": ["brief-published", "exception-open"],
   "steps": [
     {"step_id": "snapshot-created", "name": "Snapshot enam divisi", "actor_type": "system", "actor_ref": "executive-read-model", "deterministic": true},
-    {"step_id": "kpi-aggregation", "name": "Agregasi KPI", "actor_type": "agent", "actor_ref": "KDA", "deterministic": true},
-    {"step_id": "risk-aggregation", "name": "Agregasi risiko dan CAPA", "actor_type": "agent", "actor_ref": "CRA", "deterministic": true},
-    {"step_id": "approval-aggregation", "name": "Agregasi approval tertunda", "actor_type": "agent", "actor_ref": "ARA", "deterministic": true},
-    {"step_id": "brief-generation", "name": "Penyusunan Executive Brief", "actor_type": "agent", "actor_ref": "MCA", "deterministic": false, "requires_evidence": true},
+    {"step_id": "kpi-aggregation", "name": "Agregasi KPI", "actor_type": "agent", "actor_ref": "KDA", "deterministic": true, "invocations": [{"agent_id": "KDA", "capability": "calculate_kpi_deterministically", "execution_mode": "DETERMINISTIC", "tools": ["alos.verified_data.read", "deterministic.calculator"]}]},
+    {"step_id": "risk-aggregation", "name": "Agregasi risiko dan CAPA", "actor_type": "agent", "actor_ref": "CRA", "deterministic": true, "invocations": [{"agent_id": "CRA", "capability": "monitor_capa_deadline", "execution_mode": "DETERMINISTIC", "tools": ["alos.audit.read"]}]},
+    {"step_id": "approval-aggregation", "name": "Agregasi approval tertunda", "actor_type": "agent", "actor_ref": "ARA", "deterministic": true, "invocations": [{"agent_id": "ARA", "capability": "schedule_escalation", "execution_mode": "DETERMINISTIC", "tools": ["alos.policy.read"]}]},
+    {"step_id": "brief-generation", "name": "Penyusunan Executive Brief", "actor_type": "agent", "actor_ref": "MCA", "deterministic": false, "requires_evidence": true, "invocations": [{"agent_id": "MCA", "capability": "aggregate_verified_facts", "execution_mode": "DETERMINISTIC", "tools": ["alos.executive.read"]}]},
     {"step_id": "brief-review", "name": "Review dan keputusan Direktur Utama", "actor_type": "human", "actor_ref": "Direktur Utama", "deterministic": true, "requires_human_decision": true},
     {"step_id": "brief-published", "name": "Brief diterbitkan", "actor_type": "system", "actor_ref": "executive-domain", "deterministic": true},
     {"step_id": "exception-open", "name": "Exception data dibuka", "actor_type": "system", "actor_ref": "governance", "deterministic": true}

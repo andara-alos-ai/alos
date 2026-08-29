@@ -2,7 +2,7 @@
   "workflow_id": "FLOW-004",
   "name": "Izin dan Kontrak",
   "purpose": "Menghasilkan catatan izin atau kontrak terstruktur dan paket review Legal yang lengkap.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "status": "STAGED",
   "owner": "Kepala Legal",
   "trigger": ["Izin atau kontrak diunggah", "Permintaan review Legal"],
@@ -11,9 +11,9 @@
   "terminal_steps": ["legal-approved", "exception-open"],
   "steps": [
     {"step_id": "document-submitted", "name": "Dokumen diterima", "actor_type": "human", "actor_ref": "Requester", "deterministic": true, "requires_evidence": true},
-    {"step_id": "document-extraction", "name": "Ekstraksi dokumen", "actor_type": "agent", "actor_ref": "DIA", "deterministic": false},
-    {"step_id": "legal-analysis", "name": "Analisis izin atau kontrak", "actor_type": "agent", "actor_ref": "LPA_OR_CLA", "deterministic": false},
-    {"step_id": "evidence-check", "name": "Pemeriksaan paket bukti", "actor_type": "agent", "actor_ref": "CEA", "deterministic": true},
+    {"step_id": "document-extraction", "name": "Ekstraksi dokumen", "actor_type": "agent", "actor_ref": "DIA", "deterministic": false, "invocations": [{"agent_id": "DIA", "capability": "extract_structured_fields", "execution_mode": "AI_ASSISTED", "tools": ["alos.document.read", "ai.document.analyze"], "requires_human_review": true}]},
+    {"step_id": "legal-analysis", "name": "Analisis izin atau kontrak", "actor_type": "agent", "actor_ref": "conditional-agent", "deterministic": false, "invocations": [{"selector": "PERMIT", "agent_id": "LPA", "capability": "extract_permit_fields", "execution_mode": "AI_ASSISTED", "tools": ["alos.legal.read", "ai.document.analyze"], "requires_human_review": true}, {"selector": "CONTRACT", "agent_id": "CLA", "capability": "extract_contract_clauses", "execution_mode": "AI_ASSISTED", "tools": ["alos.legal.read", "ai.document.analyze"], "requires_human_review": true}]},
+    {"step_id": "evidence-check", "name": "Pemeriksaan paket bukti", "actor_type": "agent", "actor_ref": "CEA", "deterministic": true, "invocations": [{"agent_id": "CEA", "capability": "check_completeness", "execution_mode": "DETERMINISTIC", "tools": ["alos.evidence.read"]}]},
     {"step_id": "legal-review", "name": "Review dan keputusan Legal", "actor_type": "human", "actor_ref": "Legal Human", "deterministic": true, "requires_human_decision": true},
     {"step_id": "legal-approved", "name": "Review Legal disetujui", "actor_type": "system", "actor_ref": "legal-domain", "deterministic": true},
     {"step_id": "exception-open", "name": "Exception dibuka", "actor_type": "system", "actor_ref": "governance", "deterministic": true}

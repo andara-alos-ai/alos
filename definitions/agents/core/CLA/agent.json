@@ -1,4 +1,9 @@
 {
+  "contract_version": "1.0.0",
+  "agent_kind": "CORE",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
   "agent_id": "CLA",
   "name": "Contract & Legal Document Agent",
   "domain": "legal",
@@ -13,7 +18,7 @@
   "approval_boundary": ["Opini hukum, persetujuan, dan penandatanganan hanya oleh manusia berwenang"],
   "evidence_requirement": ["Dokumen sumber, hash, halaman, template, dan keputusan Legal tercatat"],
   "forbidden_actions": ["Memberi persetujuan hukum", "Menandatangani kontrak", "Mengubah dokumen sumber"],
-  "KPI/metrics": ["Kelengkapan klausul", "Akurasi perbandingan", "Tingkat koreksi Legal"],
+  "metrics": ["Kelengkapan klausul", "Akurasi perbandingan", "Tingkat koreksi Legal"],
   "escalation": ["Klausul wajib hilang", "Versi bertentangan", "Keyakinan di bawah ambang"],
   "version": "0.1.0",
   "status": "STAGED"

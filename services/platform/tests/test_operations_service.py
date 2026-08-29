@@ -16,6 +16,7 @@ from alos.platform import (
 from alos.platform.service import OperationsService
 from alos.security import Principal, Role
 from alos.security.authorization import AuthorizationDenied
+from alos.tools import ToolRegistry
 from alos.workflow.models import WorkflowDefinition
 from alos.workflow.registry import WorkflowRegistry
 
@@ -68,7 +69,7 @@ def service(store: RecordingStore) -> OperationsService:
     return OperationsService(
         store,
         WorkflowRegistry(definitions),
-        SharedAgentRuntime(AgentRegistry(definitions)),
+        SharedAgentRuntime(AgentRegistry(definitions), ToolRegistry(definitions)),
     )
 
 

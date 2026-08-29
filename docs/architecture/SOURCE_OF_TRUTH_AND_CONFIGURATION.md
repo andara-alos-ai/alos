@@ -3,8 +3,8 @@
 | Metadata | Nilai |
 |---|---|
 | Status | Rancangan untuk Pilot Internal |
-| Versi | 0.1.0 |
-| Pembaruan terakhir | 28 Agustus 2026 |
+| Versi | 0.2.0 |
+| Pembaruan terakhir | 30 Agustus 2026 |
 
 ## 1. Tujuan
 
@@ -49,7 +49,7 @@ Perubahannya wajib melalui validasi, pengujian, review, dan rilis sesuai tingkat
 |---|---|---|
 | Master Blueprint | maksud desain dan dasar konsolidasi | dasar, kecuali struktur organisasi yang terkunci |
 | dokumen implementasi | desain yang dapat dibaca manusia | dokumentasi terkendali |
-| `definitions/` | definisi agent, alur kerja, dan kebijakan | resmi hanya setelah dirilis |
+| `definitions/` | sumber desain kanonik agent, alur kerja, schema, dan kebijakan | resmi hanya setelah dirilis |
 | database | status operasional dan snapshot definisi rilis | resmi untuk operasi tercatat |
 | penyimpanan objek | isi dokumen/bukti dan versinya | resmi jika hash dan metadata sesuai |
 | sistem eksternal | fakta milik otoritas eksternal | resmi hanya untuk bidang yang disepakati |
@@ -112,7 +112,11 @@ Pengelolaan teknis oleh IT tidak memindahkan kepemilikan bisnis kepada IT.
 
 - Dokumentasi menjelaskan maksud, keputusan, kepemilikan, batas, dan penerimaan.
 - Definisi yang dapat dibaca mesin menetapkan konfigurasi yang dijalankan.
+- Agent Registry mengindeks seluruh kontrak berdasarkan `agent_id` dan `version`; baseline Core divalidasi terpisah dari jumlah keseluruhan agent.
+- Tool Registry mengindeks operasi yang dapat diminta agent; workflow menyimpan capability invocation, bukan service operasional.
 - Migrasi database menetapkan struktur data yang disimpan.
+- Agent Release menyimpan snapshot kontrak lengkap beserta digest dan tidak boleh ditimpa untuk versi yang sama.
+- Workflow Release menyimpan snapshot dan digest immutable; perubahan invocation memakai versi workflow baru.
 - Pengujian menjadi bukti bahwa aturan dan batas ditegakkan.
 - Dokumentasi API yang dihasilkan menggambarkan antarmuka yang benar-benar tersedia.
 
