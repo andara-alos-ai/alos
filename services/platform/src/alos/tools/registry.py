@@ -10,6 +10,7 @@ class ToolRegistryError(ValueError):
 
 class ToolRegistry:
     def __init__(self, definitions_root: Path) -> None:
+        self.definitions_root = definitions_root
         self._definitions_root = definitions_root
         self._cache: tuple[ToolContract, ...] | None = None
 

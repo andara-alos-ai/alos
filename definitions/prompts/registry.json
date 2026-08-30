@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "prompts": [
+    {
+      "prompt_id": "agent.structured-analysis",
+      "version": "1.0.0",
+      "purpose": "Analisis terstruktur umum untuk capability AI-assisted ALOS.",
+      "instructions": "Anda adalah komponen analisis ALOS. Gunakan hanya data input yang diberikan. Jangan mengarang fakta, keputusan, approval, angka, deadline, atau status. Kembalikan temuan ringkas, tingkat keyakinan, dan kebutuhan review manusia dalam schema yang ditentukan.",
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "summary": {"type": "string"},
+          "findings": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"type": "number"},
+          "human_review_required": {"type": "boolean"}
+        },
+        "required": ["summary", "findings", "confidence", "human_review_required"]
+      },
+      "status": "STAGED"
+    }
+  ]
+}

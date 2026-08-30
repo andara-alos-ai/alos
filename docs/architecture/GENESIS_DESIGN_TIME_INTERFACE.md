@@ -1,35 +1,42 @@
-# Interface Design-Time Genesis
+# Pipeline Design-Time Genesis
 
 | Metadata | Nilai |
 |---|---|
-| Status | Diimplementasikan untuk Fondasi Genesis G3 |
-| Versi | 0.1.0 |
+| Status | Diimplementasikan untuk Synthetic UAT |
+| Versi | 1.0.0 |
 | Pembaruan terakhir | 30 Agustus 2026 |
 
-## 1. Tujuan
+## Tujuan dan Batas
 
-Interface Genesis menyiapkan batas teknis untuk memilih `REUSE`, `EXTEND`, atau `CREATE` menggunakan Agent Contract yang sama dengan 18 Core Agent. Implementasi ini belum merupakan full Genesis dan tidak melakukan generation dengan LLM, penulisan registry, staging, release, atau deployment.
+Genesis membentuk tenaga kerja digital melalui kontrak yang sama dengan 18 Core Agent. Genesis bukan Core Agent ke-19, tidak mengubah struktur organisasi, tidak menulis konfigurasi production, dan tidak melakukan deployment.
 
-## 2. Strategi
+Alur yang tersedia:
+
+`source/specification → analyze → generate/resolve → validate → test → diff → business review → technical review → staging → release package`
+
+Release Genesis adalah paket konfigurasi immutable dengan `production_effect=false`. Aktivasi ke production membutuhkan proses deployment dan persetujuan terpisah di luar Genesis.
+
+## Strategi
 
 | Strategi | Hasil |
 |---|---|
-| `REUSE` | menunjuk agent dan versi yang sudah terdaftar tanpa membuat kontrak baru |
-| `EXTEND` | mengusulkan Sub-Agent/Sub-Sub-Agent DRAFT yang mempertahankan capability dan tool base |
-| `CREATE` | mengusulkan kontrak DRAFT baru setelah reuse/extend tidak dipilih |
+| `REUSE` | menggunakan versi agent yang sudah terdaftar tanpa mengubah kontraknya |
+| `EXTEND` | menghasilkan candidate Sub-Agent/Sub-Sub-Agent yang mempertahankan capability dan tool base |
+| `CREATE` | menghasilkan candidate baru melalui Agent Contract universal |
 
-Setiap permintaan wajib memiliki pemohon, alasan, referensi sumber, dan target/candidate sesuai strategi. Hasil berupa proposal immutable berisi validasi, diff deterministik, referensi kontrak, dan status `AWAITING_HUMAN_REVIEW` atau `INVALID`.
+Candidate `EXTEND` dan `CREATE` wajib berstatus `DRAFT`. Genesis dilarang membuat atau mengubah Core Agent. Parent, hierarchy, versi, capability, tool, evidence, dan batas approval divalidasi sebelum review.
 
-## 3. Kontrol Wajib
+## Governance Gate
 
-- Genesis tidak dapat membuat atau mengubah Core Agent;
-- candidate wajib `DRAFT` dan mengikuti hierarchy Core → Sub-Agent → Sub-Sub-Agent;
-- kombinasi `agent_id` dan `version` tidak boleh menimpa registry;
-- parent, `extends`, capability, serta tool divalidasi terhadap registry;
-- `EXTEND` tidak boleh menghapus capability atau tool base;
-- proposal selalu `production_effect=false`;
-- satu-satunya tindakan berikutnya adalah review manusia.
+1. Pemohon tidak dapat mereview, melakukan staging, atau merilis permintaannya sendiri.
+2. Review bisnis dilakukan Direktur atau Kepala Divisi.
+3. Review teknis dilakukan IT Admin.
+4. Staging hanya tersedia setelah dua gate menyetujui.
+5. Release package dilakukan Direktur dan tidak mengaktifkan production.
+6. Rejection pada salah satu gate menutup request; perubahan diajukan sebagai request baru.
 
-## 4. Jalur Pengembangan Berikutnya
+Seluruh stage, review, actor, waktu, test result, diff, contract digest, dan release package disimpan di schema `genesis`. Isi package dilindungi trigger immutability. Separation-of-duties untuk pemohon, dua reviewer, pelaksana staging, dan releaser dijaga pada service serta constraint/trigger database.
 
-Pipeline penuh nantinya dapat memasok candidate ke interface ini melalui `source/specification → analyze → generate`. Setelah proposal valid, tahap `test → diff → human review → staging/release` dibangun sebagai layanan terpisah dengan otorisasi, audit, dan lingkungan terisolasi. Tidak ada jalur langsung dari proposal menuju production.
+## Hasil yang Dapat Digunakan
+
+Direktur atau pemilik bisnis dapat memilih capability yang sudah ada, memperluas agent, atau mengajukan agent baru. Hasil akhirnya berupa konfigurasi berversi yang siap dipertimbangkan pada deployment terpisah—bukan aplikasi, database, atau microservice baru.

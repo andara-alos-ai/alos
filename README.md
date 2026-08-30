@@ -4,7 +4,7 @@ ALOS (Andara Leverage Operating System) adalah platform operasi internal PT Anda
 
 ## Status
 
-Tahap saat ini adalah **Backend Foundation / Pilot Internal**. Enam workflow backend, IAM dasar, query operasional, penyimpanan dokumen berversi, work queue, worker/scheduler, notification outbox, adaptor n8n opsional, Agent/Tool Registry, runtime generik, dan interface design-time Genesis telah tersedia. Seluruh contoh data wajib sintetis atau telah disanitasi. Integrasi produksi, full Genesis, keputusan material, dan penggunaan data perusahaan asli belum diaktifkan.
+Tahap saat ini adalah **Technical Foundation Complete / Synthetic UAT Ready**. Enam workflow backend, IAM dasar, query operasional, penyimpanan dokumen berversi, work queue, worker/scheduler, notification outbox, adaptor n8n opsional, Agent/Tool/Capability Registry, shared runtime untuk 18 Core Agent, LLM Gateway provider-neutral, dan pipeline design-time Genesis telah tersedia. Seluruh contoh data wajib sintetis atau telah disanitasi. Integrasi dan data produksi tetap belum diaktifkan sampai UAT serta keputusan manajemen selesai.
 
 ## Struktur Utama
 
@@ -31,6 +31,8 @@ Prasyarat: Node.js 22+, pnpm 11+, Python 3.12+, dan Docker Desktop dengan Compos
 6. Jalankan worker dengan `pnpm worker`; gunakan `pnpm worker:once` untuk satu siklus manual.
 
 API tersedia pada `http://localhost:8000`, dokumentasi API pada `/docs`, dan web pada `http://localhost:3000`.
+
+Untuk deployment seluruh stack yang dapat diulang, gunakan `infra/compose/compose.application.yaml` sesuai runbook deployment. File tersebut menjalankan migrasi, API, worker, web, dan PostgreSQL sebagai layanan terpisah tanpa memecah 18 agent menjadi microservice.
 
 ## Quality Gate
 

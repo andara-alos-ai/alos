@@ -23,6 +23,11 @@
 | `GET` | `/agents` | registry 18 Core Agent | pengguna terautentikasi; read-only |
 | `GET` | `/workflows` | enam definisi workflow | pengguna terautentikasi; read-only |
 | `POST` | `/agent-runs/prepare` | validasi diagnostik kontrak runtime tanpa eksekusi bisnis | IT Admin |
+| `POST` | `/agent-runtime/execute` | evaluasi capability melalui shared runtime dan audit | pemilik bisnis domain; tanpa efek production |
+| `POST` | `/genesis/requests` | membuat pipeline REUSE/EXTEND/CREATE | Director, AI Executive, Division Head, atau IT Admin |
+| `POST` | `/genesis/requests/{id}/reviews` | review bisnis atau teknis terpisah | pemilik gate terkait |
+| `POST` | `/genesis/requests/{id}/stage` | membuat package staging | IT Admin non-pemohon |
+| `POST` | `/genesis/requests/{id}/release` | merilis package design-time, bukan production | Director non-pemohon |
 | `POST` | `/users` | provisioning pengguna dan role per divisi | IT Admin |
 | `POST` | `/projects` | membuat project berstatus DRAFT | Director atau IT Admin |
 | `GET` | `/projects` | project dalam organisasi pengguna | pengguna terautentikasi |

@@ -346,6 +346,15 @@ class AgentRunRead(BaseModel):
     correlation_id: UUID
     started_at: datetime
     completed_at: datetime | None
+    capability: str | None
+    capability_version: str | None
+    capability_contract_digest: str | None
+    execution_mode: str | None
+    handler_id: str | None
+    evidence_references: list[str]
+    warnings: list[str]
+    verification_status: str | None
+    provider_metadata: dict[str, Any]
 
 
 class AuditEntryRead(BaseModel):

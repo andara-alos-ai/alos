@@ -277,12 +277,13 @@ class OperationsService:
         require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
         definition = self._payment_workflow()
-        plans = self._prepare_agent_steps(
+        plans = self._execute_agent_steps(
             definition,
             ("document-extraction", "evidence-check", "budget-check", "approval-routing"),
             [f"payment-request:{idempotency_key}"],
             correlation_id,
             idempotency_key,
+            command.model_dump(mode="json"),
         )
         return self._store.create_payment_request(
             command, principal, definition, plans, correlation_id, idempotency_key
@@ -313,12 +314,13 @@ class OperationsService:
     ) -> FinanceWorkflowResult:
         require_division_role(principal, "FINANCE", Role.FINANCE)
         definition = self._payment_workflow()
-        plan = self._prepare_agent_step(
+        plan = self._execute_agent_step(
             definition,
             "reconciliation",
             [f"payment-request:{payment_request_id}"],
             uuid4(),
             idempotency_key,
+            command.model_dump(mode="json"),
         )
         return self._store.reconcile_payment(
             payment_request_id, command, principal, definition, plan
@@ -335,12 +337,13 @@ class OperationsService:
         require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
         definition = self._property_workflow()
-        plans = self._prepare_agent_steps(
+        plans = self._execute_agent_steps(
             definition,
             ("evidence-check", "progress-verification"),
             [f"site-evidence:{idempotency_key}"],
             correlation_id,
             idempotency_key,
+            command.model_dump(mode="json"),
         )
         return self._store.submit_site_evidence(
             command,
@@ -361,12 +364,13 @@ class OperationsService:
         require_division_role(principal, "PROPERTY", Role.PROPERTY)
         definition = self._property_workflow()
         step_id = "kpi-updated" if command.decision == "ACCEPTED" else "capa-open"
-        plan = self._prepare_agent_step(
+        plan = self._execute_agent_step(
             definition,
             step_id,
             [f"site-evidence:{site_evidence_id}"],
             uuid4(),
             idempotency_key,
+            command.model_dump(mode="json"),
         )
         return self._store.review_site_evidence(
             site_evidence_id, command, principal, definition, plan
@@ -384,28 +388,32 @@ class OperationsService:
         correlation_id = correlation_id or uuid4()
         definition = self._legal_workflow()
         input_references = [f"legal-document:{command.document_version_id}"]
+        payload = command.model_dump(mode="json")
         plans = (
-            *self._runtime.prepare_workflow_step(
+            self._execute_agent_step(
                 definition,
                 "document-extraction",
                 input_references,
                 correlation_id,
                 idempotency_key,
+                payload,
             ),
-            *self._runtime.prepare_workflow_step(
+            self._execute_agent_step(
                 definition,
                 "legal-analysis",
                 input_references,
                 correlation_id,
                 idempotency_key,
+                payload,
                 selector=command.document_type,
             ),
-            *self._runtime.prepare_workflow_step(
+            self._execute_agent_step(
                 definition,
                 "evidence-check",
                 input_references,
                 correlation_id,
                 idempotency_key,
+                payload,
             ),
         )
         return self._store.submit_legal_document(
@@ -447,12 +455,13 @@ class OperationsService:
         require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
         definition = self._hr_workflow()
-        plans = self._prepare_agent_steps(
+        plans = self._execute_agent_steps(
             definition,
             ("sop-plan", "candidate-screening"),
             [f"recruitment-request:{idempotency_key}"],
             correlation_id,
             idempotency_key,
+            command.model_dump(mode="json"),
         )
         return self._store.submit_recruitment_request(
             command,
@@ -473,12 +482,13 @@ class OperationsService:
         require_division_role(principal, "HR", Role.HR)
         plan = None
         if command.decision == "SELECTED":
-            plan = self._prepare_agent_step(
+            plan = self._execute_agent_step(
                 self._hr_workflow(),
                 "onboarding-checklist",
                 [f"recruitment-request:{recruitment_request_id}"],
                 uuid4(),
                 idempotency_key,
+                command.model_dump(mode="json"),
             )
         return self._store.decide_recruitment(
             recruitment_request_id, command, principal, self._hr_workflow(), plan
@@ -496,12 +506,13 @@ class OperationsService:
             require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
         definition = self._executive_workflow()
-        plans = self._prepare_agent_steps(
+        plans = self._execute_agent_steps(
             definition,
             ("kpi-aggregation", "risk-aggregation", "approval-aggregation", "brief-generation"),
             [f"executive-period:{command.period_start}:{command.period_end}"],
             correlation_id,
             idempotency_key,
+            command.model_dump(mode="json"),
         )
         return self._store.generate_executive_brief(
             command,
@@ -596,12 +607,13 @@ class OperationsService:
             raise ValueError("Consent lead wajib tercatat sebelum diproses")
         correlation_id = correlation_id or uuid4()
         definition = self._lead_workflow()
-        plan = self._prepare_agent_step(
+        plan = self._execute_agent_step(
             definition,
             "lead-validation",
             [f"lead-intake:{idempotency_key}"],
             correlation_id,
             idempotency_key,
+            command.model_dump(mode="json"),
         )
         return self._store.create_lead(
             command,
@@ -628,12 +640,13 @@ class OperationsService:
     ) -> WorkflowActionResult:
         require_division_role(principal, "SALES_MARKETING", Role.SALES)
         definition = self._lead_workflow()
-        plan = self._prepare_agent_step(
+        plan = self._execute_agent_step(
             definition,
             "follow-up-plan",
             [f"workflow-run:{workflow_run_id}"],
             uuid4(),
             idempotency_key,
+            command.model_dump(mode="json"),
         )
         return self._store.assign_sales_pic(workflow_run_id, command, principal, definition, plan)
 
@@ -648,12 +661,13 @@ class OperationsService:
         definition = self._lead_workflow()
         plan = None
         if command.outcome == InteractionOutcome.FOLLOW_UP:
-            plan = self._prepare_agent_step(
+            plan = self._execute_agent_step(
                 definition,
                 "follow-up-plan",
                 [f"workflow-run:{workflow_run_id}"],
                 uuid4(),
                 idempotency_key,
+                command.model_dump(mode="json"),
             )
         return self._store.record_sales_interaction(
             workflow_run_id, command, principal, definition, plan
@@ -669,6 +683,27 @@ class OperationsService:
     ) -> tuple[AgentExecutionPlan, ...]:
         return tuple(
             plan
+            for step_id in step_ids
+            for plan in self._runtime.prepare_workflow_step(
+                definition,
+                step_id,
+                input_references,
+                correlation_id,
+                idempotency_key,
+            )
+        )
+
+    def _execute_agent_steps(
+        self,
+        definition: WorkflowDefinition,
+        step_ids: tuple[str, ...],
+        input_references: list[str],
+        correlation_id: UUID,
+        idempotency_key: str,
+        input_payload: dict[str, object],
+    ) -> tuple[AgentExecutionPlan, ...]:
+        return tuple(
+            self._runtime.execute(plan, input_payload)
             for step_id in step_ids
             for plan in self._runtime.prepare_workflow_step(
                 definition,
@@ -699,6 +734,26 @@ class OperationsService:
         if len(plans) != 1:
             raise ValueError(f"Langkah {definition.workflow_id}/{step_id} wajib tepat satu agent")
         return plans[0]
+
+    def _execute_agent_step(
+        self,
+        definition: WorkflowDefinition,
+        step_id: str,
+        input_references: list[str],
+        correlation_id: UUID,
+        idempotency_key: str,
+        input_payload: dict[str, object],
+        selector: str | None = None,
+    ) -> AgentExecutionPlan:
+        plan = self._prepare_agent_step(
+            definition,
+            step_id,
+            input_references,
+            correlation_id,
+            idempotency_key,
+            selector,
+        )
+        return self._runtime.execute(plan, input_payload)
 
     def _lead_workflow(self) -> WorkflowDefinition:
         return self._workflows.get("FLOW-001")

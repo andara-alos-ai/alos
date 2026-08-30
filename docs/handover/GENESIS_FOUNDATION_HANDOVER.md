@@ -1,53 +1,48 @@
-# Handover Fondasi Genesis ALOS
+# Handover Genesis, Capability Registry, dan Shared Runtime
 
 | Metadata | Nilai |
 |---|---|
-| Status | Selesai untuk Fondasi Pilot G1–G3 |
+| Status | Technical Foundation Complete / Synthetic UAT Ready |
 | Pembaruan terakhir | 30 Agustus 2026 |
-| Cakupan | Agent Contract, registries, shared runtime, dan interface design-time Genesis |
+| Batas | Belum merupakan persetujuan production atau data asli |
 
 ## Hasil
 
-- 18 Core Agent tetap utuh sebagai agent logis pada satu shared runtime;
-- Agent Contract v1 berlaku untuk Core, Sub-Agent, dan Sub-Sub-Agent;
-- Agent Registry memvalidasi versi, hierarchy, parent, extends, cycle, dan baseline 18 Core;
-- 38 operasi terdaftar pada Tool Registry dan divalidasi terhadap allow-list agent;
-- enam workflow memakai capability invocation berversi, termasuk selector Legal `PERMIT`/`CONTRACT`;
-- runtime menyiapkan plan dari registry/workflow dan dispatch melalui handler capability generik;
-- Agent Release dan Workflow Release memiliki snapshot/digest immutable;
-- execution run menyimpan capability, mode, tool release, workflow step, dan contract digest;
-- interface Genesis menghasilkan proposal `REUSE`, `EXTEND`, atau `CREATE` tanpa menulis production.
+- 18 Core tetap menjadi logical agent pada satu shared runtime;
+- Agent Contract universal berlaku untuk Core, Sub-Agent, dan Sub-Sub-Agent;
+- 61 capability dan 38 tool berada pada registry berversi;
+- keenam workflow melakukan dispatch melalui capability handler, bukan branch per agent;
+- setiap run menyimpan handler, evidence, warning, verification, provider metadata, digest Agent/Capability Contract, correlation, dan audit;
+- TIA, MCA_MKT, dan agent lain dapat dievaluasi melalui endpoint runtime yang sama tanpa efek eksternal;
+- LLM Gateway mendukung OpenAI/Anthropic, default nonaktif, structured output, redaction, klasifikasi, budget, retry, dan fail-closed;
+- Genesis menjalankan REUSE/EXTEND/CREATE sampai dua review, staging, dan release package immutable;
+- Genesis tidak dapat mengubah Core, organisasi, registry production, atau deployment;
+- migrasi, API, worker, web, dan PostgreSQL memiliki konfigurasi deployment yang dapat diulang.
 
 ## Validasi Serah Terima
-
-Jalankan dari root repository:
 
 ```powershell
 docker compose -f infra/compose/compose.yaml up -d
 .\.venv\Scripts\python.exe -m alos.persistence.migrations
 $env:ALOS_RUN_POSTGRES_TESTS="1"
-.\.venv\Scripts\python.exe -m pytest services/platform/tests
+.\.venv\Scripts\python.exe -m pytest services/platform/tests -p no:cacheprovider
+.\.venv\Scripts\python.exe -m ruff check services/platform
+.\.venv\Scripts\python.exe -m mypy services/platform/src
 pnpm --filter @andara/alos-web test
 pnpm --filter @andara/alos-web lint
 pnpm --filter @andara/alos-web typecheck
 pnpm --filter @andara/alos-web build
 ```
 
-Migrasi terakhir adalah `018_registry_driven_execution.sql`. Fresh-database test wajib lulus agar snapshot, trigger immutability, dan metadata execution terbukti reproducible.
+Fresh-database test wajib lulus. UAT mengikuti `docs/uat/SYNTHETIC_PILOT_UAT.md`.
 
-## Batas Saat Ini
+## Gate yang Masih Memerlukan Perusahaan
 
-- fondasi ini belum full Genesis;
-- Genesis belum membaca dokumen, menggunakan LLM, menulis registry, staging, release, atau deploy;
-- capability handler produksi belum tersedia untuk seluruh capability; interface dispatch dan release gate sudah tersedia;
-- LLM provider dan integrasi eksternal tetap dinonaktifkan sampai kebijakan data, credential, serta UAT disetujui;
-- nilai KPI, SLA, approval, retensi, dan vendor yang belum disahkan tetap `TBD`;
-- data perusahaan asli belum boleh digunakan.
+- data, SOP, KPI, SLA, approval matrix, dan business owner final;
+- UAT dan sign-off dari enam divisi serta Direktur Utama;
+- identity provider, hosting, domain, TLS, secret manager, RTO/RPO, backup/restore, dan incident response;
+- vendor LLM, model, batas biaya, lokasi pemrosesan, retensi, dan klasifikasi data yang diizinkan;
+- credential serta sandbox API n8n, Meta Ads, CRM, bank, pajak, OSS, HRIS, dan layanan eksternal lain;
+- security review dan persetujuan penggunaan data perusahaan asli.
 
-## Tahap Berikutnya
-
-1. implementasikan handler capability prioritas dengan output schema dan evidence;
-2. tambahkan pipeline Genesis `analyze → generate → validate → test → diff` pada sandbox;
-3. bangun human review dan staging/release terotorisasi;
-4. jalankan UAT enam divisi menggunakan data sintetis;
-5. aktifkan provider/integrasi satu per satu setelah kontrol keamanan dan pemilik bisnis disahkan.
+Seluruh gate di atas tetap `TBD` atau dinonaktifkan. Sistem aman digunakan untuk pengujian sintetis, tetapi belum boleh disebut production-ready sebelum gate tersebut ditutup.

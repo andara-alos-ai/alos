@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from alos.agents.capabilities import CapabilityRegistry
 from alos.agents.registry import AgentRegistry
 from alos.tools import ToolEffect, ToolRegistry, ToolRegistryError
 from alos.workflow.models import WorkflowDefinition
@@ -15,6 +16,7 @@ class WorkflowRegistry:
         self._definitions_root = definitions_root
         self._agent_registry = agent_registry or AgentRegistry(definitions_root)
         self._tool_registry = tool_registry or ToolRegistry(definitions_root)
+        self._capability_registry = CapabilityRegistry(definitions_root)
         self._cache: tuple[WorkflowDefinition, ...] | None = None
 
     def load_all(self, *, force_reload: bool = False) -> tuple[WorkflowDefinition, ...]:
@@ -61,6 +63,17 @@ class WorkflowRegistry:
                     raise ValueError(
                         f"Capability {invocation.capability} tidak diizinkan untuk "
                         f"{agent.agent_id}@{agent.version}"
+                    )
+                capability = self._capability_registry.get(invocation.capability)
+                if capability.execution_mode != invocation.execution_mode:
+                    raise ValueError(
+                        f"Execution mode {workflow.workflow_id}/{step.step_id} tidak sama "
+                        f"dengan Capability Contract {capability.capability_id}"
+                    )
+                if capability.handler_id == "ai.structured.v1" and step.deterministic:
+                    raise ValueError(
+                        f"Capability AI tidak boleh berada pada langkah deterministik "
+                        f"{workflow.workflow_id}/{step.step_id}"
                     )
                 disallowed_tools = set(invocation.tools) - set(agent.tools_allowed)
                 if disallowed_tools:

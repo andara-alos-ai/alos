@@ -11,15 +11,19 @@ Dokumentasi ini menjadi dasar implementasi ALOS Internal Agent Pilot v0.1 dan ta
 5. [Spesifikasi Agent Contract](agent-contracts/AGENT_CONTRACT_SPECIFICATION.md)
 6. [Registry 18 Core Agent](agent-contracts/18_CORE_AGENT_REGISTRY.md)
 7. [Tool Registry dan Capability Invocation](agent-contracts/TOOL_REGISTRY_AND_CAPABILITY_INVOCATION.md)
-8. [Interface Design-Time Genesis](architecture/GENESIS_DESIGN_TIME_INTERFACE.md)
-9. [Spesifikasi Enam Alur Kerja](workflows/ALOS_V1_WORKFLOW_SPECIFICATION.md)
-10. [Dasar Keamanan dan Kebijakan Data AI](security/SECURITY_AND_AI_DATA_POLICY.md)
-11. [Strategi Pengujian dan Definisi Selesai](testing/TEST_STRATEGY_AND_DEFINITION_OF_DONE.md)
-12. [Register Keputusan Arsitektur](adr/ARCHITECTURE_DECISION_REGISTER.md)
-13. [Runbook Pengembangan Lokal](runbooks/LOCAL_DEVELOPMENT.md)
-14. [API Foundation Operasional](api/FOUNDATION_API.md)
-15. [Worker, Outbox, dan Integrasi n8n](runbooks/WORKER_AND_N8N.md)
-16. [Handover Fondasi Genesis](handover/GENESIS_FOUNDATION_HANDOVER.md)
+8. [Capability Runtime dan LLM Gateway](architecture/CAPABILITY_RUNTIME_AND_LLM_GATEWAY.md)
+9. [Pipeline Design-Time Genesis](architecture/GENESIS_DESIGN_TIME_INTERFACE.md)
+10. [Spesifikasi Enam Alur Kerja](workflows/ALOS_V1_WORKFLOW_SPECIFICATION.md)
+11. [Dasar Keamanan dan Kebijakan Data AI](security/SECURITY_AND_AI_DATA_POLICY.md)
+12. [Strategi Pengujian dan Definisi Selesai](testing/TEST_STRATEGY_AND_DEFINITION_OF_DONE.md)
+13. [API Genesis dan Agent Runtime](api/GENESIS_AND_AGENT_RUNTIME_API.md)
+14. [Register Keputusan Arsitektur](adr/ARCHITECTURE_DECISION_REGISTER.md)
+15. [Runbook Pengembangan Lokal](runbooks/LOCAL_DEVELOPMENT.md)
+16. [Worker, Outbox, dan Integrasi n8n](runbooks/WORKER_AND_N8N.md)
+17. [Runbook Deployment](deployment/DEPLOYMENT_RUNBOOK.md)
+18. [UAT Pilot Sintetis](uat/SYNTHETIC_PILOT_UAT.md)
+19. [Handover Genesis dan Runtime](handover/GENESIS_FOUNDATION_HANDOVER.md)
+20. [Hasil UAT Sintetis 30 Agustus 2026](uat/results/2026-08-30_SYNTHETIC_UAT_REPORT.md)
 
 ## Aturan Penggunaan
 
@@ -29,6 +33,4 @@ Dokumentasi ini menjadi dasar implementasi ALOS Internal Agent Pilot v0.1 dan ta
 - Data perusahaan asli tidak disimpan di repository. Pilot menggunakan data sintetis atau data yang telah disanitasi.
 - Perubahan material wajib memperbarui dokumen terkait, definisi, pengujian, dan register keputusan bila relevan.
 
-## Dokumentasi Tahap Berikutnya
-
-Runbook pengembangan lokal, API, dan handover Fondasi Genesis telah tersedia sesuai implementasi yang dapat dijalankan. Dokumentasi `deployment` produksi dan `uat` dilengkapi setelah lingkungan serta keputusan bisnis terkait tersedia; bagian tersebut tidak diisi dengan rancangan spekulatif.
+Runbook deployment dan UAT menjelaskan gate menuju pilot. Nilai vendor, formula bisnis, RTO/RPO, identitas production, serta data asli tetap harus disahkan oleh pemiliknya dan tidak diisi melalui asumsi teknis.

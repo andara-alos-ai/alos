@@ -24,7 +24,16 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     web_origin: str = "http://localhost:3000"
     database_url: str = "postgresql+psycopg://alos:change-me@localhost:5433/alos"
-    llm_provider: str = "disabled"
+    llm_provider: Literal["disabled", "openai", "anthropic"] = "disabled"
+    llm_api_key: SecretStr | None = None
+    llm_model: str = Field(default="", max_length=120)
+    llm_base_url: str | None = None
+    llm_timeout_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
+    llm_max_data_classification: Literal[
+        "PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"
+    ] = "INTERNAL"
+    llm_daily_request_limit: int = Field(default=500, ge=1, le=100_000)
+    llm_daily_output_token_limit: int = Field(default=500_000, ge=1_000, le=100_000_000)
     auth_issuer: str = "alos-local"
     auth_audience: str = "alos-internal"
     auth_signing_secret: SecretStr = Field(
@@ -79,7 +88,24 @@ class Settings(BaseSettings):
         if bool(access_key) != bool(secret_key):
             raise ValueError("Access key dan secret key object storage harus diberikan bersama")
         self._validate_n8n_configuration()
+        self._validate_llm_configuration()
         return self
+
+    def _validate_llm_configuration(self) -> None:
+        if self.llm_provider == "disabled":
+            return
+        if self.llm_api_key is None or not self.llm_api_key.get_secret_value().strip():
+            raise ValueError("LLM provider aktif memerlukan ALOS_LLM_API_KEY")
+        if not self.llm_model.strip():
+            raise ValueError("LLM provider aktif memerlukan ALOS_LLM_MODEL")
+        if self.llm_base_url:
+            parsed = urlsplit(self.llm_base_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("ALOS_LLM_BASE_URL bukan URL HTTP(S) yang valid")
+            if parsed.username or parsed.password or parsed.fragment:
+                raise ValueError("ALOS_LLM_BASE_URL tidak boleh memuat credential atau fragment")
+            if self.environment in {"staging", "production"} and parsed.scheme != "https":
+                raise ValueError("Endpoint LLM staging/production wajib HTTPS")
 
     def _validate_n8n_configuration(self) -> None:
         url = (self.n8n_webhook_url or "").strip()

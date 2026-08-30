@@ -2,6 +2,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from alos.agents.capabilities import CapabilityRegistry, CapabilityRegistryError
 from alos.agents.contract import AgentDefinition, AgentKind, AgentStatus
 from alos.tools import ToolRegistry, ToolRegistryError
 
@@ -41,6 +42,7 @@ class AgentRegistry:
     ) -> None:
         self._definitions_root = definitions_root
         self._tool_registry = tool_registry or ToolRegistry(definitions_root)
+        self._capability_registry = CapabilityRegistry(definitions_root)
         self._cache: tuple[AgentDefinition, ...] | None = None
 
     def load_all(self, *, force_reload: bool = False) -> tuple[AgentDefinition, ...]:
@@ -57,8 +59,12 @@ class AgentRegistry:
         try:
             for agent in agents:
                 self._tool_registry.validate_allowed_tools(agent.tools_allowed)
+                if self._capability_registry.exists:
+                    self._capability_registry.validate_references(agent.capabilities)
         except ToolRegistryError as exc:
             raise RegistryError(f"Referensi Tool Registry tidak valid: {exc}") from exc
+        except CapabilityRegistryError as exc:
+            raise RegistryError(f"Referensi Capability Registry tidak valid: {exc}") from exc
         self._cache = tuple(
             sorted(agents, key=lambda item: (item.agent_id, self._semantic_version(item.version)))
         )
@@ -76,8 +82,12 @@ class AgentRegistry:
         self._validate_registry(agents)
         try:
             self._tool_registry.validate_allowed_tools(candidate.tools_allowed)
+            if self._capability_registry.exists:
+                self._capability_registry.validate_references(candidate.capabilities)
         except ToolRegistryError as exc:
             raise RegistryError(f"Referensi Tool Registry tidak valid: {exc}") from exc
+        except CapabilityRegistryError as exc:
+            raise RegistryError(f"Referensi Capability Registry tidak valid: {exc}") from exc
 
     def load_core(self) -> tuple[AgentDefinition, ...]:
         """Return the latest contract for each of the 18 baseline Core Agent identities."""

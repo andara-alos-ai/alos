@@ -73,6 +73,8 @@ Keluaran LLM:
 - harus dapat dikoreksi atau ditolak manusia;
 - tidak boleh menjadi dasar tunggal keputusan keuangan, hukum, personalia, atau keamanan.
 
+Gateway menggunakan provider `disabled` sebagai default. OpenAI atau Anthropic hanya dapat diaktifkan melalui secret environment. Boundary meng-hash identitas, menyamarkan email/telepon, memblokir klasifikasi di atas policy, membatasi request/token, memakai output JSON terstruktur, mencatat metadata tanpa credential, dan gagal tertutup ke human review. Rule deterministik tidak memiliki jalur ke LLM.
+
 ## 7. Prompt Injection dan Konten Tidak Tepercaya
 
 Dokumen, halaman web, email, dan hasil integrasi diperlakukan sebagai data tidak tepercaya. Instruksi yang terdapat di dalamnya tidak boleh mengubah kontrak agent, kebijakan alat, atau perintah sistem. Retrieval dipisahkan dari instruksi sistem; penggunaan alat selalu divalidasi ulang oleh kode deterministik.

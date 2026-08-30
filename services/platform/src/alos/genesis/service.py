@@ -25,7 +25,8 @@ class GenesisDesignService:
         return self._propose_candidate(request)
 
     def _propose_reuse(self, request: GenesisChangeRequest) -> GenesisProposal:
-        assert request.target is not None
+        if request.target is None:
+            raise ValueError("Target REUSE wajib tersedia")
         validations: list[GenesisValidation] = []
         resolved: AgentDefinition | None = None
         try:
@@ -53,7 +54,8 @@ class GenesisDesignService:
         return self._proposal(request, resolved, validations, ())
 
     def _propose_candidate(self, request: GenesisChangeRequest) -> GenesisProposal:
-        assert request.candidate is not None
+        if request.candidate is None:
+            raise ValueError("Candidate CREATE/EXTEND wajib tersedia")
         candidate = request.candidate
         validations = [
             GenesisValidation(
@@ -78,7 +80,8 @@ class GenesisDesignService:
 
         base: AgentDefinition | None = None
         if request.strategy == GenesisStrategy.EXTEND:
-            assert request.base is not None
+            if request.base is None:
+                raise ValueError("Base EXTEND wajib tersedia")
             base = self._resolve_base(request.base, validations)
             validations.extend(self._validate_extension(candidate, request.base, base))
         elif candidate.extends is not None:

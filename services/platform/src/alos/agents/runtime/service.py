@@ -2,6 +2,11 @@ import hashlib
 from collections.abc import Mapping
 from uuid import UUID, uuid4
 
+from alos.agents.capabilities import (
+    CapabilityEvidencePolicy,
+    CapabilityRegistry,
+    CapabilityReviewPolicy,
+)
 from alos.agents.contract import AgentStatus, CapabilityExecutionMode
 from alos.agents.registry import AgentRegistry
 from alos.agents.runtime.handlers import CapabilityHandlerRegistry
@@ -11,7 +16,7 @@ from alos.agents.runtime.models import (
     AgentRunStatus,
     CapabilityDispatchResult,
 )
-from alos.tools import ToolReference, ToolRegistry
+from alos.tools import ToolEffect, ToolReference, ToolRegistry
 from alos.workflow.models import WorkflowDefinition
 
 
@@ -24,12 +29,23 @@ class SharedAgentRuntime:
         self,
         registry: AgentRegistry,
         tool_registry: ToolRegistry,
+        handlers: CapabilityHandlerRegistry | None = None,
         runnable_statuses: frozenset[AgentStatus] = frozenset(
             {AgentStatus.STAGED, AgentStatus.RELEASED}
         ),
     ) -> None:
         self._registry = registry
         self._tool_registry = tool_registry
+        self._capability_registry = CapabilityRegistry(tool_registry.definitions_root)
+        if handlers is None:
+            from alos.agents.runtime.builtin_handlers import build_default_handler_registry
+            from alos.llm import DisabledProvider, LLMGateway, PromptRegistry
+
+            gateway = LLMGateway(
+                PromptRegistry(tool_registry.definitions_root), DisabledProvider()
+            )
+            handlers = build_default_handler_registry(self._capability_registry, gateway)
+        self._handlers = handlers
         self._runnable_statuses = runnable_statuses
 
     def prepare(self, request: AgentRunRequest) -> AgentExecutionPlan:
@@ -42,6 +58,13 @@ class SharedAgentRuntime:
         if request.capability not in agent.capabilities:
             raise RuntimePolicyViolation(
                 f"Capability {request.capability!r} tidak diizinkan untuk {agent.agent_id}"
+            )
+        capability = self._capability_registry.get(request.capability)
+        if capability.execution_mode != request.execution_mode:
+            raise RuntimePolicyViolation(
+                f"Capability AI tidak boleh memakai AI dalam mode {request.execution_mode}; "
+                f"Capability Contract {capability.capability_id} menetapkan "
+                f"{capability.execution_mode}"
             )
 
         disallowed_tools = set(request.requested_tools) - set(agent.tools_allowed)
@@ -65,6 +88,10 @@ class SharedAgentRuntime:
                 raise RuntimePolicyViolation(
                     f"Capability deterministik tidak boleh memakai AI: {sorted(ai_tools)}"
                 )
+        elif not any(tool.effect == ToolEffect.AI_ASSISTED for tool in tools):
+            raise RuntimePolicyViolation(
+                "Capability AI_ASSISTED wajib memakai tool AI yang disetujui Agent Contract"
+            )
 
         return AgentExecutionPlan(
             run_id=uuid4(),
@@ -75,6 +102,8 @@ class SharedAgentRuntime:
             contract_digest=agent.contract_digest,
             contract_snapshot=agent,
             capability=request.capability,
+            capability_version=capability.version,
+            capability_contract_digest=capability.contract_digest,
             execution_mode=request.execution_mode,
             approved_tools=tuple(request.requested_tools),
             approved_tool_releases=tuple(
@@ -82,7 +111,10 @@ class SharedAgentRuntime:
             ),
             input_references=tuple(request.input_references),
             status=AgentRunStatus.RECEIVED,
-            requires_human_review=request.material_action,
+            requires_human_review=(
+                request.material_action
+                or capability.review_policy == CapabilityReviewPolicy.ALWAYS
+            ),
             correlation_id=request.correlation_id,
             idempotency_key=request.idempotency_key,
             workflow_id=request.workflow_id,
@@ -128,7 +160,7 @@ class SharedAgentRuntime:
         self,
         plan: AgentExecutionPlan,
         input_payload: Mapping[str, object],
-        handlers: CapabilityHandlerRegistry,
+        handlers: CapabilityHandlerRegistry | None = None,
     ) -> CapabilityDispatchResult:
         """Dispatch a prepared plan to a capability handler after integrity checks."""
 
@@ -139,6 +171,17 @@ class SharedAgentRuntime:
             raise RuntimePolicyViolation("Digest Agent Contract pada execution plan tidak valid")
         if plan.contract_snapshot.contract_digest != plan.contract_digest:
             raise RuntimePolicyViolation("Snapshot Agent Contract pada execution plan tidak valid")
+        capability = self._capability_registry.get(
+            plan.capability, plan.capability_version
+        )
+        if capability.contract_digest != plan.capability_contract_digest:
+            raise RuntimePolicyViolation(
+                "Digest Capability Contract pada execution plan tidak valid"
+            )
+        if capability.execution_mode != plan.execution_mode:
+            raise RuntimePolicyViolation(
+                "Mode Capability Contract pada execution plan tidak konsisten"
+            )
         if set(plan.approved_tools) != {
             reference.tool_id for reference in plan.approved_tool_releases
         }:
@@ -154,7 +197,30 @@ class SharedAgentRuntime:
                 raise RuntimePolicyViolation(
                     f"Tool release tidak dapat dijalankan: {tool.tool_id}@{tool.version}"
                 )
-        return handlers.dispatch(plan, input_payload)
+        result = (handlers or self._handlers).dispatch(plan, input_payload)
+        if result.handler_id != capability.handler_id:
+            raise RuntimePolicyViolation(
+                "Handler hasil dispatch tidak sama dengan Capability Contract"
+            )
+        if (
+            capability.evidence_policy == CapabilityEvidencePolicy.REQUIRED
+            and not result.evidence_references
+        ):
+            raise RuntimePolicyViolation(
+                f"Capability {capability.capability_id} wajib menghasilkan referensi evidence"
+            )
+        return result
+
+    def execute(
+        self,
+        plan: AgentExecutionPlan,
+        input_payload: Mapping[str, object],
+        handlers: CapabilityHandlerRegistry | None = None,
+    ) -> AgentExecutionPlan:
+        """Execute and attach an immutable, auditable dispatch record to the plan."""
+
+        result = self.dispatch(plan, input_payload, handlers)
+        return plan.model_copy(update={"execution": result.to_execution_record()})
 
     @staticmethod
     def _agent_idempotency_key(agent_id: str, step_id: str, source_key: str) -> str:

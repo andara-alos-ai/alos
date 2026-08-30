@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
+from alos.agents.capabilities import CapabilityRegistry
 from alos.agents.contract import AgentDefinition
 from alos.agents.registry import AgentRegistry
 from alos.agents.runtime import (
@@ -16,8 +17,17 @@ from alos.agents.runtime import (
     AgentRunRequest,
     RuntimePolicyViolation,
     SharedAgentRuntime,
+    build_default_handler_registry,
 )
 from alos.config import Settings, get_settings
+from alos.llm import (
+    AnthropicProvider,
+    DataClassification,
+    DisabledProvider,
+    LLMGateway,
+    OpenAIProvider,
+    PromptRegistry,
+)
 from alos.persistence import Database, PostgresOperationalStore
 from alos.platform import (
     ApprovalDecisionCreate,
@@ -118,10 +128,70 @@ def workflow_registry(
 WorkflowRegistryDependency = Annotated[WorkflowRegistry, Depends(workflow_registry)]
 
 
-def shared_runtime(
-    registry: AgentRegistryDependency, tools: ToolRegistryDependency
+@lru_cache(maxsize=8)
+def shared_runtime_for_config(
+    definitions_root: Path,
+    llm_provider: str,
+    llm_api_key: str,
+    llm_model: str,
+    llm_base_url: str,
+    llm_timeout_seconds: float,
+    llm_max_data_classification: str,
+    llm_daily_request_limit: int,
+    llm_daily_output_token_limit: int,
 ) -> SharedAgentRuntime:
-    return SharedAgentRuntime(registry, tools)
+    prompts = PromptRegistry(definitions_root)
+    provider: OpenAIProvider | AnthropicProvider | DisabledProvider
+    if llm_provider == "openai":
+        provider = OpenAIProvider(
+            llm_api_key,
+            llm_model,
+            llm_base_url or "https://api.openai.com/v1",
+            llm_timeout_seconds,
+        )
+    elif llm_provider == "anthropic":
+        provider = AnthropicProvider(
+            llm_api_key,
+            llm_model,
+            llm_base_url or "https://api.anthropic.com/v1",
+            llm_timeout_seconds,
+        )
+    else:
+        provider = DisabledProvider()
+    gateway = LLMGateway(
+        prompts,
+        provider,
+        max_classification=DataClassification[llm_max_data_classification],
+        daily_request_limit=llm_daily_request_limit,
+        daily_output_token_limit=llm_daily_output_token_limit,
+    )
+    handlers = build_default_handler_registry(
+        CapabilityRegistry(definitions_root), gateway
+    )
+    return SharedAgentRuntime(
+        agent_registry_for_root(definitions_root),
+        tool_registry_for_root(definitions_root),
+        handlers,
+    )
+
+
+def shared_runtime(settings: SettingsDependency) -> SharedAgentRuntime:
+    api_key = (
+        settings.llm_api_key.get_secret_value().strip()
+        if settings.llm_api_key is not None
+        else ""
+    )
+    return shared_runtime_for_config(
+        settings.definitions_root,
+        settings.llm_provider,
+        api_key,
+        settings.llm_model,
+        settings.llm_base_url or "",
+        settings.llm_timeout_seconds,
+        settings.llm_max_data_classification,
+        settings.llm_daily_request_limit,
+        settings.llm_daily_output_token_limit,
+    )
 
 
 SharedRuntimeDependency = Annotated[SharedAgentRuntime, Depends(shared_runtime)]

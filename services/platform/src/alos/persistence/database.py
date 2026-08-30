@@ -113,6 +113,7 @@ class PostgresOperationalStore:
                     "now": now,
                 },
             )
+
             connection.execute(
                 text(
                     """
@@ -155,6 +156,91 @@ class PostgresOperationalStore:
                 result.model_dump(mode="json"),
             )
         return result
+
+    def record_standalone_agent_run(
+        self,
+        plan: AgentExecutionPlan,
+        principal: Principal,
+        project_id: UUID | None,
+    ) -> None:
+        execution = plan.execution
+        if execution is None:
+            raise ValueError("Standalone agent run wajib sudah dieksekusi")
+        now = datetime.now(UTC)
+        with self._engine.begin() as connection:
+            release_id = self._upsert_agent_release(connection, plan)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO agents.agent_runs
+                        (agent_run_id, agent_release_id, organization_id, project_id,
+                         status, input_reference, output_reference, correlation_id,
+                         idempotency_key, started_at, completed_at, capability,
+                         capability_version, capability_contract_digest,
+                         execution_mode, approved_tools, contract_digest, handler_id,
+                         evidence_references, warnings, verification_status, provider_metadata)
+                    VALUES
+                        (:agent_run_id, :agent_release_id, :organization_id, :project_id,
+                         :status, CAST(:input_reference AS jsonb),
+                         CAST(:output_reference AS jsonb), :correlation_id,
+                         :idempotency_key, :occurred_at, :occurred_at, :capability,
+                         :capability_version, :capability_contract_digest,
+                         :execution_mode, CAST(:approved_tools AS jsonb), :contract_digest,
+                         :handler_id, CAST(:evidence_references AS jsonb),
+                         CAST(:warnings AS jsonb), :verification_status,
+                         CAST(:provider_metadata AS jsonb))
+                    """
+                ),
+                {
+                    "agent_run_id": plan.run_id,
+                    "agent_release_id": release_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": project_id,
+                    "status": execution.status.value,
+                    "input_reference": json.dumps(plan.input_references),
+                    "output_reference": json.dumps(
+                        {
+                            "_runtime": {
+                                "handler_id": execution.handler_id,
+                                "result": execution.output_reference,
+                                "verification_status": execution.verification_status.value,
+                            },
+                            "production_effect": False,
+                        }
+                    ),
+                    "correlation_id": plan.correlation_id,
+                    "idempotency_key": plan.idempotency_key,
+                    "occurred_at": now,
+                    "capability": plan.capability,
+                    "capability_version": plan.capability_version,
+                    "capability_contract_digest": plan.capability_contract_digest,
+                    "execution_mode": plan.execution_mode.value,
+                    "approved_tools": json.dumps(
+                        [item.model_dump(mode="json") for item in plan.approved_tool_releases]
+                    ),
+                    "contract_digest": plan.contract_digest,
+                    "handler_id": execution.handler_id,
+                    "evidence_references": json.dumps(execution.evidence_references),
+                    "warnings": json.dumps(execution.warnings),
+                    "verification_status": execution.verification_status.value,
+                    "provider_metadata": json.dumps(execution.provider_metadata),
+                },
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "agent.capability_evaluated",
+                "agent_run",
+                plan.run_id,
+                plan.correlation_id,
+                None,
+                {
+                    "agent_id": plan.agent_id,
+                    "capability": plan.capability,
+                    "status": execution.status.value,
+                    "production_effect": False,
+                },
+            )
 
     def create_document(self, command: DocumentCreate, principal: Principal) -> DocumentView:
         document_id, version_id = uuid4(), uuid4()
@@ -3005,42 +3091,13 @@ class PostgresOperationalStore:
                     "now": now,
                 },
             )
-            agent_release_id = self._upsert_agent_release(connection, agent_plan)
-            connection.execute(
-                text(
-                    """
-                    INSERT INTO agents.agent_runs
-                        (agent_run_id, agent_release_id, workflow_run_id, status,
-                         input_reference, output_reference, correlation_id,
-                         idempotency_key, started_at, completed_at, capability,
-                         execution_mode, approved_tools, workflow_step_id, contract_digest)
-                    VALUES
-                        (:agent_run_id, :release_id, :workflow_run_id, 'COMPLETED',
-                         CAST(:input_reference AS jsonb), CAST(:output_reference AS jsonb),
-                         :correlation_id, :idempotency_key, :now, :now, :capability,
-                         :execution_mode, CAST(:approved_tools AS jsonb), :workflow_step_id,
-                         :contract_digest)
-                    """
-                ),
-                {
-                    "agent_run_id": agent_plan.run_id,
-                    "release_id": agent_release_id,
-                    "workflow_run_id": workflow_run_id,
-                    "input_reference": json.dumps(agent_plan.input_references),
-                    "output_reference": json.dumps(
-                        {"result": "VALIDATED", "next_step": "sales-assignment"}
-                    ),
-                    "correlation_id": correlation_id,
-                    "idempotency_key": agent_plan.idempotency_key,
-                    "now": now,
-                    "capability": agent_plan.capability,
-                    "execution_mode": agent_plan.execution_mode.value,
-                    "approved_tools": json.dumps(
-                        [item.model_dump(mode="json") for item in agent_plan.approved_tool_releases]
-                    ),
-                    "workflow_step_id": agent_plan.workflow_step_id,
-                    "contract_digest": agent_plan.contract_digest,
-                },
+            self._record_agent_run(
+                connection,
+                agent_plan,
+                workflow_run_id,
+                correlation_id,
+                {"result": "VALIDATED", "next_step": "sales-assignment"},
+                now,
             )
             self._append_audit(
                 connection,
@@ -3497,6 +3554,18 @@ class PostgresOperationalStore:
         occurred_at: datetime,
     ) -> UUID:
         release_id = self._upsert_agent_release(connection, plan)
+        execution = plan.execution
+        persisted_output = dict(output)
+        if execution is not None:
+            persisted_output["_runtime"] = {
+                "handler_id": execution.handler_id,
+                "result": execution.output_reference,
+                "verification_status": execution.verification_status.value,
+            }
+        status = execution.status.value if execution is not None else "COMPLETED"
+        evidence_references = execution.evidence_references if execution is not None else ()
+        warnings = execution.warnings if execution is not None else ()
+        provider_metadata = execution.provider_metadata if execution is not None else {}
         connection.execute(
             text(
                 """
@@ -3504,13 +3573,19 @@ class PostgresOperationalStore:
                     (agent_run_id, agent_release_id, workflow_run_id, status,
                      input_reference, output_reference, correlation_id,
                      idempotency_key, started_at, completed_at, capability,
-                     execution_mode, approved_tools, workflow_step_id, contract_digest)
+                     capability_version, capability_contract_digest,
+                     execution_mode, approved_tools, workflow_step_id, contract_digest,
+                     handler_id, evidence_references, warnings, verification_status,
+                     provider_metadata)
                 VALUES
-                    (:agent_run_id, :release_id, :workflow_run_id, 'COMPLETED',
+                    (:agent_run_id, :release_id, :workflow_run_id, :status,
                      CAST(:inputs AS jsonb), CAST(:output AS jsonb), :correlation_id,
                      :idempotency_key, :occurred_at, :occurred_at, :capability,
+                     :capability_version, :capability_contract_digest,
                      :execution_mode, CAST(:approved_tools AS jsonb), :workflow_step_id,
-                     :contract_digest)
+                     :contract_digest, :handler_id, CAST(:evidence_references AS jsonb),
+                     CAST(:warnings AS jsonb), :verification_status,
+                     CAST(:provider_metadata AS jsonb))
                 """
             ),
             {
@@ -3518,17 +3593,27 @@ class PostgresOperationalStore:
                 "release_id": release_id,
                 "workflow_run_id": workflow_run_id,
                 "inputs": json.dumps(plan.input_references),
-                "output": json.dumps(output),
+                "output": json.dumps(persisted_output),
+                "status": status,
                 "correlation_id": correlation_id,
                 "idempotency_key": plan.idempotency_key,
                 "occurred_at": occurred_at,
                 "capability": plan.capability,
+                "capability_version": plan.capability_version,
+                "capability_contract_digest": plan.capability_contract_digest,
                 "execution_mode": plan.execution_mode.value,
                 "approved_tools": json.dumps(
                     [item.model_dump(mode="json") for item in plan.approved_tool_releases]
                 ),
                 "workflow_step_id": plan.workflow_step_id,
                 "contract_digest": plan.contract_digest,
+                "handler_id": execution.handler_id if execution is not None else None,
+                "evidence_references": json.dumps(evidence_references),
+                "warnings": json.dumps(warnings),
+                "verification_status": (
+                    execution.verification_status.value if execution is not None else None
+                ),
+                "provider_metadata": json.dumps(provider_metadata),
             },
         )
         return plan.run_id

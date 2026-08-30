@@ -3,8 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from alos import __version__
 from alos.config import get_settings
+from alos.entrypoints.agent_runtime_api import router as agent_runtime_router
 from alos.entrypoints.api import router
 from alos.entrypoints.document_api import router as document_router
+from alos.entrypoints.genesis_api import router as genesis_router
 from alos.entrypoints.identity_api import router as identity_router
 from alos.entrypoints.operations_api import router as operations_router
 from alos.entrypoints.query_api import router as query_router
@@ -35,3 +37,5 @@ app.include_router(query_router, prefix=settings.api_prefix)
 app.include_router(identity_router, prefix=settings.api_prefix)
 app.include_router(operations_router, prefix=settings.api_prefix)
 app.include_router(system_router, prefix=settings.api_prefix)
+app.include_router(genesis_router, prefix=settings.api_prefix)
+app.include_router(agent_runtime_router, prefix=settings.api_prefix)

@@ -428,8 +428,12 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
     "agent_runs": ResourceSpec(
         select_sql="""
             ar.agent_run_id, arel.agent_id, arel.version AS agent_version,
-            ar.workflow_run_id, wi.project_id, ar.status, ar.input_reference,
-            ar.output_reference, ar.correlation_id, ar.started_at, ar.completed_at
+            ar.workflow_run_id, COALESCE(ar.project_id, wi.project_id) AS project_id,
+            ar.status, ar.input_reference,
+            ar.output_reference, ar.correlation_id, ar.started_at, ar.completed_at,
+            ar.capability, ar.capability_version, ar.capability_contract_digest,
+            ar.execution_mode, ar.handler_id, ar.evidence_references,
+            ar.warnings, ar.verification_status, ar.provider_metadata
         """,
         from_sql="""
             agents.agent_runs ar
@@ -439,8 +443,8 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
             LEFT JOIN identity.divisions d ON d.division_id = wi.division_id
         """,
         id_expression="ar.agent_run_id",
-        organization_expression="wi.organization_id",
-        project_expression="wi.project_id",
+        organization_expression="COALESCE(ar.organization_id, wi.organization_id)",
+        project_expression="COALESCE(ar.project_id, wi.project_id)",
         division_expression="d.code",
         status_expression="ar.status",
         search_expression="arel.agent_id",

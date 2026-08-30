@@ -2,8 +2,8 @@
 
 | Metadata | Nilai |
 |---|---|
-| Status | Rancangan untuk Pilot Internal |
-| Versi dokumen | 0.1.0 |
+| Status | Fondasi Teknis Selesai / Siap UAT Sintetis |
+| Versi dokumen | 1.0.0 |
 | Target produk | ALOS Internal v1 |
 | Tahap pelaksanaan | ALOS Internal Agent Pilot v0.1 |
 | Pemilik | PT Andara Rejo Makmur |
@@ -16,8 +16,10 @@
 | Area | Status | Bukti minimum |
 |---|---|---|
 | Foundation platform | Selesai | identitas lokal, project, work queue, migrasi, dan audit |
-| Registry dan runtime | Fondasi Genesis G1–G2 | 18 Core tetap utuh; contract universal, Tool Registry, invocation workflow, runtime generik, digest, dan snapshot release immutable |
-| Interface Genesis | Fondasi Genesis G3 | proposal REUSE/EXTEND/CREATE tervalidasi, diff deterministik, review manusia wajib, tanpa akses production |
+| Registry dan runtime | Selesai untuk technical pilot | 18 Core tetap utuh; Agent/Tool/Capability Registry, handler bersama, output/evidence/verification, dan standalone evaluation ter-audit |
+| Interface Genesis | Selesai untuk technical pilot | REUSE/EXTEND/CREATE, validate/test/diff, dua review, staging, dan release package immutable tanpa akses production |
+| LLM Gateway | Selesai, default nonaktif | OpenAI/Anthropic adapter, prompt registry, structured output, redaction, klasifikasi, budget, retry, dan fail-closed |
+| Deployment | Selesai untuk staging sintetis | image API/worker/web, migration job, Compose, healthcheck, environment template, dan runbook |
 | Governance bersama | Selesai untuk backend pilot | object storage lokal/S3-compatible, versioning, hash, evidence, approval, exception, CAPA, dan audit tersedia |
 | FLOW-001 Sales | Selesai untuk backend pilot | Lead-to-Reservation lulus integration test PostgreSQL |
 | FLOW-002 Finance | Selesai untuk backend pilot | Payment-to-Reconciliation lulus dengan SoD dan pembaruan budget |
@@ -31,7 +33,7 @@
 | Worker, outbox & integrasi | Selesai untuk backend pilot | scheduler deterministik, PostgreSQL outbox, lease/retry/dead-letter, notification internal, health, dan adaptor n8n bertanda tangan |
 | Workspace web operasional | Phase 6A selesai | login pilot, sesi, navigasi berbasis role/divisi, konteks proyek, dashboard, antrean kerja, dokumen, risiko, dan observability memakai API nyata |
 
-Status “selesai” di atas berarti siap untuk pengujian internal berbasis data sintetis,
+Status “selesai” di atas berarti siap untuk UAT internal berbasis data sintetis,
 bukan persetujuan penggunaan data perusahaan atau integrasi produksi.
 
 Phase 6A menyediakan kerangka aplikasi dan jalur kerja harian tanpa menggantikan kontrol

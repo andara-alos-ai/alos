@@ -132,6 +132,18 @@ def test_operational_queue_approval_exception_and_capa_lifecycle() -> None:
         work_item_id = lead_result["work_item_id"]
         workflow_run_id = lead_result["workflow_run_id"]
         lead_id = lead_result["lead_id"]
+        with psycopg.connect(database_url) as connection:
+            agent_run = connection.execute(
+                """
+                SELECT handler_id, verification_status, output_reference, evidence_references
+                FROM agents.agent_runs WHERE workflow_run_id = %s
+                """,
+                (workflow_run_id,),
+            ).fetchone()
+        assert agent_run[0] == "sales.lead-validation.v1"
+        assert agent_run[1] == "VERIFIED"
+        assert agent_run[2]["_runtime"]["result"]["valid"] is True
+        assert isinstance(agent_run[3], list)
 
         unassigned = client.get(
             "/api/v1/operational/work-queue",
