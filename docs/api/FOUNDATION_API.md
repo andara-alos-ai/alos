@@ -12,6 +12,7 @@
 - Perintah yang dapat diulang wajib membawa `Idempotency-Key`.
 - `X-Correlation-ID` menghubungkan work item, workflow run, agent run, dan audit.
 - Endpoint autentikasi lokal tidak tersedia pada staging atau production.
+- Login OIDC hanya memverifikasi identitas; kewenangan selalu dimuat ulang dari database ALOS.
 - API key vendor dan token LLM tidak pernah diteruskan ke Core Agent atau browser.
 
 ## Endpoint
@@ -20,6 +21,10 @@
 |---|---|---|---|
 | `GET` | `/health` | status layanan | pemeriksaan sistem |
 | `POST` | `/auth/local-token` | token pengembangan lokal | local/test saja |
+| `GET` | `/auth/oidc/status` | status dan provider login OIDC | publik; tanpa rahasia |
+| `GET` | `/auth/oidc/login` | memulai Authorization Code Flow + PKCE | publik; jika OIDC aktif |
+| `GET` | `/auth/oidc/callback/google` | memvalidasi callback Google dan menerbitkan kode sekali pakai | callback provider |
+| `POST` | `/auth/oidc/exchange` | menukar kode sekali pakai menjadi token ALOS | publik; kode satu kali |
 | `GET` | `/agents` | registry 18 Core Agent | pengguna terautentikasi; read-only |
 | `GET` | `/workflows` | enam definisi workflow | pengguna terautentikasi; read-only |
 | `POST` | `/agent-runs/prepare` | validasi diagnostik kontrak runtime tanpa eksekusi bisnis | IT Admin |
@@ -133,6 +138,12 @@ endpoint HTTPS, enkripsi bucket/provider, dan pemeriksaan malware eksternal. Sel
 scan belum `CLEAN`, download production diblokir. Vendor storage tetap keputusan deployment.
 
 ## Identity and Access API
+
+Google OIDC menghubungkan klaim issuer/subject yang terverifikasi ke pengguna ALOS yang
+sudah ada. Email harus terverifikasi, akun ALOS harus `ACTIVE`, dan login tidak melakukan
+auto-provisioning. Setelah identitas cocok, role, divisi, project, serta status dimuat dari
+database. State transaksi dan kode login disimpan dalam bentuk hash, memiliki masa
+berlaku singkat, dan hanya dapat digunakan sekali.
 
 | Method | Path | Tujuan | Akses |
 |---|---|---|---|

@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -40,6 +41,14 @@ class Settings(BaseSettings):
         default=SecretStr("local-development-only-change-me"), min_length=32
     )
     auth_token_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
+    oidc_provider: Literal["disabled", "google"] = "disabled"
+    oidc_client_id: str | None = None
+    oidc_client_secret: SecretStr | None = None
+    oidc_redirect_uri: str = "http://localhost:8000/api/v1/auth/oidc/callback/google"
+    oidc_allowed_domain: str | None = None
+    oidc_timeout_seconds: float = Field(default=10.0, ge=2.0, le=30.0)
+    oidc_transaction_ttl_seconds: int = Field(default=600, ge=120, le=900)
+    oidc_login_code_ttl_seconds: int = Field(default=60, ge=30, le=120)
     object_storage_provider: Literal["filesystem", "s3"] = "filesystem"
     object_storage_bucket: str = Field(
         default="alos-documents", pattern=r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
@@ -89,7 +98,48 @@ class Settings(BaseSettings):
             raise ValueError("Access key dan secret key object storage harus diberikan bersama")
         self._validate_n8n_configuration()
         self._validate_llm_configuration()
+        self._validate_oidc_configuration()
         return self
+
+    def _validate_oidc_configuration(self) -> None:
+        if self.oidc_provider == "disabled":
+            return
+        client_id = (self.oidc_client_id or "").strip()
+        client_secret = self.oidc_client_secret_value
+        if not client_id or not client_secret:
+            raise ValueError("OIDC aktif memerlukan Client ID dan Client Secret")
+        if len(client_id) > 512 or len(client_secret) > 512:
+            raise ValueError("Credential OIDC melebihi batas yang diizinkan")
+        allowed_domain = (self.oidc_allowed_domain or "").strip().casefold()
+        domain_pattern = (
+            r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+            r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+        )
+        if allowed_domain and re.fullmatch(domain_pattern, allowed_domain) is None:
+            raise ValueError("Domain OIDC yang diizinkan tidak valid")
+        redirect = urlsplit(self.oidc_redirect_uri)
+        if redirect.scheme not in {"http", "https"} or not redirect.hostname:
+            raise ValueError("Redirect URI OIDC bukan URL HTTP(S) yang valid")
+        if redirect.username or redirect.password or redirect.query or redirect.fragment:
+            raise ValueError(
+                "Redirect URI OIDC tidak boleh memuat credential, query, atau fragment"
+            )
+        web_origin = urlsplit(self.web_origin)
+        if web_origin.scheme not in {"http", "https"} or not web_origin.hostname:
+            raise ValueError("Web origin ALOS bukan URL HTTP(S) yang valid")
+        if (
+            web_origin.username
+            or web_origin.password
+            or web_origin.query
+            or web_origin.fragment
+            or web_origin.path not in {"", "/"}
+        ):
+            raise ValueError("Web origin ALOS wajib berupa origin tanpa path atau credential")
+        if (
+            self.environment in {"staging", "production"}
+            and (redirect.scheme != "https" or web_origin.scheme != "https")
+        ):
+            raise ValueError("OIDC staging/production wajib menggunakan HTTPS")
 
     def _validate_llm_configuration(self) -> None:
         if self.llm_provider == "disabled":
@@ -158,6 +208,13 @@ class Settings(BaseSettings):
         if self.n8n_webhook_secret is None:
             return None
         value = self.n8n_webhook_secret.get_secret_value().strip()
+        return value or None
+
+    @property
+    def oidc_client_secret_value(self) -> str | None:
+        if self.oidc_client_secret is None:
+            return None
+        value = self.oidc_client_secret.get_secret_value().strip()
         return value or None
 
     @property

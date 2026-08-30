@@ -1,8 +1,9 @@
+import re
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Role(StrEnum):
@@ -53,6 +54,35 @@ class UserCreate(BaseModel):
     display_name: str = Field(min_length=2, max_length=160)
     division_code: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{1,31}$")
     role: Role
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        local_part, separator, domain = normalized.partition("@")
+        local_pattern = r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+"
+        domain_pattern = (
+            r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+            r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+"
+        )
+        if (
+            not separator
+            or not re.fullmatch(local_pattern, local_part)
+            or local_part.startswith(".")
+            or local_part.endswith(".")
+            or ".." in local_part
+            or not re.fullmatch(domain_pattern, domain)
+        ):
+            raise ValueError("Format email pengguna tidak valid")
+        return normalized
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if len(normalized) < 2:
+            raise ValueError("Nama pengguna minimal 2 karakter")
+        return normalized
 
 
 class UserView(BaseModel):

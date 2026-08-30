@@ -30,6 +30,42 @@ export type Project = {
   created_at: string;
 };
 
+export type UserStatus = "INVITED" | "ACTIVE" | "SUSPENDED";
+
+export type RoleAssignment = {
+  assignment_id: string;
+  role: Role;
+  division_code: string | null;
+  valid_from: string;
+  valid_until: string | null;
+  reason: string;
+  created_at: string;
+};
+
+export type ProjectAssignment = {
+  assignment_id: string;
+  project_id: string;
+  project_code: string;
+  project_name: string;
+  valid_from: string;
+  valid_until: string | null;
+  reason: string;
+  created_at: string;
+};
+
+export type UserDirectoryRecord = {
+  user_id: string;
+  email: string;
+  display_name: string;
+  status: UserStatus;
+  roles: RoleAssignment[];
+  projects: ProjectAssignment[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type UserDirectoryPage = PageResult<UserDirectoryRecord>;
+
 export type WorkQueueScope = "mine" | "unassigned" | "division" | "overdue";
 
 export type WorkItem = {

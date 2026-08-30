@@ -43,6 +43,17 @@ Mode **Token akses** menerima token yang sudah diterbitkan sistem identitas. Jan
 kata sandi, API key, atau token produksi ke layar pilot. Pada staging/production, endpoint
 token lokal dan flag login pilot wajib dinonaktifkan serta diganti integrasi OIDC/SSO.
 
+### Masuk dengan Google
+
+ALOS mendukung Google OIDC tanpa memberikan akses Gmail atau Google Drive. Aktifkan
+`ALOS_OIDC_PROVIDER=google`, simpan Client ID dan Client Secret hanya di `.env`, lalu
+pastikan callback lokal tepat sama dengan nilai yang terdaftar di Google Cloud. Pengguna
+Google harus sudah diprovisikan sebagai pengguna `ACTIVE` di ALOS; role, divisi, project,
+dan izin tidak diambil dari Google.
+
+Panduan nilai Google Cloud, scope minimum, variabel environment, dan troubleshooting
+tersedia pada [Konfigurasi Login Google OIDC](GOOGLE_OIDC_CONFIGURATION.md).
+
 Menu mengikuti role dan divisi. Konteks proyek pada topbar membatasi dashboard, antrean,
 dokumen, approval, serta exception/CAPA ke proyek yang dipilih. Backend tetap menjadi sumber
 otorisasi; menyembunyikan menu di web bukan pengganti pemeriksaan izin API.
@@ -79,6 +90,11 @@ Endpoint `POST /api/v1/auth/local-token` hanya tersedia pada lingkungan `local` 
 menyimpan kata sandi. Gunakan UUID organisasi dari PostgreSQL dan role pilot yang
 sesuai. Endpoint tersebut tidak boleh diaktifkan pada staging atau production.
 
+Login Google memakai endpoint OIDC yang sama pada seluruh lingkungan. Callback tidak
+menaruh bearer token ALOS di URL; web hanya menerima kode sekali pakai yang segera
+ditukar dan dihapus dari fragment browser. Token ALOS tetap disimpan pada
+`sessionStorage` tab aktif selama baseline web saat ini.
+
 Operasi project, workflow Sales, workflow Finance, dan work queue menggunakan header berikut:
 
 ```text
@@ -92,6 +108,20 @@ Setelah pengguna dibuat, berikan akses project melalui
 project wajib menyertakan alasan. Endpoint query operasional menggunakan pagination
 dan filter server-side; contoh pemeriksaan adalah
 `GET /api/v1/leads?page=1&page_size=25&project_id=<uuid>`.
+
+### Onboarding Pengguna melalui Web
+
+IT Admin dapat membuka menu **Pengguna & Akses** untuk membuat akun, menambah role,
+menetapkan divisi, memberi akses project, mengatur masa berlaku, mengaktifkan atau
+menangguhkan akun, dan mencabut penugasan. Email akun harus sama persis dengan email Google
+yang akan digunakan untuk login. Direktur dan Auditor memperoleh akses baca tanpa tombol
+perubahan.
+
+Setiap perubahan atau pencabutan wajib memiliki alasan minimal delapan karakter dan dicatat
+pada audit trail. Role domain hanya dapat ditempatkan pada divisi yang sesuai; role Direktur,
+AI Executive, dan Auditor tidak ditempatkan pada divisi. Administrator tidak dapat mengubah
+status atau mencabut akses akunnya sendiri. Login Google tetap menolak email yang belum
+terdaftar atau akun yang berstatus `SUSPENDED`.
 
 Alur lead menjalankan validasi deterministik melalui SLA, penugasan Sales Human,
 penjadwalan follow-up oleh CFA, pencatatan interaksi, dan hasil pipeline/reservasi.

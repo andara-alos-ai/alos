@@ -11,6 +11,7 @@ dependencies = [
   "boto3>=1.43.81,<2",
   "fastapi[standard]==0.141.1",
   "httpx>=0.28,<1",
+  "pyjwt[crypto]>=2.10,<3",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
   "sqlalchemy>=2.0.43,<3",

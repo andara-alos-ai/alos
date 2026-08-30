@@ -30,7 +30,7 @@ Prasyarat: Node.js 22+, pnpm 11+, Python 3.12+, dan Docker Desktop dengan Compos
 5. Jalankan API dengan `pnpm dev:api` dan web dengan `pnpm dev:web`.
 6. Jalankan worker dengan `pnpm worker`; gunakan `pnpm worker:once` untuk satu siklus manual.
 
-API tersedia pada `http://localhost:8000`, dokumentasi API pada `/docs`, dan web pada `http://localhost:3000`.
+API tersedia pada `http://localhost:8000`, dokumentasi API pada `/docs`, dan web pada `http://localhost:3000`. Login Google OIDC bersifat opsional dan dikonfigurasi sesuai [runbook Google OIDC](docs/runbooks/GOOGLE_OIDC_CONFIGURATION.md); Client Secret tidak pernah ditempatkan pada frontend atau Git.
 
 Untuk deployment seluruh stack yang dapat diulang, gunakan `infra/compose/compose.application.yaml` sesuai runbook deployment. File tersebut menjalankan migrasi, API, worker, web, dan PostgreSQL sebagai layanan terpisah tanpa memecah 18 agent menjadi microservice.
 

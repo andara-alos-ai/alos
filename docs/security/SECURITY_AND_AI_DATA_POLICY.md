@@ -3,9 +3,9 @@
 | Metadata | Nilai |
 |---|---|
 | Status | Rancangan untuk Pilot Internal |
-| Versi | 0.2.0 |
+| Versi | 0.3.0 |
 | Pemilik kebijakan | Manajemen dan IT; pemilik data sesuai divisi |
-| Pembaruan terakhir | 29 Agustus 2026 |
+| Pembaruan terakhir | 30 Agustus 2026 |
 
 ## 1. Tujuan
 
@@ -25,7 +25,12 @@ Dokumen ini menetapkan pengamanan minimum pilot serta batas pemrosesan data oleh
 
 ## 3. Identitas dan Akses
 
-Pilot dapat menggunakan autentikasi lokal, tetapi batas antarmukanya harus kompatibel dengan OIDC. Produksi memerlukan penyedia identitas yang disahkan dan MFA untuk tindakan istimewa atau material.
+Pilot lokal dapat menggunakan autentikasi lokal. Google OIDC tersedia sebagai baseline
+autentikasi pengembangan dan pilot, sedangkan produksi tetap memerlukan penyedia identitas,
+domain organisasi, dan kebijakan MFA yang disahkan. Integrasi OIDC memakai Authorization
+Code Flow dengan PKCE, `state`, `nonce`, verifikasi tanda tangan ID token melalui JWKS,
+issuer/audience/expiry yang ketat, dan kode ALOS sekali pakai. Login tidak melakukan
+auto-provisioning dan tidak mempercayai klaim role, divisi, atau project dari provider.
 
 Otorisasi memadukan:
 
@@ -124,4 +129,7 @@ Data asli hanya dapat digunakan setelah tersedia:
 
 ## 15. Keputusan Terbuka
 
-Penyedia identitas, penyedia/deployment LLM, lokasi hosting, retensi, petugas keamanan, prosedur legal hold, standar enkripsi final, RTO/RPO, dan aturan penggunaan data perusahaan masih `TBD`.
+Google OIDC telah dipilih untuk baseline pengembangan/pilot. Keputusan penyedia identitas
+production, domain organisasi, kebijakan MFA, penyedia/deployment LLM, lokasi hosting,
+retensi, petugas keamanan, prosedur legal hold, standar enkripsi final, RTO/RPO, dan
+aturan penggunaan data perusahaan masih `TBD`.

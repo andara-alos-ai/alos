@@ -7,14 +7,20 @@ import type {
   PageResult,
   Principal,
   Project,
+  ProjectAssignment,
   Reminder,
   Role,
+  RoleAssignment,
+  UserDirectoryPage,
+  UserDirectoryRecord,
+  UserStatus,
   WorkItem,
   WorkQueueScope,
 } from "./types";
 
 const configuredBaseUrl = process.env.NEXT_PUBLIC_ALOS_API_URL?.replace(/\/$/, "");
 export const apiBaseUrl = configuredBaseUrl || "http://localhost:8000/api/v1";
+export const oidcLoginUrl = `${apiBaseUrl}/auth/oidc/login`;
 
 export class ApiError extends Error {
   constructor(
@@ -78,6 +84,17 @@ export function issuePilotToken(input: {
   return request<{ access_token: string; token_type: string; expires_in: number }>(
     "/auth/local-token",
     { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function getOidcStatus() {
+  return request<{ enabled: boolean; provider: "google" | null }>("/auth/oidc/status");
+}
+
+export function exchangeOidcCode(code: string) {
+  return request<{ access_token: string; token_type: string; expires_in: number }>(
+    "/auth/oidc/exchange",
+    { method: "POST", body: JSON.stringify({ code }) },
   );
 }
 
@@ -169,4 +186,95 @@ export function getExceptions(token: string, projectId: string | null) {
 
 export function getCapas(token: string, projectId: string | null) {
   return request<PageResult<CapaRecord>>(queryPath("/capas", projectId), { token });
+}
+
+export function getUsers(
+  token: string,
+  filters: {
+    search?: string;
+    status?: UserStatus | "";
+    role?: Role | "";
+    division_code?: string;
+  } = {},
+) {
+  const parameters = new URLSearchParams({ page: "1", page_size: "100" });
+  if (filters.search?.trim()) parameters.set("search", filters.search.trim());
+  if (filters.status) parameters.set("status", filters.status);
+  if (filters.role) parameters.set("role", filters.role);
+  if (filters.division_code) parameters.set("division_code", filters.division_code);
+  return request<UserDirectoryPage>(`/users?${parameters}`, { token });
+}
+
+export function createUser(
+  token: string,
+  input: { email: string; display_name: string; role: Role; division_code: string | null },
+) {
+  return request<{ user_id: string }>("/users", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateUserStatus(
+  token: string,
+  userId: string,
+  status: Exclude<UserStatus, "INVITED">,
+  reason: string,
+) {
+  return request<UserDirectoryRecord>(`/users/${userId}/status`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ status, reason }),
+  });
+}
+
+export function addUserRole(
+  token: string,
+  userId: string,
+  input: { role: Role; division_code: string | null; valid_until: string | null; reason: string },
+) {
+  return request<RoleAssignment>(`/users/${userId}/role-assignments`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export function revokeUserRole(
+  token: string,
+  userId: string,
+  assignmentId: string,
+  reason: string,
+) {
+  return request<void>(`/users/${userId}/role-assignments/${assignmentId}/revoke`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function addUserProject(
+  token: string,
+  userId: string,
+  input: { project_id: string; valid_until: string | null; reason: string },
+) {
+  return request<ProjectAssignment>(`/users/${userId}/project-assignments`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export function revokeUserProject(
+  token: string,
+  userId: string,
+  assignmentId: string,
+  reason: string,
+) {
+  return request<void>(`/users/${userId}/project-assignments/${assignmentId}/revoke`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ reason }),
+  });
 }

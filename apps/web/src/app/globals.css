@@ -204,6 +204,8 @@ button:focus-visible, a:focus-visible, summary:focus-visible { border-radius: 7p
 .loginCard { width: min(100%, 560px); border: 1px solid var(--line); border-radius: 16px; background: var(--white); box-shadow: var(--shadow); padding: 34px; }
 .loginCard h2 { margin: 6px 0 7px; font: 700 27px Georgia, serif; }
 .loginCard > .muted { margin: 0; line-height: 1.55; }
+.oidcLogin { display: grid; gap: 11px; margin-top: 22px; text-align: center; }
+.oidcLogin span { color: var(--muted); font-size: 10px; font-weight: 700; }
 .segmentedControl { display: flex; gap: 4px; margin: 24px 0 20px; border-radius: 9px; background: var(--paper); padding: 4px; }
 .segmentedControl button { flex: 1; border: 0; border-radius: 7px; background: transparent; cursor: pointer; padding: 9px; color: var(--muted); font-size: 11px; font-weight: 750; }
 .segmentedControl button.active { background: var(--white); box-shadow: 0 2px 8px rgba(28, 57, 46, .08); color: var(--green-800); }
@@ -253,12 +255,71 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .06em; text-transform:
 .agentTiles strong { color: var(--green-800); }
 .agentTiles span { color: var(--muted); font-size: 10px; }
 
+.button:disabled, .textButton:disabled { cursor: not-allowed; opacity: .52; }
+.identityCreatePanel { margin-bottom: 16px; }
+.identityForm { display: grid; grid-template-columns: 1.15fr 1.35fr 1fr 1fr; align-items: end; gap: 13px; padding: 18px 20px 20px; }
+.identityForm label, .identityFilters label, .identityGovernance label, .assignmentForm label { display: grid; gap: 6px; color: #40534b; font-size: 10px; font-weight: 750; }
+.identityFormFooter { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 15px; border-top: 1px solid var(--line); padding-top: 15px; }
+.identityFormFooter p { margin: 0; color: var(--muted); font-size: 10px; }
+.identityFilters { display: grid; grid-template-columns: minmax(220px, 1.3fr) repeat(3, minmax(150px, .8fr)) auto; align-items: end; gap: 10px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--white); padding: 14px; }
+.identityFilterActions { display: flex; gap: 7px; }
+.identityFeedback { margin-bottom: 14px; }
+.identitySuccess { border: 1px solid #badbc9; border-radius: 8px; background: var(--green-50); color: var(--green-800); padding: 10px 11px; font-size: 11px; line-height: 1.4; }
+.identityLayout { min-height: 680px; display: grid; grid-template-columns: minmax(320px, .72fr) minmax(560px, 1.28fr); overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--white); }
+.identityList { max-height: 900px; overflow-y: auto; border-right: 1px solid var(--line); background: #fbfcfb; }
+.identityListSummary { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 15px 17px; }
+.identityListSummary strong { font-size: 11px; }
+.identityListSummary span { color: var(--muted); font-size: 9px; }
+.identityUser { width: 100%; display: grid; grid-template-columns: 39px minmax(0, 1fr) auto; align-items: center; gap: 11px; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; padding: 15px 16px; text-align: left; }
+.identityUser:hover { background: var(--green-50); }
+.identityUser.selected { background: var(--white); box-shadow: inset 3px 0 var(--green-700); }
+.identityAvatar { width: 37px; height: 37px; display: grid; place-items: center; border-radius: 50%; background: var(--green-100); color: var(--green-800); font: 700 15px Georgia, serif; }
+.identityUserCopy { min-width: 0; display: grid; gap: 3px; }
+.identityUserCopy strong, .identityUserCopy small, .identityUserCopy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.identityUserCopy strong { font-size: 11px; }
+.identityUserCopy small { color: var(--muted); font-size: 9px; }
+.identityUserCopy span { color: var(--green-700); font-size: 9px; }
+.accountStatus { width: fit-content; display: inline-flex; border-radius: 20px; padding: 5px 8px; font-size: 8px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+.accountStatus.active { background: var(--green-100); color: var(--green-700); }
+.accountStatus.suspended { background: var(--red-bg); color: var(--red); }
+.accountStatus.invited { background: var(--blue-bg); color: var(--blue); }
+.accountStatus.large { padding: 7px 10px; font-size: 9px; }
+.identityDetail { min-width: 0; padding: 25px; }
+.identityDetailHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); padding-bottom: 20px; }
+.identityDetailHeader h2 { margin: 5px 0; font: 700 24px/1.25 Georgia, serif; }
+.identityDetailHeader > div > p:last-child { margin: 0; color: var(--muted); font-size: 11px; }
+.identityMeta { margin: 20px 0; }
+.identityGovernance { display: grid; grid-template-columns: minmax(260px, 1fr) auto; align-items: end; gap: 10px; border: 1px solid #ead7aa; border-radius: 10px; background: var(--amber-bg); padding: 14px; }
+.identityGovernance small { grid-column: 1 / -1; color: #806c45; font-size: 9px; }
+.identitySection { margin-top: 20px; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
+.identitySectionHeader { min-height: 67px; display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; }
+.identitySectionHeader h3 { margin: 4px 0 0; font-size: 14px; }
+.assignmentList { border-top: 1px solid var(--line); }
+.assignmentList article { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); padding: 13px 16px; }
+.assignmentList article > div { display: grid; gap: 4px; }
+.assignmentList strong { font-size: 11px; }
+.assignmentList span { color: var(--green-700); font-size: 9px; }
+.assignmentList small { color: var(--muted); font-size: 9px; }
+.identityEmptyLine { margin: 0; border-bottom: 1px solid var(--line); padding: 14px 16px; font-size: 10px; }
+.textButton { border: 0; background: transparent; cursor: pointer; padding: 4px; font-size: 9px; font-weight: 800; }
+.textButton.danger { color: var(--red); }
+.assignmentForm { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: end; gap: 10px; background: var(--paper); padding: 14px 16px; }
+.assignmentForm .assignmentReason { grid-column: span 2; }
+.projectAssignmentForm { grid-template-columns: 1.4fr 1fr 1.4fr auto; }
+.projectAssignmentForm .assignmentReason { grid-column: auto; }
+
 @media (max-width: 1180px) {
   .metricGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboardGrid { grid-template-columns: 1fr; }
   .riskColumns, .workspaceOverview { grid-template-columns: 1fr; }
   .queueLayout { grid-template-columns: minmax(270px, .68fr) minmax(400px, 1.32fr); }
   .detailGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .identityFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .identityFilterActions { grid-column: 1 / -1; }
+  .identityForm { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .identityLayout { grid-template-columns: minmax(290px, .65fr) minmax(470px, 1.35fr); }
+  .projectAssignmentForm { grid-template-columns: 1fr 1fr; }
+  .projectAssignmentForm .assignmentReason { grid-column: 1 / -1; }
 }
 
 @media (max-width: 900px) {
@@ -273,6 +334,8 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .06em; text-transform:
   .content { padding: 28px 22px 60px; }
   .queueLayout { grid-template-columns: 1fr; }
   .queueList { max-height: 420px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .identityLayout { grid-template-columns: 1fr; }
+  .identityList { max-height: 420px; border-right: 0; border-bottom: 1px solid var(--line); }
   .loginPage { grid-template-columns: 1fr; }
   .loginIntro { min-height: auto; gap: 45px; padding: 38px; }
   .loginPanel { padding: 35px 20px; }
@@ -304,4 +367,11 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .06em; text-transform:
   .loginPanel { padding: 24px 12px; }
   .loginCard { padding: 24px 18px; }
   .fieldGrid { grid-template-columns: 1fr; }
+  .identityFilters, .identityForm, .assignmentForm, .projectAssignmentForm { grid-template-columns: 1fr; }
+  .identityFilterActions, .identityFormFooter, .assignmentForm .assignmentReason, .projectAssignmentForm .assignmentReason { grid-column: auto; }
+  .identityFormFooter { align-items: flex-start; flex-direction: column; }
+  .identityDetail { padding: 19px 14px; }
+  .identityDetailHeader { display: grid; }
+  .identityGovernance { grid-template-columns: 1fr; }
+  .identityGovernance small { grid-column: auto; }
 }

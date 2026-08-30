@@ -19,11 +19,12 @@ Dokumentasi ini menjadi dasar implementasi ALOS Internal Agent Pilot v0.1 dan ta
 13. [API Genesis dan Agent Runtime](api/GENESIS_AND_AGENT_RUNTIME_API.md)
 14. [Register Keputusan Arsitektur](adr/ARCHITECTURE_DECISION_REGISTER.md)
 15. [Runbook Pengembangan Lokal](runbooks/LOCAL_DEVELOPMENT.md)
-16. [Worker, Outbox, dan Integrasi n8n](runbooks/WORKER_AND_N8N.md)
-17. [Runbook Deployment](deployment/DEPLOYMENT_RUNBOOK.md)
-18. [UAT Pilot Sintetis](uat/SYNTHETIC_PILOT_UAT.md)
-19. [Handover Genesis dan Runtime](handover/GENESIS_FOUNDATION_HANDOVER.md)
-20. [Hasil UAT Sintetis 30 Agustus 2026](uat/results/2026-08-30_SYNTHETIC_UAT_REPORT.md)
+16. [Konfigurasi Login Google OIDC](runbooks/GOOGLE_OIDC_CONFIGURATION.md)
+17. [Worker, Outbox, dan Integrasi n8n](runbooks/WORKER_AND_N8N.md)
+18. [Runbook Deployment](deployment/DEPLOYMENT_RUNBOOK.md)
+19. [UAT Pilot Sintetis](uat/SYNTHETIC_PILOT_UAT.md)
+20. [Handover Genesis dan Runtime](handover/GENESIS_FOUNDATION_HANDOVER.md)
+21. [Hasil UAT Sintetis 30 Agustus 2026](uat/results/2026-08-30_SYNTHETIC_UAT_REPORT.md)
 
 ## Aturan Penggunaan
 

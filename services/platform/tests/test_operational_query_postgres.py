@@ -222,6 +222,7 @@ def test_operational_queries_and_identity_access_are_scoped_and_audited() -> Non
             environment="staging",
             database_url=get_settings().database_url,
             auth_signing_secret="staging-IAM-validation-secret-9X7q2L",
+            oidc_provider="disabled",
         )
         released_principal = Principal(
             user_id=user_id,

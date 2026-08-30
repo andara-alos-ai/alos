@@ -22,6 +22,7 @@ describe("navigasi berbasis peran", () => {
 
     expect(primary.some((item) => item.href === "/approvals")).toBe(false);
     expect(system.map((item) => item.href)).toContain("/system-health");
+    expect(system.map((item) => item.href)).toContain("/users");
   });
 
   it("memberi direktur akses governance dan monitoring", () => {
@@ -29,5 +30,7 @@ describe("navigasi berbasis peran", () => {
       .toContain("/approvals");
     expect(visibleNavigation(systemNavigation, ["DIRECTOR"]).map((item) => item.href))
       .toContain("/agents");
+    expect(visibleNavigation(systemNavigation, ["DIRECTOR"]).map((item) => item.href))
+      .toContain("/users");
   });
 });

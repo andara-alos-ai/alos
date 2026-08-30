@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from alos.config import Settings, get_settings
 from alos.main import app
 
 client = TestClient(app)
@@ -12,6 +13,23 @@ def test_health_reports_llm_disabled_by_default() -> None:
 
     assert response.status_code == 200
     assert response.json()["llm_provider"] == "disabled"
+
+
+def test_oidc_is_disabled_safely_by_default() -> None:
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None,
+        oidc_provider="disabled",
+    )
+    try:
+        isolated_client = TestClient(app)
+        status_response = isolated_client.get("/api/v1/auth/oidc/status")
+        login_response = isolated_client.get("/api/v1/auth/oidc/login")
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+    assert status_response.status_code == 200
+    assert status_response.json() == {"enabled": False, "provider": None}
+    assert login_response.status_code == 404
 
 
 def test_agents_endpoint_returns_18_agents() -> None:

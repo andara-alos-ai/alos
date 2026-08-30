@@ -3,7 +3,7 @@ import type { Role } from "./types";
 export type NavigationItem = {
   label: string;
   href: string;
-  icon: "home" | "work" | "approval" | "document" | "risk" | "agent" | "workflow" | "health";
+  icon: "home" | "work" | "approval" | "document" | "risk" | "agent" | "workflow" | "health" | "users";
   roles?: Role[];
 };
 
@@ -34,6 +34,12 @@ export const primaryNavigation: NavigationItem[] = [
 ];
 
 export const systemNavigation: NavigationItem[] = [
+  {
+    label: "Pengguna & Akses",
+    href: "/users",
+    icon: "users",
+    roles: ["DIRECTOR", "IT_ADMIN", "AUDITOR"],
+  },
   {
     label: "Agent Registry",
     href: "/agents",

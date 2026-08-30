@@ -14,6 +14,26 @@
 - hostname HTTPS dan reverse proxy perusahaan;
 - identity provider, RTO/RPO, dan owner operasional yang telah disetujui.
 
+## Identitas Google OIDC
+
+Staging dan production menggunakan OAuth client terpisah. Origin web dan redirect URI
+wajib memakai hostname HTTPS resmi dan harus sama persis dengan konfigurasi Google Cloud.
+Simpan `ALOS_OIDC_CLIENT_SECRET` pada secret manager; jangan bake secret ke image atau
+menaruhnya pada file repository. Konfigurasi minimum:
+
+```dotenv
+ALOS_OIDC_PROVIDER=google
+ALOS_OIDC_CLIENT_ID=<client-id-lingkungan>
+ALOS_OIDC_CLIENT_SECRET=<secret-dari-secret-manager>
+ALOS_OIDC_REDIRECT_URI=https://<api-host>/api/v1/auth/oidc/callback/google
+ALOS_OIDC_ALLOWED_DOMAIN=<domain-organisasi-yang-disahkan>
+```
+
+Sebelum pilot, provision pengguna, role, divisi, dan project pada ALOS; Google tidak
+menjadi sumber otorisasi. Nonaktifkan `NEXT_PUBLIC_ALOS_PILOT_LOGIN_ENABLED`, wajibkan MFA
+melalui provider, uji login/logout/pencabutan akses, dan verifikasi audit. Panduan lengkap
+terdapat pada [Konfigurasi Login Google OIDC](../runbooks/GOOGLE_OIDC_CONFIGURATION.md).
+
 ## Menjalankan Staging
 
 1. Salin `infra/environments/staging/app.env.example` ke file environment di luar repository.
@@ -25,7 +45,7 @@
 docker compose --env-file <path-env> -f infra/compose/compose.application.yaml up -d --build
 ```
 
-Job `migrate` harus selesai sebelum API dan worker aktif. Image platform menetapkan repository root `/app` agar seluruh migration dan definition dapat ditemukan secara konsisten. Periksa `/api/v1/health`, `/api/v1/system/operations-health`, log worker, dan status outbox.
+Job `migrate` harus selesai sebelum API dan worker aktif. Image platform menetapkan repository root `/app` agar seluruh migration dan definition dapat ditemukan secara konsisten. Periksa `/api/v1/health`, `/api/v1/auth/oidc/status`, `/api/v1/system/operations-health`, log worker, dan status outbox.
 
 Status worker dinilai melalui heartbeat pada tabel `observability.worker_runs`, bukan endpoint HTTP API. Worker dinyatakan sehat jika memiliki siklus `COMPLETED`/`PARTIAL` atau status `RUNNING` yang masih baru sesuai batas healthcheck.
 

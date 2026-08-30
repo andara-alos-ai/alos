@@ -9,6 +9,7 @@ export type IconName =
   | "agent"
   | "workflow"
   | "health"
+  | "users"
   | "bell"
   | "search"
   | "chevron"
@@ -28,6 +29,7 @@ const paths: Record<IconName, ReactNode> = {
   agent: <><rect x="4" y="6" width="16" height="13" rx="3"/><path d="M12 2v4M8 11h.01M16 11h.01M9 15h6"/></>,
   workflow: <><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M9 6h5a4 4 0 0 1 4 4v5M15 18H9a3 3 0 0 1-3-3V9"/></>,
   health: <><path d="M3 12h4l2-5 4 10 2-5h6"/><path d="M20 5v14H4V5z"/></>,
+  users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
   bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>,
   search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
   chevron: <path d="m9 18 6-6-6-6"/>,

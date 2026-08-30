@@ -8,6 +8,7 @@ from alos.entrypoints.api import router
 from alos.entrypoints.document_api import router as document_router
 from alos.entrypoints.genesis_api import router as genesis_router
 from alos.entrypoints.identity_api import router as identity_router
+from alos.entrypoints.oidc_api import router as oidc_router
 from alos.entrypoints.operations_api import router as operations_router
 from alos.entrypoints.query_api import router as query_router
 from alos.entrypoints.system_api import router as system_router
@@ -32,6 +33,7 @@ app.add_middleware(
 )
 app.add_middleware(RequestBodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
 app.include_router(router, prefix=settings.api_prefix)
+app.include_router(oidc_router, prefix=settings.api_prefix)
 app.include_router(document_router, prefix=settings.api_prefix)
 app.include_router(query_router, prefix=settings.api_prefix)
 app.include_router(identity_router, prefix=settings.api_prefix)
