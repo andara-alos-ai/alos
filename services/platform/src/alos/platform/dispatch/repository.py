@@ -30,15 +30,21 @@ class PostgresDispatchRepository:
         self,
         destinations: tuple[OutboxDestination, ...],
         max_attempts: int,
+        organization_ids: tuple[UUID, ...] | None = None,
     ) -> int:
-        if not destinations:
+        if not destinations or organization_ids == ():
             return 0
+        organization_scope = (
+            ""
+            if organization_ids is None
+            else "AND r.organization_id = ANY(CAST(:organization_ids AS uuid[]))"
+        )
         inserted = 0
         with self._engine.begin() as connection:
             for destination in destinations:
                 result = connection.execute(
                     text(
-                        """
+                        f"""
                         INSERT INTO integration.outbox_events
                             (organization_id, topic, aggregate_type, aggregate_id,
                              destination, payload, status, max_attempts, available_at,
@@ -66,14 +72,16 @@ class PostgresDispatchRepository:
                         LEFT JOIN platform.work_items wi
                           ON wi.work_item_id = COALESCE(r.work_item_id, ar.work_item_id)
                         WHERE r.status = 'PENDING'
+                          {organization_scope}
                         ON CONFLICT (organization_id, destination, idempotency_key)
                         DO NOTHING
                         RETURNING outbox_event_id
-                        """
+                        """  # noqa: S608 -- organization scope is a static clause.
                     ),
                     {
                         "destination": destination.value,
                         "max_attempts": max_attempts,
+                        "organization_ids": list(organization_ids) if organization_ids else None,
                     },
                 )
                 inserted += len(result.fetchall())
@@ -154,9 +162,15 @@ class PostgresDispatchRepository:
         batch_size: int,
         lease_seconds: int,
         destinations: tuple[OutboxDestination, ...],
+        organization_ids: tuple[UUID, ...] | None = None,
     ) -> tuple[OutboxEvent, ...]:
-        if not destinations:
+        if not destinations or organization_ids == ():
             return ()
+        organization_scope = (
+            ""
+            if organization_ids is None
+            else "AND organization_id = ANY(CAST(:organization_ids AS uuid[]))"
+        )
         stale_before = datetime.now(UTC) - timedelta(seconds=lease_seconds)
         with self._engine.begin() as connection:
             connection.execute(
@@ -173,13 +187,14 @@ class PostgresDispatchRepository:
             )
             rows = connection.execute(
                 text(
-                    """
+                    f"""
                     WITH candidates AS (
                         SELECT outbox_event_id
                         FROM integration.outbox_events
                         WHERE status IN ('PENDING', 'RETRY')
                           AND available_at <= now()
                           AND destination = ANY(CAST(:destinations AS text[]))
+                          {organization_scope}
                         ORDER BY available_at, created_at
                         FOR UPDATE SKIP LOCKED
                         LIMIT :batch_size
@@ -190,12 +205,13 @@ class PostgresDispatchRepository:
                     FROM candidates
                     WHERE event.outbox_event_id = candidates.outbox_event_id
                     RETURNING event.*
-                    """
+                    """  # noqa: S608 -- organization scope is a static clause.
                 ),
                 {
                     "instance_id": instance_id,
                     "batch_size": batch_size,
                     "destinations": [item.value for item in destinations],
+                    "organization_ids": list(organization_ids) if organization_ids else None,
                 },
             ).mappings()
             return tuple(OutboxEvent.model_validate(dict(row)) for row in rows)

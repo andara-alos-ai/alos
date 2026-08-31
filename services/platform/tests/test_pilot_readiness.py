@@ -42,6 +42,7 @@ def test_controlled_pilot_fixture_contains_only_declared_synthetic_identities() 
 
     assert fixture["data_policy"] == "SYNTHETIC_OR_SANITIZED"
     assert fixture["production_effect"] is False
+    assert fixture["organization_code"] == "ARM"
     assert all(user["email"].endswith("@example.test") for user in fixture["users"])
     assert fixture["scenarios"]["hr"]["candidate_alias"].startswith("CAND-SYN-")
     assigned_domains = {
@@ -50,6 +51,14 @@ def test_controlled_pilot_fixture_contains_only_declared_synthetic_identities() 
         if user["project_assigned"]
     }
     assert assigned_domains == {"SALES_MARKETING", "FINANCE", "PROPERTY", "HR", "LEGAL"}
+    assert set(fixture["scenarios"]) == {
+        "sales",
+        "finance",
+        "property",
+        "legal",
+        "hr",
+        "executive",
+    }
 
 
 def test_readiness_report_rejects_an_inconsistent_summary() -> None:

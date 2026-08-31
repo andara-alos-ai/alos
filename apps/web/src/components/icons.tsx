@@ -18,7 +18,8 @@ export type IconName =
   | "logout"
   | "clock"
   | "briefcase"
-  | "check";
+  | "check"
+  | "governance";
 
 const paths: Record<IconName, ReactNode> = {
   home: <><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></>,
@@ -39,6 +40,7 @@ const paths: Record<IconName, ReactNode> = {
   clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
   briefcase: <><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V4h8v3M3 12h18"/></>,
   check: <path d="m5 12 4 4L19 6"/>,
+  governance: <><path d="M3 21h18M5 18h14M6 8v7M10 8v7M14 8v7M18 8v7"/><path d="m4 6 8-4 8 4z"/></>,
 };
 
 export function Icon({ name, ...props }: SVGProps<SVGSVGElement> & { name: IconName }) {

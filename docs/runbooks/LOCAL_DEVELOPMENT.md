@@ -123,6 +123,12 @@ AI Executive, dan Auditor tidak ditempatkan pada divisi. Administrator tidak dap
 status atau mencabut akses akunnya sendiri. Login Google tetap menolak email yang belum
 terdaftar atau akun yang berstatus `SUSPENDED`.
 
+Untuk pengujian lokal, jalankan provisioning controlled pilot lalu pilih akun pada tab
+**Profil pilot** di halaman login. Browser hanya mengirim `user_id`; API membaca role,
+divisi, dan project assignment aktif dari database. Browser tidak dapat menentukan atau
+menaikkan role sendiri. Endpoint profil pilot dan token lokal tidak tersedia pada staging
+atau production.
+
 Alur lead menjalankan validasi deterministik melalui SLA, penugasan Sales Human,
 penjadwalan follow-up oleh CFA, pencatatan interaksi, dan hasil pipeline/reservasi.
 Tidak ada pesan pelanggan yang dikirim otomatis.

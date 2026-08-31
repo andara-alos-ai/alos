@@ -21,6 +21,16 @@ export type Principal = {
   project_ids: string[];
 };
 
+export type PilotProfile = {
+  user_id: string;
+  organization_id: string;
+  email: string;
+  display_name: string;
+  roles: Role[];
+  division_codes: string[];
+  project_ids: string[];
+};
+
 export type Project = {
   project_id: string;
   organization_id: string;
@@ -134,6 +144,94 @@ export type PilotReadinessReport = {
   warning_checks: number;
   blocked_checks: number;
   checks: PilotReadinessCheck[];
+};
+
+export type SourcePackStatus =
+  | "DRAFT"
+  | "REVIEWED"
+  | "APPROVED"
+  | "RELEASED"
+  | "SUPERSEDED"
+  | "RETIRED";
+
+export type DocumentKey =
+  | "MASTER"
+  | "DECISION"
+  | "SYNTHETIC"
+  | "A"
+  | "B"
+  | "C"
+  | "D"
+  | "E"
+  | "F"
+  | "G"
+  | "H"
+  | "I"
+  | "J"
+  | "K"
+  | "L"
+  | "M"
+  | "N";
+
+export type SourceRecord = {
+  source_id: string;
+  document_key: DocumentKey;
+  title: string;
+  source_type: "DOCUMENT" | "SYSTEM_BASELINE";
+  version: string;
+  status: SourcePackStatus;
+  authority:
+    | "LOCKED_ORGANIZATION"
+    | "DESIGN_BASELINE"
+    | "APPROVED_BUSINESS_SOURCE"
+    | "PRIMARY_EVIDENCE"
+    | "SYNTHETIC_TEST_BASELINE";
+  file_name: string | null;
+  sha256: string | null;
+  size_bytes: number | null;
+  domains: string[];
+  notes: string[];
+};
+
+export type SourcePack = {
+  schema_version: string;
+  pack_id: string;
+  version: string;
+  title: string;
+  status: SourcePackStatus;
+  authority: SourceRecord["authority"];
+  declared_document_date: string;
+  classification: string;
+  decision_basis: string;
+  contains_unratified_values: boolean;
+  allowed_uses: string[];
+  blocked_uses: string[];
+  sources: SourceRecord[];
+};
+
+export type ConfigurationMapping = {
+  mapping_id: string;
+  document_key: Exclude<DocumentKey, "SYNTHETIC">;
+  name: string;
+  target_registry: string;
+  business_owner: string;
+  source_references: string[];
+  status: "DRAFT" | "REVIEWED" | "APPROVED";
+  disposition: "REUSE" | "EXTEND" | "CREATE" | "HOLD";
+  activation_mode: "DESIGN_ONLY" | "BLOCKED" | "RELEASE_CONTROLLED";
+  implementation_scope: string[];
+  blocked_by_decisions: string[];
+  notes: string[];
+};
+
+export type ConfigurationRegister = {
+  schema_version: string;
+  register_id: string;
+  version: string;
+  title: string;
+  status: "DRAFT" | "REVIEWED" | "APPROVED";
+  production_effect: boolean;
+  mappings: ConfigurationMapping[];
 };
 
 export type UatRunStatus =

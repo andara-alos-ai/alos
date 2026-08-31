@@ -2,7 +2,7 @@
 
 | Metadata | Nilai |
 |---|---|
-| Status | Tahap 5–6 Teknis Selesai / Menunggu UAT Pemilik Bisnis |
+| Status | Tahap 7–8 Teknis Selesai / Menunggu UAT Pemilik Bisnis |
 | Versi dokumen | 1.0.0 |
 | Target produk | ALOS |
 | Tahap pelaksanaan | Agent Pilot v0.1 |
@@ -35,6 +35,7 @@
 | Operasi kerja & governance | Selesai untuk backend pilot | inbox personal/divisi, claim, delegasi, deadline, reminder/escalation, approval claim, Exception dan CAPA terkontrol |
 | Worker, outbox & integrasi | Selesai untuk backend pilot | scheduler deterministik, PostgreSQL outbox, lease/retry/dead-letter, notification internal, health, dan adaptor n8n bertanda tangan |
 | Workspace web operasional | Enam workflow dan konfigurasi pilot tersedia | Google OIDC, sesi, project lifecycle, role/divisi, dashboard, work queue, enam workflow, dokumen, risiko, dan readiness memakai API nyata |
+| Blueprint & governance web | Selesai untuk working baseline | navigasi berlapis, model operasi, source integrity, mapping Master/Lampiran A–N, disposition, blocker keputusan, dan Genesis guardrail dibaca dari registry backend |
 
 Status “selesai” di atas berarti siap untuk UAT internal berbasis data sintetis,
 bukan persetujuan penggunaan data perusahaan atau integrasi produksi.
@@ -278,3 +279,15 @@ Fondasi teknis tahap 7–8 telah tersedia dengan batas berikut:
 - tidak ada provisioning production, tanda tangan manusia, data perusahaan, atau keputusan go-live yang dibuat otomatis.
 
 Implementasi teknis tidak berarti UAT perusahaan telah selesai. Status operasional baru sah setelah pengguna sebenarnya, data yang diizinkan, hasil uji, recovery evidence, dan sign-off business owner diisi pada environment pilot.
+
+## 16. Fondasi Data dan Akses Pilot Sintetis
+
+Tahap akses awal menggunakan 18 identitas `example.test` untuk Direktur, AI Executive,
+IT, Auditor, kepala divisi, dan operator domain. Seluruh klaim akses berasal dari assignment
+aktif di database. Antarmuka lokal hanya memilih profil; tidak menerima role, divisi, atau
+project ID buatan pengguna.
+
+Provisioning bersifat idempoten dan menyiapkan satu proyek sintetis serta data awal untuk
+FLOW-001 sampai FLOW-006. Data ini hanya berfungsi sebagai baseline pengujian tampilan,
+otorisasi, work queue, audit, dan handoff. Data perusahaan asli tetap menunggu validasi
+pemilik bisnis, kebijakan klasifikasi, retensi, approval, dan proses import resmi.

@@ -51,19 +51,25 @@ def test_worker_dispatch_is_idempotent_and_dead_letter_is_recoverable() -> None:
     database_url = psycopg_url(settings.database_url)
     database = Database(settings.database_url)
     repository = PostgresDispatchRepository(database.engine)
+    organization_id = uuid4()
+    division_id = uuid4()
     work_item_id = uuid4()
     reminder_id = uuid4()
     worker_run_ids: list[UUID] = []
     outbox_ids: list[UUID] = []
 
     with psycopg.connect(database_url) as connection:
-        organization_id = connection.execute(
-            "SELECT organization_id FROM identity.organizations WHERE code = 'ARM'"
-        ).fetchone()[0]
-        division_id = connection.execute(
-            "SELECT division_id FROM identity.divisions WHERE organization_id = %s AND code = 'IT'",
-            (organization_id,),
-        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO identity.organizations (organization_id, code, name) VALUES (%s, %s, %s)",
+            (organization_id, f"WORKER-{organization_id.hex[:8]}", "Worker Test Tenant"),
+        )
+        connection.execute(
+            """
+            INSERT INTO identity.divisions (division_id, organization_id, code, name)
+            VALUES (%s, %s, 'IT', 'Information Technology')
+            """,
+            (division_id, organization_id),
+        )
         connection.execute(
             """
             INSERT INTO platform.work_items
@@ -99,6 +105,7 @@ def test_worker_dispatch_is_idempotent_and_dead_letter_is_recoverable() -> None:
             deadline_horizon_minutes=60,
             escalation_interval_minutes=15,
             n8n_client=successful_webhook,
+            organization_ids=(organization_id,),
         )
         first = worker.run_once()
         worker_run_ids.append(first.worker_run_id)
@@ -150,6 +157,7 @@ def test_worker_dispatch_is_idempotent_and_dead_letter_is_recoverable() -> None:
             deadline_horizon_minutes=60,
             escalation_interval_minutes=15,
             n8n_client=_FailingWebhook(),
+            organization_ids=(organization_id,),
         )
         failed = failing_worker.run_once()
         worker_run_ids.append(failed.worker_run_id)
@@ -191,6 +199,7 @@ def test_worker_dispatch_is_idempotent_and_dead_letter_is_recoverable() -> None:
             deadline_horizon_minutes=60,
             escalation_interval_minutes=15,
             n8n_client=None,
+            organization_ids=(organization_id,),
         )
         paused = paused_worker.run_once()
         worker_run_ids.append(paused.worker_run_id)
@@ -207,6 +216,7 @@ def test_worker_dispatch_is_idempotent_and_dead_letter_is_recoverable() -> None:
             deadline_horizon_minutes=60,
             escalation_interval_minutes=15,
             n8n_client=_SuccessfulWebhook(),
+            organization_ids=(organization_id,),
         )
         recovered = recovery_worker.run_once()
         worker_run_ids.append(recovered.worker_run_id)
@@ -256,3 +266,10 @@ def test_worker_dispatch_is_idempotent_and_dead_letter_is_recoverable() -> None:
                     "DELETE FROM observability.worker_runs WHERE worker_run_id = ANY(%s::uuid[])",
                     (worker_run_ids,),
                 )
+            connection.execute(
+                "DELETE FROM identity.divisions WHERE division_id = %s", (division_id,)
+            )
+            connection.execute(
+                "DELETE FROM identity.organizations WHERE organization_id = %s",
+                (organization_id,),
+            )

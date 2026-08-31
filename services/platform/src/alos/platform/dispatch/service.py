@@ -36,6 +36,7 @@ class WorkerRuntime:
         deadline_horizon_minutes: int,
         escalation_interval_minutes: int,
         n8n_client: WebhookClient | None,
+        organization_ids: tuple[UUID, ...] | None = None,
     ) -> None:
         self._repository = repository
         self._operations = operations
@@ -47,6 +48,7 @@ class WorkerRuntime:
         self._deadline_horizon_minutes = deadline_horizon_minutes
         self._escalation_interval_minutes = escalation_interval_minutes
         self._n8n_client = n8n_client
+        self._organization_ids = organization_ids
 
     def run_once(self) -> WorkerRunSummary:
         worker_run_id = self._repository.start_worker_run(self._worker_name, self._instance_id)
@@ -58,13 +60,14 @@ class WorkerRuntime:
             if self._n8n_client is not None:
                 destinations.append(OutboxDestination.N8N_WEBHOOK)
             counters.reminders_enqueued = self._repository.enqueue_pending_reminders(
-                tuple(destinations), self._max_attempts
+                tuple(destinations), self._max_attempts, self._organization_ids
             )
             events = self._repository.claim_events(
                 instance_id=self._instance_id,
                 batch_size=self._batch_size,
                 lease_seconds=self._lease_seconds,
                 destinations=tuple(destinations),
+                organization_ids=self._organization_ids,
             )
             counters.events_claimed = len(events)
             for event in events:
@@ -80,7 +83,8 @@ class WorkerRuntime:
             horizon_minutes=self._deadline_horizon_minutes,
             escalation_interval_minutes=self._escalation_interval_minutes,
         )
-        for organization_id in self._repository.organization_ids():
+        organization_ids = self._organization_ids or self._repository.organization_ids()
+        for organization_id in organization_ids:
             try:
                 self._operations.evaluate_deadlines(
                     command, self._system_principal(organization_id)

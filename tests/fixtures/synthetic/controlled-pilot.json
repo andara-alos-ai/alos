@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "data_policy": "SYNTHETIC_OR_SANITIZED",
   "production_effect": false,
+  "organization_code": "ARM",
   "project": {
     "code": "PILOT-SYN-001",
     "name": "Proyek Pilot Sintetis ALOS"

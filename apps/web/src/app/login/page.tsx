@@ -10,27 +10,18 @@ import {
   apiBaseUrl,
   exchangeOidcCode,
   getOidcStatus,
-  issuePilotToken,
+  getPilotProfiles,
+  loginPilotProfile,
   oidcLoginUrl,
 } from "@/lib/api";
+import { divisionLabels, type DivisionCode } from "@/lib/identity";
 import { roleLabels } from "@/lib/navigation";
 import { claimOidcCallback } from "@/lib/oidc-callback";
-import { roles, type Role } from "@/lib/types";
+import type { PilotProfile } from "@/lib/types";
 
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pilotLoginEnabled =
   process.env.NODE_ENV !== "production" ||
   process.env.NEXT_PUBLIC_ALOS_PILOT_LOGIN_ENABLED === "true";
-
-const defaultDivision: Partial<Record<Role, string>> = {
-  DIVISION_HEAD: "SALES_MARKETING",
-  SALES: "SALES_MARKETING",
-  FINANCE: "FINANCE",
-  PROPERTY: "PROPERTY",
-  HR: "HR",
-  LEGAL: "LEGAL",
-  IT_ADMIN: "IT",
-};
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
@@ -43,11 +34,9 @@ export default function LoginPage() {
   const authenticate = session.authenticate;
   const oidcCallbackHandled = useRef(false);
   const [mode, setMode] = useState<"pilot" | "token">(pilotLoginEnabled ? "pilot" : "token");
-  const [organizationId, setOrganizationId] = useState("00000000-0000-0000-0000-000000000002");
-  const [userId, setUserId] = useState("00000000-0000-0000-0000-000000000001");
-  const [role, setRole] = useState<Role>("IT_ADMIN");
-  const [divisionCode, setDivisionCode] = useState("IT");
-  const [projectIds, setProjectIds] = useState("");
+  const [pilotProfiles, setPilotProfiles] = useState<PilotProfile[]>([]);
+  const [profilesLoading, setProfilesLoading] = useState(pilotLoginEnabled);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState("");
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -61,6 +50,26 @@ export default function LoginPage() {
       })
       .catch(() => {
         if (active) setOidcEnabled(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!pilotLoginEnabled) return;
+    let active = true;
+    getPilotProfiles()
+      .then((profiles) => {
+        if (!active) return;
+        setPilotProfiles(profiles);
+        setProfileError(
+          profiles.length ? null : "Akun pilot belum diprovisikan pada proyek sintetis aktif.",
+        );
+      })
+      .catch((profilesError: unknown) => {
+        if (active) setProfileError(errorMessage(profilesError));
+      })
+      .finally(() => {
+        if (active) setProfilesLoading(false);
       });
     return () => { active = false; };
   }, []);
@@ -95,30 +104,11 @@ export default function LoginPage() {
     router.replace("/");
   }
 
-  async function submitPilot(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitPilot(userId: string) {
     setError(null);
-    const parsedProjects = projectIds
-      .split(/[\s,]+/)
-      .map((value) => value.trim())
-      .filter(Boolean);
-    if (!uuidPattern.test(userId) || !uuidPattern.test(organizationId)) {
-      setError("User ID dan Organization ID wajib menggunakan format UUID yang valid.");
-      return;
-    }
-    if (parsedProjects.some((projectId) => !uuidPattern.test(projectId))) {
-      setError("Salah satu Project ID tidak menggunakan format UUID yang valid.");
-      return;
-    }
     setSubmitting(true);
     try {
-      const token = await issuePilotToken({
-        user_id: userId,
-        organization_id: organizationId,
-        roles: [role],
-        division_codes: divisionCode ? [divisionCode] : [],
-        project_ids: parsedProjects,
-      });
+      const token = await loginPilotProfile(userId);
       await completeAuthentication(token.access_token);
     } catch (loginError) {
       setError(errorMessage(loginError));
@@ -202,33 +192,45 @@ export default function LoginPage() {
           </div>
 
           {mode === "pilot" && pilotLoginEnabled ? (
-            <form className="formStack" onSubmit={submitPilot}>
-              <div className="fieldGrid">
-                <label>User ID<input autoComplete="off" onChange={(event) => setUserId(event.target.value)} required value={userId} /></label>
-                <label>Organization ID<input autoComplete="off" onChange={(event) => setOrganizationId(event.target.value)} required value={organizationId} /></label>
+            <div className="pilotProfileSection">
+              <div className="pilotProfileHeader">
+                <strong>Pilih akun pengujian</strong>
+                <span>Role dan akses diambil langsung dari database.</span>
               </div>
-              <div className="fieldGrid">
-                <label>
-                  Peran
-                  <select
-                    onChange={(event) => {
-                      const nextRole = event.target.value as Role;
-                      setRole(nextRole);
-                      setDivisionCode(defaultDivision[nextRole] || "");
-                    }}
-                    value={role}
-                  >
-                    {roles.map((item) => <option key={item} value={item}>{roleLabels[item]}</option>)}
-                  </select>
-                </label>
-                <label>Kode divisi<input onChange={(event) => setDivisionCode(event.target.value.toUpperCase())} placeholder="Contoh: FINANCE" value={divisionCode} /></label>
+              {profilesLoading ? <p className="muted">Memuat akun pilot…</p> : null}
+              {profileError ? <div className="formError" role="alert">{profileError}</div> : null}
+              <div className="pilotProfileList">
+                {pilotProfiles.map((profile) => {
+                  const roleLabel = profile.roles.map((item) => roleLabels[item]).join(" · ");
+                  const divisionLabel = profile.division_codes.length
+                    ? profile.division_codes
+                        .map((item) => divisionLabels[item as DivisionCode] || item)
+                        .join(" · ")
+                    : "Lintas divisi";
+                  const accessLabel = roleLabel === divisionLabel
+                    ? roleLabel
+                    : `${roleLabel} · ${divisionLabel}`;
+                  return (
+                    <button
+                      className="pilotProfileButton"
+                      disabled={submitting}
+                      key={profile.user_id}
+                      onClick={() => void submitPilot(profile.user_id)}
+                      type="button"
+                    >
+                      <span className="profileInitial">{profile.display_name.charAt(0)}</span>
+                      <span className="profileIdentity">
+                        <strong>{profile.display_name}</strong>
+                        <small>{accessLabel}</small>
+                        <em>{profile.email}</em>
+                      </span>
+                      <Icon name="chevron" />
+                    </button>
+                  );
+                })}
               </div>
-              <label>Project ID yang dapat diakses <span className="optional">opsional, pisahkan dengan koma</span><textarea onChange={(event) => setProjectIds(event.target.value)} rows={2} value={projectIds} /></label>
               {error ? <div className="formError" role="alert">{error}</div> : null}
-              <button className="button primary full" disabled={submitting} type="submit">
-                {submitting ? "Memverifikasi…" : "Masuk dengan profil pilot"}
-              </button>
-            </form>
+            </div>
           ) : (
             <form className="formStack" onSubmit={submitToken}>
               <label>Token akses<input autoComplete="off" onChange={(event) => setAccessToken(event.target.value)} type="password" value={accessToken} /></label>

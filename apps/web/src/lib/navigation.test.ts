@@ -1,20 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { primaryNavigation, systemNavigation, visibleNavigation } from "./navigation";
+import {
+  governanceNavigation,
+  primaryNavigation,
+  systemNavigation,
+  visibleNavigation,
+} from "./navigation";
 
 describe("navigasi berbasis peran", () => {
   it("memberi pengguna sales menu operasional tanpa kontrol platform", () => {
     const primary = visibleNavigation(primaryNavigation, ["SALES"], ["SALES_MARKETING"]);
+    const governance = visibleNavigation(governanceNavigation, ["SALES"]);
     const system = visibleNavigation(systemNavigation, ["SALES"]);
 
     expect(primary.map((item) => item.href)).toEqual([
       "/",
       "/work-queue",
       "/sales",
-      "/documents",
-      "/risks",
-      "/uat",
     ]);
+    expect(governance.map((item) => item.href)).toEqual(["/documents", "/risks", "/uat"]);
     expect(system).toHaveLength(0);
   });
 
@@ -23,7 +27,7 @@ describe("navigasi berbasis peran", () => {
 
     expect(finance.some((item) => item.href === "/finance")).toBe(true);
     expect(finance.some((item) => item.href === "/sales")).toBe(false);
-    expect(finance.some((item) => item.href === "/hr")).toBe(true);
+    expect(finance.some((item) => item.href === "/hr")).toBe(false);
   });
 
   it("memberi setiap operator domain hanya transaksi divisinya", () => {
@@ -38,18 +42,21 @@ describe("navigasi berbasis peran", () => {
   });
 
   it("memberi IT akses observability tanpa menu persetujuan bisnis", () => {
-    const primary = visibleNavigation(primaryNavigation, ["IT_ADMIN"]);
+    const governance = visibleNavigation(governanceNavigation, ["IT_ADMIN"]);
     const system = visibleNavigation(systemNavigation, ["IT_ADMIN"]);
 
-    expect(primary.some((item) => item.href === "/approvals")).toBe(false);
+    expect(governance.some((item) => item.href === "/approvals")).toBe(false);
+    expect(governance.map((item) => item.href)).toContain("/governance");
     expect(system.map((item) => item.href)).toContain("/system-health");
     expect(system.map((item) => item.href)).toContain("/users");
     expect(system.map((item) => item.href)).toContain("/projects");
   });
 
   it("memberi direktur akses governance dan monitoring", () => {
-    expect(visibleNavigation(primaryNavigation, ["DIRECTOR"]).map((item) => item.href))
+    expect(visibleNavigation(governanceNavigation, ["DIRECTOR"]).map((item) => item.href))
       .toContain("/approvals");
+    expect(visibleNavigation(governanceNavigation, ["DIRECTOR"]).map((item) => item.href))
+      .toContain("/governance");
     expect(visibleNavigation(systemNavigation, ["DIRECTOR"]).map((item) => item.href))
       .toContain("/agents");
     expect(visibleNavigation(systemNavigation, ["DIRECTOR"]).map((item) => item.href))

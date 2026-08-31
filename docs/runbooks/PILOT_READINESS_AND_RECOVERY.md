@@ -21,11 +21,22 @@ Status `BLOCKED` wajib ditutup sebelum UAT. Status `ATTENTION` memerlukan peneri
 
 Provisioning opsional tersedia untuk environment lokal atau staging non-production. Script bersifat idempotent, menolak data selain `example.test`, menolak production, dan tidak mencetak token.
 
-1. Siapkan token IT Admin dan token Direktur pada environment variable `ALOS_PILOT_ADMIN_TOKEN` dan `ALOS_PILOT_DIRECTOR_TOKEN`.
-2. Jalankan `scripts/development/provision-controlled-pilot.ps1`.
-3. Buka **Kesehatan Sistem** dan tutup seluruh pemeriksaan `BLOCKED`.
+1. Pastikan API, PostgreSQL, dan migrasi terbaru telah aktif.
+2. Dari root repository, jalankan `./scripts/development/provision-controlled-pilot.ps1`.
+3. Buka halaman login, pilih **Profil pilot**, lalu pilih akun pengujian sesuai divisi.
+4. Buka **Kesehatan Sistem** dan tutup seluruh pemeriksaan `BLOCKED`.
 
-Untuk target non-lokal, parameter `-AllowRemote` hanya boleh digunakan setelah hostname dan environment staging diverifikasi. Data pengguna sebenarnya tetap dibuat melalui proses IAM resmi, bukan fixture sintetis.
+Pada environment lokal, script membuat token bootstrap sementara, memprovisikan 18 akun
+`example.test`, role, divisi, project assignment, proyek aktif, dan satu data awal pada
+masing-masing dari enam workflow. Token tidak dicetak atau disimpan. Eksekusi ulang aman:
+record yang sudah ada dibaca dan tidak dibuat ulang. Gunakan `-SkipScenarioData` jika hanya
+memerlukan akun dan proyek tanpa transaksi awal.
+
+Untuk target non-lokal, parameter `-AllowRemote` hanya boleh digunakan setelah hostname dan
+environment staging diverifikasi. Token IT Admin dan Direktur wajib diberikan melalui
+`ALOS_PILOT_ADMIN_TOKEN` dan `ALOS_PILOT_DIRECTOR_TOKEN`, serta gunakan `-SkipScenarioData`
+karena dokumen staging wajib melalui unggahan dan malware scan. Data pengguna sebenarnya
+tetap dibuat melalui proses IAM resmi, bukan fixture sintetis.
 
 ## Backup Terkontrol
 

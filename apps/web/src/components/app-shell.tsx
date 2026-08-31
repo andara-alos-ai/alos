@@ -4,9 +4,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
-import { workspaces } from "@/lib/catalog";
+import { accessibleWorkspacesFor } from "@/lib/catalog";
 import { humanizeCode } from "@/lib/format";
 import {
+  governanceNavigation,
   primaryNavigation,
   roleLabels,
   systemNavigation,
@@ -14,28 +15,9 @@ import {
   visibleNavigation,
 } from "@/lib/navigation";
 import { sessionInitials } from "@/lib/session";
-import type { Role } from "@/lib/types";
 
 import { Icon } from "./icons";
 import { useSession } from "./session-provider";
-
-const roleWorkspace: Partial<Record<Role, string>> = {
-  SALES: "sales-marketing",
-  FINANCE: "finance",
-  PROPERTY: "property",
-  HR: "hr",
-  LEGAL: "legal",
-  IT_ADMIN: "it",
-};
-
-const divisionWorkspace: Record<string, string> = {
-  FINANCE: "finance",
-  SALES_MARKETING: "sales-marketing",
-  PROPERTY: "property",
-  HR: "hr",
-  LEGAL: "legal",
-  IT: "it",
-};
 
 function NavigationGroup({
   items,
@@ -82,19 +64,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const accessibleWorkspaces = useMemo(() => {
     const principal = session.principal;
     if (!principal) return [];
-    if (principal.roles.some((role) => ["DIRECTOR", "AI_EXECUTIVE", "AUDITOR"].includes(role))) {
-      return workspaces;
-    }
-    const workspaceIds = new Set<string>();
-    principal.roles.forEach((role) => {
-      const workspace = roleWorkspace[role];
-      if (workspace) workspaceIds.add(workspace);
-    });
-    principal.division_codes.forEach((division) => {
-      const workspace = divisionWorkspace[division];
-      if (workspace) workspaceIds.add(workspace);
-    });
-    return workspaces.filter((workspace) => workspaceIds.has(workspace.id));
+    return accessibleWorkspacesFor(principal.roles, principal.division_codes);
   }, [session.principal]);
 
   if (isLoginPage) return <>{children}</>;
@@ -117,6 +87,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   const systemItems = visibleNavigation(
     systemNavigation,
+    principal.roles,
+    principal.division_codes,
+  );
+  const governanceItems = visibleNavigation(
+    governanceNavigation,
     principal.roles,
     principal.division_codes,
   );
@@ -177,9 +152,16 @@ export function AppShell({ children }: { children: ReactNode }) {
             </>
           ) : null}
 
+          {governanceItems.length ? (
+            <>
+              <p className="navLabel">Kendali & tata kelola</p>
+              <NavigationGroup items={governanceItems} pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+            </>
+          ) : null}
+
           {systemItems.length ? (
             <>
-              <p className="navLabel">Platform</p>
+              <p className="navLabel">Platform & Genesis</p>
               <NavigationGroup items={systemItems} pathname={pathname} onNavigate={() => setMobileOpen(false)} />
             </>
           ) : null}

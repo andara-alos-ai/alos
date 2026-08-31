@@ -71,6 +71,7 @@ from alos.platform import (
     WorkflowActionResult,
     WorkItemView,
 )
+from alos.platform.identity import PilotBootstrapContext, PilotProfile, PilotProfileStore
 from alos.platform.service import OperationsService
 from alos.security import (
     AuthenticationError,
@@ -314,10 +315,33 @@ class LocalTokenRequest(BaseModel):
     project_ids: frozenset[UUID] = Field(default_factory=frozenset)
 
 
+class PilotLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"  # noqa: S105 -- OAuth token type, not a credential.
     expires_in: int
+
+
+def issue_token(principal: Principal, settings: Settings) -> TokenResponse:
+    codec = TokenCodec(
+        settings.auth_signing_secret.get_secret_value(),
+        settings.auth_issuer,
+        settings.auth_audience,
+    )
+    return TokenResponse(
+        access_token=codec.issue(principal, settings.auth_token_ttl_seconds),
+        expires_in=settings.auth_token_ttl_seconds,
+    )
+
+
+def require_pilot_environment(settings: Settings) -> None:
+    if settings.environment not in {"local", "test"}:
+        raise HTTPException(status_code=404, detail="Endpoint tidak tersedia")
 
 
 @router.get("/health", tags=["system"])
@@ -332,18 +356,58 @@ def health(settings: SettingsDependency) -> dict[str, str]:
 
 @router.post("/auth/local-token", response_model=TokenResponse, tags=["authentication"])
 def issue_local_token(request: LocalTokenRequest, settings: SettingsDependency) -> TokenResponse:
-    if settings.environment not in {"local", "test"}:
-        raise HTTPException(status_code=404, detail="Endpoint tidak tersedia")
+    require_pilot_environment(settings)
     principal = Principal.model_validate(request.model_dump())
-    codec = TokenCodec(
-        settings.auth_signing_secret.get_secret_value(),
-        settings.auth_issuer,
-        settings.auth_audience,
-    )
-    return TokenResponse(
-        access_token=codec.issue(principal, settings.auth_token_ttl_seconds),
-        expires_in=settings.auth_token_ttl_seconds,
-    )
+    return issue_token(principal, settings)
+
+
+@router.get(
+    "/auth/pilot-bootstrap-context",
+    response_model=PilotBootstrapContext,
+    tags=["authentication"],
+)
+def get_pilot_bootstrap_context(settings: SettingsDependency) -> PilotBootstrapContext:
+    """Return the non-secret organization context used by the local provisioning script."""
+    require_pilot_environment(settings)
+    try:
+        store = PilotProfileStore(database_for_url(settings.database_url).engine)
+        return store.get_bootstrap_context()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OperationalError as exc:
+        raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
+
+
+@router.get(
+    "/auth/pilot-profiles",
+    response_model=list[PilotProfile],
+    tags=["authentication"],
+)
+def list_pilot_profiles(settings: SettingsDependency) -> tuple[PilotProfile, ...]:
+    """Expose only active example.test identities for the local controlled pilot."""
+    require_pilot_environment(settings)
+    try:
+        store = PilotProfileStore(database_for_url(settings.database_url).engine)
+        return store.list_profiles()
+    except OperationalError as exc:
+        raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
+
+
+@router.post("/auth/pilot-login", response_model=TokenResponse, tags=["authentication"])
+def login_pilot_profile(
+    request: PilotLoginRequest,
+    settings: SettingsDependency,
+) -> TokenResponse:
+    """Issue a local token from persisted assignments, never from browser claims."""
+    require_pilot_environment(settings)
+    try:
+        store = PilotProfileStore(database_for_url(settings.database_url).engine)
+        profile = store.get_profile(request.user_id)
+        return issue_token(profile.to_principal(), settings)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OperationalError as exc:
+        raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
 
 
 @router.get("/auth/me", response_model=Principal, tags=["authentication"])

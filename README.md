@@ -1,15 +1,15 @@
 # ALOS
 
-ALOS (Andara Leverage Operating System) adalah platform operasi internal PT Andara Rejo Makmur. Repository ini memuat satu aplikasi web, satu backend modular, satu shared Agent Runtime untuk 18 Core Agent logis, enam workflow awal, dan kontrol tata kelola yang dapat diaudit.
+ALOS (Andara Leverage Operating System) adalah platform operasi perusahaan PT Andara Rejo Makmur. Repository ini memuat satu aplikasi web, satu backend modular, satu shared Agent Runtime untuk 18 Core Agent logis, enam workflow awal, dan kontrol tata kelola yang dapat diaudit.
 
 ## Status
 
-Tahap saat ini adalah **Controlled Pilot Technical Candidate**. Enam workflow telah tersedia melalui backend dan layar transaksi, disertai IAM, project lifecycle, readiness dan go-live gate, UAT berbasis evidence dan delapan sign-off manusia, penyimpanan dokumen berversi, work queue, worker/outbox, observability, recovery drill, shared runtime untuk 18 Core Agent, LLM Gateway provider-neutral, dan pipeline design-time Genesis. Seluruh contoh data wajib sintetis atau telah disanitasi. Mekanisme teknis tahap 7–8 sudah tersedia, tetapi UAT perusahaan tetap menunggu pengguna sebenarnya, recovery evidence, hasil uji business owner, dan keputusan manajemen; integrasi serta data production belum diaktifkan.
+Tahap saat ini adalah **Controlled Pilot Technical Candidate**. Enam workflow telah tersedia melalui backend dan layar transaksi, disertai IAM, project lifecycle, readiness dan go-live gate, UAT berbasis evidence dan delapan sign-off manusia, penyimpanan dokumen berversi, work queue, worker/outbox, observability, recovery drill, shared runtime untuk 18 Core Agent, LLM Gateway provider-neutral, dan pipeline design-time Genesis. UI memisahkan Operasi, Workspace Divisi, Kendali & Tata Kelola, serta Platform & Genesis; halaman Blueprint & Keputusan membaca Master/Lampiran A–N langsung dari registry backend. Seluruh contoh data wajib sintetis atau telah disanitasi. Mekanisme teknis tahap 7–8 sudah tersedia, tetapi UAT perusahaan tetap menunggu pengguna sebenarnya, recovery evidence, hasil uji business owner, dan keputusan manajemen; integrasi serta data production belum diaktifkan.
 
 ## Struktur Utama
 
 ```text
-apps/web/                 aplikasi web internal
+apps/web/                 aplikasi web ALOS
 services/platform/        API, workflow, governance, dan shared Agent Runtime
 definitions/              kontrak agent, workflow, serta kebijakan berversi
 packages/                 kontrak dan komponen lintas aplikasi

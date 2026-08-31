@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sharedAgents, workflows, workspaces } from "./catalog";
+import { accessibleWorkspacesFor, sharedAgents, workflows, workspaces } from "./catalog";
 
 describe("katalog ALOS", () => {
   it("memuat enam workspace divisi", () => {
@@ -14,5 +14,11 @@ describe("katalog ALOS", () => {
 
   it("memuat enam workflow awal", () => {
     expect(workflows).toHaveLength(6);
+  });
+
+  it("membatasi workspace sesuai role dan divisi", () => {
+    expect(accessibleWorkspacesFor(["FINANCE"], ["FINANCE"]).map((item) => item.id))
+      .toEqual(["finance"]);
+    expect(accessibleWorkspacesFor(["DIRECTOR"], [])).toHaveLength(6);
   });
 });

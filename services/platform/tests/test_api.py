@@ -1,9 +1,12 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
 from alos.config import Settings, get_settings
+from alos.entrypoints import api as api_entrypoint
 from alos.main import app
+from alos.platform.identity import PilotProfile
+from alos.security import Role
 
 client = TestClient(app)
 
@@ -31,6 +34,71 @@ def test_oidc_is_disabled_safely_by_default() -> None:
     assert status_response.status_code == 200
     assert status_response.json() == {"enabled": False, "provider": None}
     assert login_response.status_code == 404
+
+
+def test_pilot_login_uses_persisted_assignments_not_browser_claims(monkeypatch) -> None:
+    profile = PilotProfile(
+        user_id=uuid4(),
+        organization_id=uuid4(),
+        email="finance.a.pilot@example.test",
+        display_name="Keuangan Penguji A",
+        roles=frozenset({Role.FINANCE}),
+        division_codes=frozenset({"FINANCE"}),
+        project_ids=frozenset({uuid4()}),
+    )
+
+    class FakePilotProfileStore:
+        def __init__(self, _engine) -> None:
+            pass
+
+        def list_profiles(self) -> tuple[PilotProfile, ...]:
+            return (profile,)
+
+        def get_profile(self, user_id: UUID) -> PilotProfile:
+            if user_id != profile.user_id:
+                raise KeyError("Profil pilot tidak ditemukan atau tidak aktif")
+            return profile
+
+    monkeypatch.setattr(api_entrypoint, "PilotProfileStore", FakePilotProfileStore)
+
+    profile_response = client.get("/api/v1/auth/pilot-profiles")
+    token_response = client.post(
+        "/api/v1/auth/pilot-login",
+        json={"user_id": str(profile.user_id)},
+    )
+    principal_response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token_response.json()['access_token']}"},
+    )
+
+    assert profile_response.status_code == 200
+    assert profile_response.json()[0]["email"] == profile.email
+    assert token_response.status_code == 200
+    assert principal_response.status_code == 200
+    assert principal_response.json()["roles"] == ["FINANCE"]
+    assert principal_response.json()["division_codes"] == ["FINANCE"]
+
+
+def test_pilot_authentication_endpoints_are_hidden_outside_local_environment() -> None:
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None,
+        environment="staging",
+        auth_signing_secret="a-production-only-signing-secret-with-32-bytes",
+    )
+    try:
+        isolated_client = TestClient(app)
+        context = isolated_client.get("/api/v1/auth/pilot-bootstrap-context")
+        profiles = isolated_client.get("/api/v1/auth/pilot-profiles")
+        login = isolated_client.post(
+            "/api/v1/auth/pilot-login",
+            json={"user_id": str(uuid4())},
+        )
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+    assert context.status_code == 404
+    assert profiles.status_code == 404
+    assert login.status_code == 404
 
 
 def test_agents_endpoint_returns_18_agents() -> None:

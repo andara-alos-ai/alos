@@ -3,7 +3,7 @@ import type { Role } from "./types";
 export type NavigationItem = {
   label: string;
   href: string;
-  icon: "home" | "work" | "approval" | "document" | "risk" | "agent" | "workflow" | "health" | "users";
+  icon: "home" | "work" | "approval" | "document" | "risk" | "agent" | "workflow" | "health" | "users" | "governance";
   roles?: Role[];
   divisions?: string[];
 };
@@ -57,7 +57,11 @@ export const primaryNavigation: NavigationItem[] = [
     href: "/hr",
     icon: "users",
     roles: ["DIRECTOR", "AI_EXECUTIVE", "DIVISION_HEAD", "HR", "AUDITOR"],
+    divisions: ["HR"],
   },
+];
+
+export const governanceNavigation: NavigationItem[] = [
   {
     label: "AI Executive Brief",
     href: "/executive",
@@ -72,6 +76,12 @@ export const primaryNavigation: NavigationItem[] = [
   },
   { label: "Dokumen & Bukti", href: "/documents", icon: "document", roles: businessRoles },
   { label: "Exception & CAPA", href: "/risks", icon: "risk", roles: businessRoles },
+  {
+    label: "Blueprint & Keputusan",
+    href: "/governance",
+    icon: "governance",
+    roles: ["DIRECTOR", "AI_EXECUTIVE", "DIVISION_HEAD", "IT_ADMIN", "AUDITOR"],
+  },
   {
     label: "UAT & Go-Live",
     href: "/uat",

@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ALOS",
-  description: "Platform operasi internal PT Andara Rejo Makmur",
+  description: "Platform operasi perusahaan PT Andara Rejo Makmur",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

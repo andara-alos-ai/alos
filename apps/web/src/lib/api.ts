@@ -2,6 +2,7 @@ import type {
   ApprovalRecord,
   BudgetRecord,
   CapaRecord,
+  ConfigurationRegister,
   DocumentRecord,
   ExecutiveBriefRecord,
   ExecutiveBriefResult,
@@ -15,6 +16,7 @@ import type {
   PageResult,
   PaymentRequestRecord,
   PersonnelChecklist,
+  PilotProfile,
   PilotReadinessReport,
   Principal,
   Project,
@@ -26,6 +28,7 @@ import type {
   RoleAssignment,
   SalesInteractionRecord,
   SiteEvidenceRecord,
+  SourcePack,
   UserDirectoryPage,
   UserDirectoryRecord,
   UserStatus,
@@ -94,16 +97,14 @@ async function request<T>(
   return (await response.json()) as T;
 }
 
-export function issuePilotToken(input: {
-  user_id: string;
-  organization_id: string;
-  roles: Role[];
-  division_codes: string[];
-  project_ids: string[];
-}) {
+export function getPilotProfiles() {
+  return request<PilotProfile[]>("/auth/pilot-profiles");
+}
+
+export function loginPilotProfile(userId: string) {
   return request<{ access_token: string; token_type: string; expires_in: number }>(
-    "/auth/local-token",
-    { method: "POST", body: JSON.stringify(input) },
+    "/auth/pilot-login",
+    { method: "POST", body: JSON.stringify({ user_id: userId }) },
   );
 }
 
@@ -217,6 +218,14 @@ export function getPilotReadiness(token: string, projectId: string) {
 export function getGoLiveReadiness(token: string, projectId: string) {
   const parameters = new URLSearchParams({ project_id: projectId });
   return request<PilotReadinessReport>(`/system/go-live-readiness?${parameters}`, { token });
+}
+
+export function getSourcePacks(token: string) {
+  return request<SourcePack[]>("/genesis/source-packs", { token });
+}
+
+export function getConfigurationRegisters(token: string) {
+  return request<ConfigurationRegister[]>("/genesis/configuration-registers", { token });
 }
 
 export function getUatRuns(token: string, projectId: string) {
