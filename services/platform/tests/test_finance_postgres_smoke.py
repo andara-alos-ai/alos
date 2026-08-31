@@ -116,6 +116,18 @@ def test_payment_request_is_approved_paid_and_reconciled() -> None:
         assert decision_response.status_code == 200, decision_response.text
         assert decision_response.json()["current_step"] == "payment-action"
         reference = f"TRX-{uuid4().hex[:12].upper()}"
+        invalid_amount_response = client.post(
+            f"/api/v1/finance/payment-requests/{payment['payment_request_id']}/payment",
+            headers=approver_headers,
+            json={
+                "payment_reference": f"INVALID-{reference}",
+                "amount": "99999.00",
+                "paid_at": datetime.now(UTC).isoformat(),
+                "evidence_document_version_id": document["document_version_id"],
+            },
+        )
+        assert invalid_amount_response.status_code == 409
+        assert "berbeda" in invalid_amount_response.json()["detail"]
         paid_response = client.post(
             f"/api/v1/finance/payment-requests/{payment['payment_request_id']}/payment",
             headers=approver_headers,

@@ -89,6 +89,7 @@ class SalesInteractionRead(BaseModel):
     outcome: str
     notes: str
     evidence_reference: str | None
+    evidence_document_version_id: UUID | None
     occurred_at: datetime
 
 
@@ -141,9 +142,11 @@ class SiteEvidenceRead(BaseModel):
     claimed_progress: Decimal
     measured_progress: Decimal
     variance: Decimal
+    measurement_note: str
     status: str
     reviewer_user_id: UUID | None
     verified_progress: Decimal | None
+    review_notes: str | None
     reviewed_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -169,6 +172,7 @@ class LegalCaseRead(BaseModel):
     work_item_id: UUID
     workflow_run_id: UUID
     document_version_id: UUID
+    submitted_by_user_id: UUID
     document_type: str
     reference_code: str
     title: str
@@ -190,6 +194,7 @@ class RecruitmentRequestRead(BaseModel):
     project_id: UUID
     work_item_id: UUID
     workflow_run_id: UUID
+    submitted_by_user_id: UUID
     position_title: str
     requesting_division_code: str
     employment_type: str
@@ -201,6 +206,9 @@ class RecruitmentRequestRead(BaseModel):
     decided_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    candidate_alias: str
+    screening_status: str
+    missing_criteria: list[str]
 
 
 class PersonnelRequirementRead(BaseModel):
@@ -301,6 +309,8 @@ class ExecutiveBriefRead(BaseModel):
     title: str
     narrative: str
     source_references: list[str]
+    summary_counts: dict[str, int]
+    decision_item_count: int
     status: str
     reviewer_user_id: UUID | None
     review_notes: str | None

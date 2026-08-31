@@ -15,10 +15,16 @@ from alos.genesis import (
     GenesisPipelineView,
     GenesisSubmitRequest,
     PostgresGenesisStore,
+    SourcePack,
+    SourceRegistry,
 )
 from alos.genesis.models import GenesisReviewCreate
-from alos.security import Principal
-from alos.security.authorization import AuthorizationDenied
+from alos.governance.configuration import (
+    CanonicalConfigurationRegister,
+    CanonicalConfigurationRegistry,
+)
+from alos.security import Principal, Role
+from alos.security.authorization import AuthorizationDenied, require_any_role
 
 router = APIRouter(prefix="/genesis", tags=["genesis", "design-time"])
 
@@ -32,10 +38,49 @@ def genesis_service(settings: SettingsDependency) -> GenesisPipelineService:
         GenesisDesignService(agents),
         CapabilityRegistry(settings.definitions_root),
         PostgresGenesisStore(database_for_url(settings.database_url).engine),
+        SourceRegistry(settings.definitions_root),
     )
 
 
 GenesisDependency = Annotated[GenesisPipelineService, Depends(genesis_service)]
+
+
+@router.get("/source-packs", response_model=list[SourcePack])
+def list_source_packs(
+    principal: PrincipalDependency,
+    settings: SettingsDependency,
+) -> tuple[SourcePack, ...]:
+    try:
+        require_any_role(
+            principal,
+            Role.DIRECTOR,
+            Role.AI_EXECUTIVE,
+            Role.DIVISION_HEAD,
+            Role.IT_ADMIN,
+            Role.AUDITOR,
+        )
+    except AuthorizationDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return SourceRegistry(settings.definitions_root).load_all()
+
+
+@router.get("/configuration-registers", response_model=list[CanonicalConfigurationRegister])
+def list_configuration_registers(
+    principal: PrincipalDependency,
+    settings: SettingsDependency,
+) -> tuple[CanonicalConfigurationRegister, ...]:
+    try:
+        require_any_role(
+            principal,
+            Role.DIRECTOR,
+            Role.AI_EXECUTIVE,
+            Role.DIVISION_HEAD,
+            Role.IT_ADMIN,
+            Role.AUDITOR,
+        )
+    except AuthorizationDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return CanonicalConfigurationRegistry(settings.definitions_root).load_all()
 
 
 @router.post("/requests", response_model=GenesisPipelineView, status_code=201)

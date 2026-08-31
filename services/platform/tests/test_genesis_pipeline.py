@@ -16,6 +16,7 @@ from alos.genesis.models import (
 )
 from alos.genesis.pipeline import GenesisPipelineService
 from alos.genesis.repository import InMemoryGenesisStore
+from alos.genesis.source import SourceRegistry, SourceRegistryError
 from alos.security import Principal, Role
 from alos.security.authorization import AuthorizationDenied
 
@@ -36,6 +37,7 @@ def pipeline() -> GenesisPipelineService:
         GenesisDesignService(AgentRegistry(definitions)),
         CapabilityRegistry(definitions),
         InMemoryGenesisStore(),
+        SourceRegistry(definitions),
     )
 
 
@@ -43,7 +45,7 @@ def request() -> GenesisSubmitRequest:
     return GenesisSubmitRequest(
         strategy=GenesisStrategy.REUSE,
         justification="Menggunakan capability BCA yang telah dirilis untuk kebutuhan pilot.",
-        source_references=("specification:finance-pilot",),
+        source_references=("ALOS-SP-SYNTHETIC-PILOT@1.0.0",),
         target=AgentReference(agent_id="BCA", version="0.1.0"),
     )
 
@@ -104,3 +106,41 @@ def test_genesis_requester_cannot_review_own_request() -> None:
             ),
             requester,
         )
+
+
+def test_genesis_draft_source_can_be_analyzed_but_cannot_enter_staging() -> None:
+    service = pipeline()
+    organization_id = uuid4()
+    requester = principal(organization_id, Role.AI_EXECUTIVE)
+    business = principal(organization_id, Role.DIRECTOR)
+    technical = principal(organization_id, Role.IT_ADMIN)
+    submitted = service.submit(
+        GenesisSubmitRequest(
+            strategy=GenesisStrategy.REUSE,
+            justification="Menganalisis reuse BCA terhadap source pack A-N yang belum final.",
+            source_references=("ALOS-SP-MASTER-AN-DRAFT@0.1.0",),
+            target=AgentReference(agent_id="BCA", version="0.1.0"),
+        ),
+        requester,
+    )
+    service.review(
+        submitted.request_id,
+        GenesisReviewCreate(
+            gate=GenesisReviewGate.BUSINESS,
+            decision=GenesisReviewDecision.APPROVED,
+            notes="Analisis bisnis diperbolehkan tanpa mengesahkan isi sumber.",
+        ),
+        business,
+    )
+    service.review(
+        submitted.request_id,
+        GenesisReviewCreate(
+            gate=GenesisReviewGate.TECHNICAL,
+            decision=GenesisReviewDecision.APPROVED,
+            notes="Validasi teknis hanya untuk baseline draft dan data sintetis.",
+        ),
+        technical,
+    )
+
+    with pytest.raises(SourceRegistryError, match="tidak mengizinkan STAGE"):
+        service.stage(submitted.request_id, technical)

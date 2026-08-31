@@ -106,6 +106,9 @@ button:focus-visible, a:focus-visible, summary:focus-visible { border-radius: 7p
 .metricCard small { display: block; color: var(--muted); font-size: 11px; }
 .metricCard strong { display: block; margin: 4px 0 2px; font: 700 25px/1.1 Georgia, serif; }
 .metricCard p { overflow: hidden; margin: 0; color: var(--subtle); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.metricGrid.compact { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-bottom: 0; }
+.metricGrid.compact .metricCard { padding: 13px; }
+.metricGrid.compact .metricCard strong { font-size: 20px; }
 .dashboardGrid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, .75fr); gap: 15px; }
 .panel { min-width: 0; border: 1px solid var(--line); border-radius: 13px; background: var(--white); }
 .panelHeader { min-height: 79px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); padding: 16px 20px; }
@@ -255,6 +258,58 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .06em; text-transform:
 .agentTiles strong { color: var(--green-800); }
 .agentTiles span { color: var(--muted); font-size: 10px; }
 
+.readinessPanel { margin-top: 15px; }
+.readinessPanel .panelHeader p:last-child { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+.statusBadge.readiness-ready { background: var(--green-100); color: var(--green-700); }
+.statusBadge.readiness-attention { background: var(--amber-bg); color: var(--amber); }
+.statusBadge.readiness-blocked { background: var(--red-bg); color: var(--red); }
+.readinessList { display: grid; }
+.readinessList article { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: start; gap: 12px; border-bottom: 1px solid var(--line); padding: 14px 20px; }
+.readinessList article:last-child { border-bottom: 0; }
+.readinessList article > div { display: grid; gap: 4px; }
+.readinessList strong { font-size: 11px; }
+.readinessList p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.readinessList small { color: #806c45; font-size: 9px; line-height: 1.45; }
+.readinessList b { color: var(--subtle); font-size: 8px; letter-spacing: .05em; text-transform: uppercase; }
+.readinessMark { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; font-size: 12px; font-weight: 900; }
+.readinessMark.pass { background: var(--green-100); color: var(--green-700); }
+.readinessMark.warning { background: var(--amber-bg); color: var(--amber); }
+.readinessMark.blocked { background: var(--red-bg); color: var(--red); }
+
+.transactionFeedback { margin-bottom: 14px; border: 1px solid #badbc9; border-radius: 9px; background: var(--green-50); color: var(--green-800); padding: 11px 13px; font-size: 11px; line-height: 1.45; }
+.transactionCreatePanel { margin-bottom: 16px; }
+.transactionCreateGrid { display: grid; grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr); gap: 15px; margin-bottom: 16px; }
+.transactionForm { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto auto; align-items: end; gap: 12px; padding: 18px 20px 20px; }
+.transactionForm label, .transactionPanelBody label { display: grid; gap: 6px; color: #40534b; font-size: 10px; font-weight: 750; }
+.transactionForm .checkField { min-height: 39px; display: flex; align-items: center; gap: 8px; }
+.checkField input { width: 16px; height: 16px; margin: 0; padding: 0; }
+.transactionPanelBody { padding: 18px 20px 20px; }
+.transactionLayout { min-height: 620px; display: grid; grid-template-columns: minmax(300px, .72fr) minmax(520px, 1.28fr); gap: 15px; }
+.transactionRecordList { max-height: 780px; overflow-y: auto; }
+.transactionRecordList > button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 13px; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; padding: 15px 18px; text-align: left; }
+.transactionRecordList > button:hover { background: var(--green-50); }
+.transactionRecordList > button.selected { background: var(--green-50); box-shadow: inset 3px 0 var(--green-700); }
+.transactionRecordList > button > span { min-width: 0; display: grid; gap: 5px; }
+.transactionRecordList > button > span:last-child { justify-items: end; }
+.transactionRecordList strong, .transactionRecordList small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transactionRecordList strong { font-size: 12px; }
+.transactionRecordList small { max-width: 280px; color: var(--muted); font-size: 9px; }
+.transactionDetailBody { display: grid; gap: 18px; padding: 0 22px 22px; }
+.briefNarrative { border: 1px solid var(--line); border-radius: 10px; background: var(--paper); padding: 17px; }
+.briefNarrative h3 { margin: 0 0 8px; font: 700 16px Georgia, serif; }
+.briefNarrative p { margin: 0; color: #40534b; font-size: 11px; line-height: 1.7; white-space: pre-wrap; }
+.sourceReferences { border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; }
+.sourceReferences summary { cursor: pointer; color: var(--green-700); font-size: 10px; font-weight: 800; }
+.sourceReferences ul { display: grid; gap: 7px; margin: 12px 0 0; padding-left: 18px; }
+.sourceReferences li { color: var(--muted); font-size: 10px; }
+.sourceReferences code { overflow-wrap: anywhere; white-space: normal; }
+.interactionHistory { border-top: 1px solid var(--line); padding-top: 17px; }
+.interactionHistory h3 { margin: 0 0 11px; font: 700 16px Georgia, serif; }
+.interactionHistory article { display: grid; gap: 7px; border-bottom: 1px solid var(--line); padding: 11px 0; }
+.interactionHistory article div { display: flex; justify-content: space-between; gap: 12px; }
+.interactionHistory article span, .interactionHistory article p { color: var(--muted); font-size: 10px; }
+.interactionHistory article p { margin: 0; line-height: 1.5; }
+
 .button:disabled, .textButton:disabled { cursor: not-allowed; opacity: .52; }
 .identityCreatePanel { margin-bottom: 16px; }
 .identityForm { display: grid; grid-template-columns: 1.15fr 1.35fr 1fr 1fr; align-items: end; gap: 13px; padding: 18px 20px 20px; }
@@ -320,6 +375,10 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .06em; text-transform:
   .identityLayout { grid-template-columns: minmax(290px, .65fr) minmax(470px, 1.35fr); }
   .projectAssignmentForm { grid-template-columns: 1fr 1fr; }
   .projectAssignmentForm .assignmentReason { grid-column: 1 / -1; }
+  .transactionForm { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .transactionForm .checkField { grid-column: span 2; }
+  .transactionCreateGrid { grid-template-columns: 1fr; }
+  .metricGrid.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 900px) {
@@ -340,6 +399,8 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .06em; text-transform:
   .loginIntro { min-height: auto; gap: 45px; padding: 38px; }
   .loginPanel { padding: 35px 20px; }
   .workspaceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .transactionLayout { grid-template-columns: 1fr; }
+  .transactionRecordList { max-height: 420px; }
 }
 
 @media (max-width: 620px) {
@@ -374,4 +435,9 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .06em; text-transform:
   .identityDetailHeader { display: grid; }
   .identityGovernance { grid-template-columns: 1fr; }
   .identityGovernance small { grid-column: auto; }
+  .transactionForm { grid-template-columns: 1fr; }
+  .transactionForm .checkField { grid-column: auto; }
+  .metricGrid.compact { grid-template-columns: 1fr; }
+  .readinessList article { grid-template-columns: 28px minmax(0, 1fr); padding: 13px 14px; }
+  .readinessList b { grid-column: 2; }
 }

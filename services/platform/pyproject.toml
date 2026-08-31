@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "alos-platform"
 version = "0.1.0"
-description = "Backend modular dan shared Agent Runtime ALOS Internal v1"
+description = "Backend modular dan shared Agent Runtime ALOS"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "boto3>=1.43.81,<2",
@@ -22,6 +22,8 @@ dependencies = [
 
 [project.scripts]
 alos-migrate = "alos.persistence.migrations:main"
+alos-validate-sources = "alos.genesis.source.cli:main"
+alos-validate-configuration = "alos.governance.configuration.cli:main"
 
 [project.optional-dependencies]
 dev = [

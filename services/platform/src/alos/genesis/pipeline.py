@@ -14,6 +14,7 @@ from alos.genesis.models import (
 )
 from alos.genesis.repository import GenesisStore
 from alos.genesis.service import GenesisDesignService
+from alos.genesis.source import SourceRegistry, SourceUse
 from alos.security import Principal, Role
 from alos.security.authorization import AuthorizationDenied, require_any_role
 
@@ -26,10 +27,12 @@ class GenesisPipelineService:
         design: GenesisDesignService,
         capabilities: CapabilityRegistry,
         store: GenesisStore,
+        sources: SourceRegistry,
     ) -> None:
         self._design = design
         self._capabilities = capabilities
         self._store = store
+        self._sources = sources
 
     def submit(
         self, command: GenesisSubmitRequest, principal: Principal
@@ -37,6 +40,7 @@ class GenesisPipelineService:
         require_any_role(
             principal, Role.DIRECTOR, Role.AI_EXECUTIVE, Role.DIVISION_HEAD, Role.IT_ADMIN
         )
+        self._sources.validate_references(command.source_references, SourceUse.GENERATE)
         change_request = command.to_change_request(principal.user_id)
         proposal = self._design.propose(change_request)
         tests = self._test_proposal(proposal.resolved_contract, proposal.validations)
@@ -106,6 +110,7 @@ class GenesisPipelineService:
         existing = self._store.get(request_id, principal.organization_id)
         if existing.requested_by_user_id == principal.user_id:
             raise AuthorizationDenied("Pemohon Genesis tidak boleh melakukan staging sendiri")
+        self._sources.validate_references(existing.source_references, SourceUse.STAGE)
         contract = existing.proposal.resolved_contract
         if contract is None:
             raise ValueError("Proposal Genesis tidak memiliki Agent Contract")
@@ -120,6 +125,7 @@ class GenesisPipelineService:
             raise AuthorizationDenied("Pemohon Genesis tidak boleh merilis paket sendiri")
         if existing.release is not None and existing.release.staged_by_user_id == principal.user_id:
             raise AuthorizationDenied("Pelaksana staging tidak boleh merilis paket yang sama")
+        self._sources.validate_references(existing.source_references, SourceUse.RELEASE)
         return self._store.release(
             request_id, principal.organization_id, principal.user_id
         )

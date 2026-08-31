@@ -1,10 +1,10 @@
-# ALOS Internal v1
+# ALOS
 
 ALOS (Andara Leverage Operating System) adalah platform operasi internal PT Andara Rejo Makmur. Repository ini memuat satu aplikasi web, satu backend modular, satu shared Agent Runtime untuk 18 Core Agent logis, enam workflow awal, dan kontrol tata kelola yang dapat diaudit.
 
 ## Status
 
-Tahap saat ini adalah **Technical Foundation Complete / Synthetic UAT Ready**. Enam workflow backend, IAM dasar, query operasional, penyimpanan dokumen berversi, work queue, worker/scheduler, notification outbox, adaptor n8n opsional, Agent/Tool/Capability Registry, shared runtime untuk 18 Core Agent, LLM Gateway provider-neutral, dan pipeline design-time Genesis telah tersedia. Seluruh contoh data wajib sintetis atau telah disanitasi. Integrasi dan data produksi tetap belum diaktifkan sampai UAT serta keputusan manajemen selesai.
+Tahap saat ini adalah **Controlled Pilot Technical Candidate**. Enam workflow telah tersedia melalui backend dan layar transaksi, disertai IAM, project lifecycle, readiness gate, penyimpanan dokumen berversi, work queue, worker/outbox, observability, recovery drill, shared runtime untuk 18 Core Agent, LLM Gateway provider-neutral, dan pipeline design-time Genesis. Seluruh contoh data wajib sintetis atau telah disanitasi. Aktivasi pilot tetap menunggu readiness proyek aktual, recovery evidence, UAT pemilik bisnis, dan keputusan manajemen; integrasi serta data production belum diaktifkan.
 
 ## Struktur Utama
 

@@ -11,6 +11,13 @@ def isolated_settings(**values: Any) -> Settings:
     return Settings(_env_file=None, **values)
 
 
+def test_default_product_name_and_security_namespace_use_alos_brand() -> None:
+    settings = isolated_settings()
+
+    assert settings.application_name == "ALOS"
+    assert settings.auth_audience == "alos-platform"
+
+
 def test_staging_rejects_default_signing_secret() -> None:
     with pytest.raises(ValidationError, match="wajib unik dan kuat"):
         isolated_settings(

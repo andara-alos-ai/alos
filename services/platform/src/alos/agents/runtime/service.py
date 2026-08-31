@@ -17,7 +17,7 @@ from alos.agents.runtime.models import (
     CapabilityDispatchResult,
 )
 from alos.tools import ToolEffect, ToolReference, ToolRegistry
-from alos.workflow.models import WorkflowDefinition
+from alos.workflow.models import WorkflowDefinition, WorkflowStatus
 
 
 class RuntimePolicyViolation(ValueError):
@@ -132,6 +132,12 @@ class SharedAgentRuntime:
         selector: str | None = None,
     ) -> tuple[AgentExecutionPlan, ...]:
         """Resolve and prepare a workflow step without agent-specific runtime logic."""
+
+        if workflow.status not in {WorkflowStatus.STAGED, WorkflowStatus.RELEASED}:
+            raise RuntimePolicyViolation(
+                f"Workflow {workflow.workflow_id}@{workflow.version} berstatus "
+                f"{workflow.status} dan tidak dapat dijalankan"
+            )
 
         invocations = workflow.resolve_invocations(step_id, selector)
         return tuple(

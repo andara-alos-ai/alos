@@ -1,4 +1,4 @@
-# Runbook Deployment ALOS Internal v1
+# Runbook Deployment ALOS
 
 | Metadata | Nilai |
 |---|---|
@@ -45,7 +45,7 @@ terdapat pada [Konfigurasi Login Google OIDC](../runbooks/GOOGLE_OIDC_CONFIGURAT
 docker compose --env-file <path-env> -f infra/compose/compose.application.yaml up -d --build
 ```
 
-Job `migrate` harus selesai sebelum API dan worker aktif. Image platform menetapkan repository root `/app` agar seluruh migration dan definition dapat ditemukan secara konsisten. Periksa `/api/v1/health`, `/api/v1/auth/oidc/status`, `/api/v1/system/operations-health`, log worker, dan status outbox.
+Job `migrate` harus selesai sebelum API dan worker aktif. Image platform menetapkan repository root `/app` agar seluruh migration dan definition dapat ditemukan secara konsisten. Periksa `/api/v1/health`, `/api/v1/auth/oidc/status`, `/api/v1/system/operations-health`, readiness gate pada layar **Kesehatan Sistem**, log worker, dan status outbox.
 
 Status worker dinilai melalui heartbeat pada tabel `observability.worker_runs`, bukan endpoint HTTP API. Worker dinyatakan sehat jika memiliki siklus `COMPLETED`/`PARTIAL` atau status `RUNNING` yang masih baru sesuai batas healthcheck.
 
@@ -57,3 +57,5 @@ Status worker dinilai melalui heartbeat pada tabel `observability.worker_runs`, 
 - LLM dan n8n dapat dinonaktifkan melalui environment tanpa mengubah workflow deterministik.
 
 Deployment production belum diizinkan hanya berdasarkan runbook ini. UAT, review keamanan, backup/restore, observability, incident response, dan persetujuan manajemen tetap menjadi gate wajib.
+
+Prosedur readiness, backup dengan checksum, dan restore drill terisolasi dijelaskan pada [Kesiapan Pilot dan Recovery](../runbooks/PILOT_READINESS_AND_RECOVERY.md).

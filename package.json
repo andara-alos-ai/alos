@@ -15,6 +15,6 @@
     "lint": "pnpm --filter @andara/alos-web lint && python -m ruff check services/platform",
     "typecheck": "pnpm --filter @andara/alos-web typecheck && python -m mypy services/platform/src",
     "test": "pnpm --filter @andara/alos-web test && python -m pytest services/platform/tests",
-    "validate:definitions": "python -m alos.agents.registry.cli --definitions-root definitions"
+    "validate:definitions": "python -m alos.agents.registry.cli --definitions-root definitions && python -m alos.genesis.source.cli --definitions-root definitions && python -m alos.governance.configuration.cli --definitions-root definitions"
   }
 }

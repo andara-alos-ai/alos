@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0.0",
+  "fixture_id": "ALOS-CONTROLLED-PILOT-SYNTHETIC",
+  "version": "0.1.0",
+  "data_policy": "SYNTHETIC_OR_SANITIZED",
+  "production_effect": false,
+  "project": {
+    "code": "PILOT-SYN-001",
+    "name": "Proyek Pilot Sintetis ALOS"
+  },
+  "users": [
+    {"email": "director.pilot@example.test", "display_name": "Direktur Penguji", "role": "DIRECTOR", "division_code": null, "project_assigned": false},
+    {"email": "executive.pilot@example.test", "display_name": "AI Executive Penguji", "role": "AI_EXECUTIVE", "division_code": null, "project_assigned": false},
+    {"email": "it.pilot@example.test", "display_name": "IT Custodian Penguji", "role": "IT_ADMIN", "division_code": "IT", "project_assigned": false},
+    {"email": "sales.a.pilot@example.test", "display_name": "Sales Penguji A", "role": "SALES", "division_code": "SALES_MARKETING", "project_assigned": true},
+    {"email": "finance.a.pilot@example.test", "display_name": "Keuangan Penguji A", "role": "FINANCE", "division_code": "FINANCE", "project_assigned": true},
+    {"email": "finance.b.pilot@example.test", "display_name": "Keuangan Penguji B", "role": "FINANCE", "division_code": "FINANCE", "project_assigned": true},
+    {"email": "property.a.pilot@example.test", "display_name": "Property Penguji A", "role": "PROPERTY", "division_code": "PROPERTY", "project_assigned": true},
+    {"email": "property.b.pilot@example.test", "display_name": "Property Penguji B", "role": "PROPERTY", "division_code": "PROPERTY", "project_assigned": true},
+    {"email": "hr.a.pilot@example.test", "display_name": "HR Penguji A", "role": "HR", "division_code": "HR", "project_assigned": true},
+    {"email": "hr.b.pilot@example.test", "display_name": "HR Penguji B", "role": "HR", "division_code": "HR", "project_assigned": true},
+    {"email": "legal.a.pilot@example.test", "display_name": "Legal Penguji A", "role": "LEGAL", "division_code": "LEGAL", "project_assigned": true},
+    {"email": "legal.b.pilot@example.test", "display_name": "Legal Penguji B", "role": "LEGAL", "division_code": "LEGAL", "project_assigned": true},
+    {"email": "auditor.pilot@example.test", "display_name": "Auditor Penguji", "role": "AUDITOR", "division_code": null, "project_assigned": false}
+  ],
+  "scenarios": {
+    "sales": {"lead_alias": "LEAD-SYN-001", "phone": "080000000001", "source": "SYNTHETIC_CAMPAIGN", "consent_recorded": true},
+    "finance": {"request_code": "PAY-SYN-001", "amount": "1250000.00", "currency": "IDR", "budget_available": true},
+    "property": {"work_package_code": "WP-SYN-001", "claimed_progress": "42.50", "measured_progress": "39.00"},
+    "legal": {"permit_reference": "PERMIT-SYN-001", "contract_reference": "CONTRACT-SYN-001"},
+    "hr": {"candidate_alias": "CAND-SYN-001", "position_title": "Staf Operasional Sintetis", "required_criteria": ["DOC_COMPLETE", "MINIMUM_EXPERIENCE"]},
+    "executive": {"title": "Brief Eksekutif Pilot Sintetis"}
+  }
+}

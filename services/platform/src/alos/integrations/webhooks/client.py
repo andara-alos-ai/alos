@@ -55,7 +55,7 @@ class N8nWebhookClient:
             method="POST",
             headers={
                 "Content-Type": "application/json",
-                "User-Agent": "ALOS-Internal-Worker/1.0",
+                "User-Agent": "ALOS-Worker/1.0",
                 "X-ALOS-Event-ID": str(event.outbox_event_id),
                 "X-ALOS-Idempotency-Key": event.idempotency_key,
                 "X-ALOS-Signature": f"sha256={signature}",

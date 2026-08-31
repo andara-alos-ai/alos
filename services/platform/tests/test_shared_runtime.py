@@ -15,6 +15,7 @@ from alos.agents.runtime import (
     SharedAgentRuntime,
 )
 from alos.tools import ToolRegistry
+from alos.workflow.models import WorkflowStatus
 from alos.workflow.registry import WorkflowRegistry
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -157,6 +158,22 @@ def test_runtime_prepares_workflow_step_from_invocation_contract() -> None:
     assert plans[0].workflow_id == "FLOW-004"
     assert plans[0].workflow_step_id == "legal-analysis"
     assert plans[0].approved_tool_releases
+
+
+def test_runtime_blocks_draft_workflow_even_when_agent_is_runnable() -> None:
+    definitions = REPOSITORY_ROOT / "definitions"
+    draft_workflow = WorkflowRegistry(definitions).get("FLOW-001").model_copy(
+        update={"status": WorkflowStatus.DRAFT}
+    )
+
+    with pytest.raises(RuntimePolicyViolation, match="Workflow FLOW-001.*tidak dapat dijalankan"):
+        runtime().prepare_workflow_step(
+            draft_workflow,
+            "lead-validation",
+            ["lead-intake:draft-workflow"],
+            uuid4(),
+            "draft-workflow-test",
+        )
 
 
 def test_runtime_blocks_ai_tool_for_deterministic_request() -> None:

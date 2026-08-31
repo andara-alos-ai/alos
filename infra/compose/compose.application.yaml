@@ -1,11 +1,11 @@
-name: alos-internal-application
+name: alos-application
 
 x-platform-environment: &platform-environment
   ALOS_ENVIRONMENT: ${ALOS_ENVIRONMENT:-staging}
   ALOS_REPOSITORY_ROOT: /app
   ALOS_DATABASE_URL: postgresql+psycopg://alos:${ALOS_POSTGRES_PASSWORD}@postgres:5432/alos
-  ALOS_AUTH_ISSUER: ${ALOS_AUTH_ISSUER:-alos-internal}
-  ALOS_AUTH_AUDIENCE: ${ALOS_AUTH_AUDIENCE:-alos-internal}
+  ALOS_AUTH_ISSUER: ${ALOS_AUTH_ISSUER:-alos}
+  ALOS_AUTH_AUDIENCE: ${ALOS_AUTH_AUDIENCE:-alos-platform}
   ALOS_AUTH_SIGNING_SECRET: ${ALOS_AUTH_SIGNING_SECRET}
   ALOS_WEB_ORIGIN: ${ALOS_WEB_ORIGIN:-http://localhost:3000}
   ALOS_OIDC_PROVIDER: ${ALOS_OIDC_PROVIDER:-disabled}

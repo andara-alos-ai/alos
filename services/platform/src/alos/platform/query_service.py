@@ -59,6 +59,7 @@ class OperationalQueryService:
         self, recruitment_request_id: UUID, principal: Principal
     ) -> PersonnelChecklistRead:
         self._authorize("recruitment_requests", principal)
+        self._store.get_record("recruitment_requests", recruitment_request_id, principal)
         return PersonnelChecklistRead.model_validate(
             self._store.get_personnel_checklist(recruitment_request_id, principal)
         )
@@ -69,6 +70,12 @@ class OperationalQueryService:
         domain_policy = DOMAIN_POLICIES.get(resource)
         if domain_policy is not None:
             if principal.has_any_role(*organization_business_readers):
+                return
+            if (
+                resource == "recruitment_requests"
+                and Role.DIVISION_HEAD in principal.roles
+                and principal.division_codes
+            ):
                 return
             division_code, role = domain_policy
             if role in principal.roles and division_code in principal.division_codes:

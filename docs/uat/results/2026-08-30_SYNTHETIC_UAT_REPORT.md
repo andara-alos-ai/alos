@@ -1,4 +1,4 @@
-# Laporan UAT Sintetis ALOS Internal v1
+# Laporan UAT Sintetis ALOS
 
 | Metadata | Nilai |
 |---|---|
@@ -10,7 +10,7 @@
 
 ## Ringkasan
 
-Fondasi teknis ALOS Internal v1 memenuhi skenario UAT otomatis, smoke test aplikasi aktual, dan verifikasi container penuh. Tidak ditemukan defect kritis atau tinggi pada scope yang diuji. Release candidate berbasis data sintetis dapat dibentuk untuk proses review berikutnya.
+Fondasi teknis ALOS memenuhi skenario UAT otomatis, smoke test aplikasi aktual, dan verifikasi container penuh. Tidak ditemukan defect kritis atau tinggi pada scope yang diuji. Release candidate berbasis data sintetis dapat dibentuk untuk proses review berikutnya.
 
 ## Hasil Skenario Utama
 

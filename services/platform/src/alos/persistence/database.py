@@ -38,6 +38,7 @@ from alos.platform.models import (
     PaymentRequestCreate,
     PaymentRequestView,
     ProjectCreate,
+    ProjectStatusUpdate,
     ProjectView,
     PropertyReviewCreate,
     PropertyWorkflowResult,
@@ -1073,6 +1074,10 @@ class PostgresOperationalStore:
             context = self._load_payment(connection, payment_request_id, principal)
             if context["current_step"] != "payment-action" or context["status"] != "APPROVED":
                 raise ValueError("Payment request belum disetujui")
+            if command.amount != context["amount"]:
+                raise ValueError("Jumlah pembayaran berbeda dari permintaan yang disetujui")
+            if command.currency != context["currency"]:
+                raise ValueError("Mata uang pembayaran berbeda dari permintaan yang disetujui")
             evidence = connection.execute(
                 text("""
                 SELECT 1 FROM platform.document_versions dv
@@ -2956,6 +2961,71 @@ class PostgresOperationalStore:
             )
         return ProjectView.model_validate(dict(row))
 
+    def update_project_status(
+        self, project_id: UUID, command: ProjectStatusUpdate, principal: Principal
+    ) -> ProjectView:
+        allowed_transitions = {
+            "DRAFT": {"ACTIVE"},
+            "ACTIVE": {"ON_HOLD", "CLOSED"},
+            "ON_HOLD": {"ACTIVE", "CLOSED"},
+            "CLOSED": set(),
+        }
+        now = datetime.now(UTC)
+        with self._engine.begin() as connection:
+            current = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT project_id, organization_id, code, name, status, created_at
+                        FROM platform.projects
+                        WHERE project_id = :project_id
+                          AND organization_id = :organization_id
+                        FOR UPDATE
+                        """
+                    ),
+                    {
+                        "project_id": project_id,
+                        "organization_id": principal.organization_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if current is None:
+                raise KeyError("Proyek tidak ditemukan")
+            current_status = str(current["status"])
+            target_status = command.status.value
+            if target_status not in allowed_transitions[current_status]:
+                raise ValueError(
+                    f"Transisi status proyek {current_status} ke {target_status} tidak diizinkan"
+                )
+            updated = (
+                connection.execute(
+                    text(
+                        """
+                        UPDATE platform.projects
+                        SET status = :status, updated_at = :now, version = version + 1
+                        WHERE project_id = :project_id
+                        RETURNING project_id, organization_id, code, name, status, created_at
+                        """
+                    ),
+                    {"project_id": project_id, "status": target_status, "now": now},
+                )
+                .mappings()
+                .one()
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "project.status_changed",
+                "project",
+                project_id,
+                project_id,
+                dict(current),
+                {**dict(updated), "reason": command.reason},
+            )
+        return ProjectView.model_validate(dict(updated))
+
     def list_projects(self, principal: Principal) -> tuple[ProjectView, ...]:
         parameters: dict[str, Any] = {"organization_id": principal.organization_id}
         organization_wide = principal.has_any_role(*self._organization_wide_roles())
@@ -3011,6 +3081,33 @@ class PostgresOperationalStore:
             ).first()
             if project is None:
                 raise KeyError("Proyek tidak ditemukan pada organisasi pengguna")
+
+            duplicate_lead = connection.execute(
+                text(
+                    """
+                    SELECT lead_id
+                    FROM sales.leads
+                    WHERE organization_id = :organization_id
+                      AND project_id = :project_id
+                      AND (
+                        (CAST(:phone AS text) IS NOT NULL AND phone = CAST(:phone AS text))
+                        OR (
+                          CAST(:email AS text) IS NOT NULL
+                          AND lower(email) = lower(CAST(:email AS text))
+                        )
+                      )
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                    "phone": command.phone,
+                    "email": command.email,
+                },
+            ).first()
+            if duplicate_lead is not None:
+                raise ValueError("Lead dengan kontak yang sama sudah terdaftar pada proyek")
 
             division_id = connection.execute(
                 text(
@@ -3309,16 +3406,39 @@ class PostgresOperationalStore:
             ):
                 raise AuthorizationDenied("Interaksi hanya dapat dicatat Sales PIC yang ditugaskan")
 
+            if command.evidence_document_version_id is not None:
+                evidence_document = connection.execute(
+                    text(
+                        """
+                        SELECT 1
+                        FROM platform.document_versions dv
+                        JOIN platform.documents d ON d.document_id = dv.document_id
+                        WHERE dv.document_version_id = :version_id
+                          AND d.organization_id = :organization_id
+                          AND (d.project_id IS NULL OR d.project_id = :project_id)
+                        """
+                    ),
+                    {
+                        "version_id": command.evidence_document_version_id,
+                        "organization_id": principal.organization_id,
+                        "project_id": context["project_id"],
+                    },
+                ).first()
+                if evidence_document is None:
+                    raise KeyError("Dokumen evidence Sales tidak ditemukan")
+
             interaction_id = uuid4()
             connection.execute(
                 text(
                     """
                     INSERT INTO sales.interactions
                         (interaction_id, lead_id, workflow_run_id, actor_user_id, channel,
-                         outcome, notes, evidence_reference, occurred_at)
+                         outcome, notes, evidence_reference, evidence_document_version_id,
+                         occurred_at)
                     VALUES
                         (:interaction_id, :lead_id, :workflow_run_id, :actor_user_id,
-                         :channel, :outcome, :notes, :evidence_reference, :now)
+                         :channel, :outcome, :notes, :evidence_reference,
+                         :evidence_document_version_id, :now)
                     """
                 ),
                 {
@@ -3330,6 +3450,7 @@ class PostgresOperationalStore:
                     "outcome": command.outcome.value,
                     "notes": command.notes,
                     "evidence_reference": command.evidence_reference,
+                    "evidence_document_version_id": command.evidence_document_version_id,
                     "now": now,
                 },
             )
@@ -3411,15 +3532,37 @@ class PostgresOperationalStore:
                         """
                         INSERT INTO sales.reservations
                             (lead_id, workflow_run_id, reservation_reference,
-                             recorded_by_user_id, status, recorded_at)
+                             recorded_by_user_id, status, evidence_document_version_id,
+                             recorded_at)
                         VALUES
-                            (:lead_id, :workflow_run_id, :reference, :actor, 'RECORDED', :now)
+                            (:lead_id, :workflow_run_id, :reference, :actor, 'RECORDED',
+                             :evidence_document_version_id, :now)
                         """
                     ),
                     {
                         "lead_id": context["lead_id"],
                         "workflow_run_id": workflow_run_id,
                         "reference": command.reservation_reference,
+                        "actor": principal.user_id,
+                        "evidence_document_version_id": command.evidence_document_version_id,
+                        "now": now,
+                    },
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO platform.evidence
+                            (evidence_id, work_item_id, document_version_id, claim_type,
+                             status, created_at, created_by)
+                        VALUES
+                            (:evidence_id, :work_item_id, :document_version_id,
+                             'RESERVATION_CONFIRMATION', 'SUBMITTED', :now, :actor)
+                        """
+                    ),
+                    {
+                        "evidence_id": uuid4(),
+                        "work_item_id": context["work_item_id"],
+                        "document_version_id": command.evidence_document_version_id,
                         "actor": principal.user_id,
                         "now": now,
                     },

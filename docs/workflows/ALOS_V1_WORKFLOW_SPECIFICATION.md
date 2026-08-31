@@ -1,4 +1,4 @@
-# Spesifikasi Alur Kerja ALOS Internal v1
+# Spesifikasi Alur Kerja ALOS
 
 | Metadata | Nilai |
 |---|---|
@@ -41,7 +41,7 @@ flowchart LR
 - **Agent:** SLA dan CFA; MCA_MKT hanya jika diperlukan rancangan materi.
 - **Aturan deterministik:** bidang wajib, deduplikasi, penugasan, consent, SLA, dan status pipeline.
 - **Penggunaan AI:** klasifikasi kebutuhan, ringkasan interaksi, rekomendasi tindak lanjut, dan rancangan bahasa.
-- **Bukti:** sumber lead, identitas minimum, consent, dan catatan interaksi.
+- **Bukti:** sumber lead, identitas minimum, consent, catatan interaksi, serta dokumen evidence berversi untuk reservasi.
 - **Selesai:** lead berstatus tidak layak dengan alasan, masuk pipeline, atau menghasilkan reservasi yang direview manusia.
 - **Penyimpangan:** lead tanpa pemilik, tindak lanjut lewat SLA, duplikasi tidak terselesaikan, atau komunikasi tanpa consent.
 

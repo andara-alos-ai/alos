@@ -1,0 +1,282 @@
+{
+  "schema_version": "1.0.0",
+  "register_id": "ALOS-CR-MASTER-AN",
+  "version": "0.1.0",
+  "title": "Canonical Mapping Master ALOS GIIVEPRO dan Lampiran A-N",
+  "status": "DRAFT",
+  "production_effect": false,
+  "mappings": [
+    {
+      "mapping_id": "ALOS-CFG-LOCKED-ORG-STRUCTURE",
+      "document_key": "DECISION",
+      "name": "Struktur Organisasi ALOS yang Dikunci",
+      "target_registry": "ORGANIZATION_STRUCTURE",
+      "business_owner": "DIREKTUR_UTAMA",
+      "source_references": ["ALOS-SRC-ORG-LOCKED-001"],
+      "status": "APPROVED",
+      "disposition": "REUSE",
+      "activation_mode": "RELEASE_CONTROLLED",
+      "implementation_scope": [
+        "DIREKTUR UTAMA ke AI EXECUTIVE OPERATING LAYER",
+        "KEUANGAN, SALES & MARKETING, PROPERTY, HR, LEGAL, dan IT"
+      ],
+      "blocked_by_decisions": [],
+      "notes": ["Tidak mengesahkan named PIC, RACI, materiality, KPI, atau delegasi."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-MASTER-DESIGN",
+      "document_key": "MASTER",
+      "name": "Master Design ALOS dan GIIVEPRO",
+      "target_registry": "ENTERPRISE_DESIGN_BASELINE",
+      "business_owner": "DIREKTUR_UTAMA",
+      "source_references": ["ALOS-SRC-MASTER-AN-001"],
+      "status": "DRAFT",
+      "disposition": "REUSE",
+      "activation_mode": "DESIGN_ONLY",
+      "implementation_scope": [
+        "Arsitektur empat layer dan AI Executive",
+        "Shared Agent Runtime, governance, Genesis, dan GIIVEPRO"
+      ],
+      "blocked_by_decisions": [],
+      "notes": ["Versi dokumen sumber bukan versi produk ALOS."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-SOURCE-GOVERNANCE",
+      "document_key": "A",
+      "name": "Source Governance dan Document Control",
+      "target_registry": "SOURCE_GOVERNANCE",
+      "business_owner": "IT",
+      "source_references": ["ALOS-SRC-APP-A-V40"],
+      "status": "DRAFT",
+      "disposition": "EXTEND",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Source lineage, authority, status, hash, dan classification",
+        "Rekonsiliasi sumber dan gap analysis"
+      ],
+      "blocked_by_decisions": ["DEC-A01"],
+      "notes": ["Metadata FINAL pada nama file tidak mengubah status governance."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-AUTHORITY-RACI",
+      "document_key": "B",
+      "name": "Organization Authority, RACI, dan Delegasi",
+      "target_registry": "AUTHORITY_RACI",
+      "business_owner": "DIREKTUR_UTAMA",
+      "source_references": ["ALOS-SRC-APP-B-V40"],
+      "status": "DRAFT",
+      "disposition": "HOLD",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Named PIC, backup, checker, approver, dan delegation schedule",
+        "Separation of duties per proses"
+      ],
+      "blocked_by_decisions": ["DEC-B01"],
+      "notes": ["Struktur organisasi terkunci dikelola oleh mapping terpisah."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-SOP-CATALOG",
+      "document_key": "C",
+      "name": "SOP Catalog dan Execution Configuration",
+      "target_registry": "SOP_CATALOG",
+      "business_owner": "ALL_DIVISIONS",
+      "source_references": ["ALOS-SRC-APP-C-V40"],
+      "status": "DRAFT",
+      "disposition": "EXTEND",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "SOP sebagai konfigurasi domain atau Sub-Agent",
+        "Trigger, input, output, evidence, approval, dan exception"
+      ],
+      "blocked_by_decisions": ["DEC-C01"],
+      "notes": ["Tidak membuat seluruh SOP menjadi Core Agent baru."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-STRATEGY-TARGETS",
+      "document_key": "D",
+      "name": "Target dan Renstra",
+      "target_registry": "STRATEGY_TARGETS",
+      "business_owner": "DIREKTUR_UTAMA",
+      "source_references": ["ALOS-SRC-APP-D-V40"],
+      "status": "DRAFT",
+      "disposition": "HOLD",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Target jangka panjang, menengah, dan pendek",
+        "Keterkaitan target ke divisi, proyek, KPI, dan evidence"
+      ],
+      "blocked_by_decisions": ["DEC-D01"],
+      "notes": ["Angka target tidak digunakan sebagai actual sebelum ratifikasi."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-KPI-CATALOG",
+      "document_key": "E",
+      "name": "KPI Divisi, SDM, dan Agent",
+      "target_registry": "KPI_CATALOG",
+      "business_owner": "ALL_DIVISIONS",
+      "source_references": ["ALOS-SRC-APP-E-V40"],
+      "status": "DRAFT",
+      "disposition": "EXTEND",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Metric code, formula deterministik, owner, period, target, dan evidence",
+        "KPI manusia dan agent dengan sumber data terpisah"
+      ],
+      "blocked_by_decisions": ["DEC-E01"],
+      "notes": ["LLM tidak menghitung KPI atau menentukan hasil penilaian."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-WORKFLOW-PORTFOLIO",
+      "document_key": "F",
+      "name": "Workflow dan Handoff Portfolio",
+      "target_registry": "WORKFLOW_PORTFOLIO",
+      "business_owner": "ALL_DIVISIONS",
+      "source_references": ["ALOS-SRC-APP-F-V40"],
+      "status": "DRAFT",
+      "disposition": "EXTEND",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Enterprise workflow, handoff, gate, owner, state, dan SLA",
+        "Pemetaan ke enam workflow pilot yang sudah executable"
+      ],
+      "blocked_by_decisions": ["DEC-F01"],
+      "notes": ["Workflow baru wajib memiliki graph, test, evidence, dan governance gate."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-EVIDENCE-FORMS",
+      "document_key": "G",
+      "name": "Evidence, Form, Retention, dan Record",
+      "target_registry": "EVIDENCE_FORM_CATALOG",
+      "business_owner": "LEGAL_HR_IT",
+      "source_references": ["ALOS-SRC-APP-G-V40"],
+      "status": "DRAFT",
+      "disposition": "EXTEND",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Evidence requirement dan form versioning",
+        "Classification, retention, legal hold, dan verification status"
+      ],
+      "blocked_by_decisions": ["DEC-G01"],
+      "notes": ["Dokumen produksi tidak dimasukkan ke repository definisi."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-HR-COMPETENCY",
+      "document_key": "H",
+      "name": "HR Assessment dan Competency",
+      "target_registry": "HR_COMPETENCY_CATALOG",
+      "business_owner": "HR",
+      "source_references": ["ALOS-SRC-APP-H-V40"],
+      "status": "DRAFT",
+      "disposition": "EXTEND",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Kompetensi, indikator, evidence, assessor, dan review",
+        "Batas rekomendasi AI terhadap keputusan ketenagakerjaan"
+      ],
+      "blocked_by_decisions": ["DEC-H01"],
+      "notes": ["Keputusan ketenagakerjaan wajib dilakukan manusia berwenang."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-AGENT-TAXONOMY",
+      "document_key": "I",
+      "name": "Agent Taxonomy dan Candidate Lineage",
+      "target_registry": "AGENT_TAXONOMY_CANDIDATES",
+      "business_owner": "ALL_DIVISIONS",
+      "source_references": ["ALOS-SRC-APP-I-V40"],
+      "status": "DRAFT",
+      "disposition": "HOLD",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Pemetaan candidate menjadi REUSE, EXTEND, CREATE, atau task",
+        "Lineage 17, 72, dan 260 candidate GIIVEPRO"
+      ],
+      "blocked_by_decisions": ["DEC-I01"],
+      "notes": ["18 Core Agent tetap registry aktif dan tidak diubah oleh candidate taxonomy."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-APPROVAL-GOVERNANCE",
+      "document_key": "J",
+      "name": "Approval Governance dan Decision Record",
+      "target_registry": "APPROVAL_POLICY_CATALOG",
+      "business_owner": "DIREKTUR_UTAMA",
+      "source_references": ["ALOS-SRC-APP-J-V40"],
+      "status": "DRAFT",
+      "disposition": "EXTEND",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Materiality, approval level, delegation, expiry, dan SoD",
+        "Decision record, reason, evidence, dan audit"
+      ],
+      "blocked_by_decisions": ["DEC-J01"],
+      "notes": ["Nominal L0-L3 tidak di-hard-code sebelum disahkan."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-DATA-DICTIONARY",
+      "document_key": "K",
+      "name": "Data Dictionary, Ownership, dan Fact Status",
+      "target_registry": "DATA_DICTIONARY",
+      "business_owner": "ALL_DIVISIONS",
+      "source_references": ["ALOS-SRC-APP-K-V40"],
+      "status": "DRAFT",
+      "disposition": "EXTEND",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Canonical entity, field, owner, steward, dan system of record",
+        "Classification, validation, lineage, dan fact status"
+      ],
+      "blocked_by_decisions": ["DEC-K01"],
+      "notes": ["Integrasi data asli menunggu owner dan system of record disahkan."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-GIIVEPRO-TENANT",
+      "document_key": "L",
+      "name": "GIIVEPRO Business Model dan Tenant",
+      "target_registry": "GIIVEPRO_TENANT_MODEL",
+      "business_owner": "DIREKTUR_UTAMA",
+      "source_references": ["ALOS-SRC-APP-L-V40"],
+      "status": "DRAFT",
+      "disposition": "HOLD",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Tenant boundary, product package, pricing scenario, dan support model",
+        "Regulated capability dan contractual control"
+      ],
+      "blocked_by_decisions": ["DEC-L01"],
+      "notes": ["GIIVEPRO menggunakan runtime, security, governance, dan Genesis ALOS."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-FINANCE-RECONCILIATION",
+      "document_key": "M",
+      "name": "Finance Reconciliation dan Transaction Hold",
+      "target_registry": "FINANCE_RECONCILIATION_POLICY",
+      "business_owner": "FINANCE",
+      "source_references": ["ALOS-SRC-APP-M-V40"],
+      "status": "DRAFT",
+      "disposition": "HOLD",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "Matching reference, amount, currency, evidence, dan exception",
+        "Transaction hold, reconciliation status, dan primary evidence"
+      ],
+      "blocked_by_decisions": ["DEC-M01"],
+      "notes": ["Workflow pilot menggunakan data sintetis; actual memerlukan primary evidence."]
+    },
+    {
+      "mapping_id": "ALOS-CFG-UAT-RELEASE",
+      "document_key": "N",
+      "name": "UAT, Release, Monitoring, dan Rollback",
+      "target_registry": "RELEASE_GOVERNANCE",
+      "business_owner": "IT",
+      "source_references": ["ALOS-SRC-APP-N-V40"],
+      "status": "DRAFT",
+      "disposition": "EXTEND",
+      "activation_mode": "BLOCKED",
+      "implementation_scope": [
+        "UAT evidence, release gate, monitoring, rollback, dan authority",
+        "SLO, RTO, RPO, incident threshold, dan go-live criteria"
+      ],
+      "blocked_by_decisions": ["DEC-N01"],
+      "notes": ["Canonical register ini sendiri tidak memiliki efek production."]
+    }
+  ]
+}

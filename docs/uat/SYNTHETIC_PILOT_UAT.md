@@ -1,4 +1,4 @@
-# UAT Pilot Sintetis ALOS Internal v1
+# UAT Pilot Sintetis ALOS
 
 ## Tujuan
 
@@ -21,4 +21,4 @@ UAT membuktikan bahwa pekerjaan dapat diselesaikan oleh aktor yang benar, keputu
 
 Setiap skenario mencatat tester, role, waktu, data sintetis, langkah, hasil aktual, screenshot/referensi evidence, defect, severity, dan keputusan `ACCEPTED`, `ACCEPTED_WITH_RISK`, atau `REJECTED`.
 
-Pilot internal hanya dapat dibuka setelah tidak ada defect kritis/tinggi, enam owner divisi menerima skenario domainnya, Direktur menerima brief, IT menerima operasional, dan seluruh keputusan TBD yang memengaruhi tindakan material telah ditutup atau diblokir secara aman.
+Controlled pilot hanya dapat dibuka setelah tidak ada defect kritis/tinggi, enam owner divisi menerima skenario domainnya, Direktur menerima brief, IT menerima operasional dan recovery, serta seluruh keputusan TBD yang memengaruhi tindakan material telah ditutup atau diblokir secara aman. Kelulusan test otomatis adalah bukti teknis, bukan pengganti sign-off UAT manusia.

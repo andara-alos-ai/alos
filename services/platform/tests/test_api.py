@@ -12,6 +12,7 @@ def test_health_reports_llm_disabled_by_default() -> None:
     response = client.get("/api/v1/health")
 
     assert response.status_code == 200
+    assert response.json()["service"] == "ALOS"
     assert response.json()["llm_provider"] == "disabled"
 
 
@@ -65,7 +66,69 @@ def test_agents_endpoint_returns_18_agents() -> None:
 def test_registry_and_runtime_diagnostic_require_authentication() -> None:
     assert client.get("/api/v1/agents").status_code == 401
     assert client.get("/api/v1/workflows").status_code == 401
+    assert client.get("/api/v1/genesis/source-packs").status_code == 401
+    assert client.get("/api/v1/genesis/configuration-registers").status_code == 401
     assert client.post("/api/v1/agent-runs/prepare", json={}).status_code == 401
+
+
+def test_authenticated_user_can_read_source_pack_status_without_document_content() -> None:
+    token_response = client.post(
+        "/api/v1/auth/local-token",
+        json={
+            "user_id": str(uuid4()),
+            "organization_id": str(uuid4()),
+            "roles": ["AUDITOR"],
+        },
+    )
+    response = client.get(
+        "/api/v1/genesis/source-packs",
+        headers={"Authorization": f"Bearer {token_response.json()['access_token']}"},
+    )
+
+    assert response.status_code == 200
+    packs = {item["pack_id"]: item for item in response.json()}
+    assert packs["ALOS-SP-MASTER-AN-DRAFT"]["status"] == "DRAFT"
+    assert packs["ALOS-SP-MASTER-AN-DRAFT"]["contains_unratified_values"] is True
+    assert "STAGE" in packs["ALOS-SP-MASTER-AN-DRAFT"]["blocked_uses"]
+
+
+def test_operational_user_cannot_read_restricted_source_pack_metadata() -> None:
+    token_response = client.post(
+        "/api/v1/auth/local-token",
+        json={
+            "user_id": str(uuid4()),
+            "organization_id": str(uuid4()),
+            "roles": ["SALES"],
+            "division_codes": ["SALES_MARKETING"],
+        },
+    )
+    response = client.get(
+        "/api/v1/genesis/source-packs",
+        headers={"Authorization": f"Bearer {token_response.json()['access_token']}"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_auditor_can_read_canonical_configuration_without_production_effect() -> None:
+    token_response = client.post(
+        "/api/v1/auth/local-token",
+        json={
+            "user_id": str(uuid4()),
+            "organization_id": str(uuid4()),
+            "roles": ["AUDITOR"],
+        },
+    )
+    response = client.get(
+        "/api/v1/genesis/configuration-registers",
+        headers={"Authorization": f"Bearer {token_response.json()['access_token']}"},
+    )
+
+    assert response.status_code == 200
+    register = response.json()[0]
+    assert register["register_id"] == "ALOS-CR-MASTER-AN"
+    assert register["production_effect"] is False
+    assert len(register["mappings"]) == 16
 
 
 def test_runtime_diagnostic_rejects_business_user() -> None:
@@ -188,12 +251,27 @@ def test_phase_four_operational_contract_is_published() -> None:
     assert "/api/v1/exceptions/{exception_id}/transition" in paths
     assert "/api/v1/capas/{capa_id}/transition" in paths
     assert "/api/v1/system/operations-health" in paths
+    assert "/api/v1/system/pilot-readiness" in paths
+    assert "/api/v1/projects/{project_id}/status" in paths
     assert "/api/v1/system/outbox/{outbox_event_id}/requeue" in paths
 
 
 def test_phase_four_operational_endpoint_requires_authentication() -> None:
     assert client.get("/api/v1/operational/work-queue").status_code == 401
     assert client.get("/api/v1/system/operations-health").status_code == 401
+    assert (
+        client.get(
+            "/api/v1/system/pilot-readiness", params={"project_id": str(uuid4())}
+        ).status_code
+        == 401
+    )
+    assert (
+        client.patch(
+            f"/api/v1/projects/{uuid4()}/status",
+            json={"status": "ACTIVE", "reason": "Authentication required."},
+        ).status_code
+        == 401
+    )
 
 
 def test_local_environment_can_issue_signed_development_token() -> None:

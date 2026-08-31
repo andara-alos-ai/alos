@@ -1,15 +1,15 @@
-# Rencana Implementasi ALOS Internal v1
+# Rencana Implementasi ALOS
 
 | Metadata | Nilai |
 |---|---|
-| Status | Fondasi Teknis Selesai / Siap UAT Sintetis |
+| Status | Tahap 5–6 Teknis Selesai / Menunggu UAT Pemilik Bisnis |
 | Versi dokumen | 1.0.0 |
-| Target produk | ALOS Internal v1 |
-| Tahap pelaksanaan | ALOS Internal Agent Pilot v0.1 |
+| Target produk | ALOS |
+| Tahap pelaksanaan | Agent Pilot v0.1 |
 | Pemilik | PT Andara Rejo Makmur |
 | Pengelola teknis | Divisi IT |
-| Pembaruan terakhir | 30 Agustus 2026 |
-| Sumber utama | Dokumen Master Blueprint ALOS + GENESIS, 27 Agustus 2026 |
+| Pembaruan terakhir | 31 Agustus 2026 |
+| Sumber utama | Blueprint ALOS + Genesis dan working baseline Master/Lampiran A–N |
 
 ## Status Implementasi Saat Ini
 
@@ -18,32 +18,35 @@
 | Foundation platform | Selesai | identitas lokal, project, work queue, migrasi, dan audit |
 | Registry dan runtime | Selesai untuk technical pilot | 18 Core tetap utuh; Agent/Tool/Capability Registry, handler bersama, output/evidence/verification, dan standalone evaluation ter-audit |
 | Interface Genesis | Selesai untuk technical pilot | REUSE/EXTEND/CREATE, validate/test/diff, dua review, staging, dan release package immutable tanpa akses production |
+| Source Registry A–N | Selesai untuk working baseline | Master dan A–N terdaftar dengan hash dan status DRAFT; staging/release diblokir sampai ratifikasi |
+| Canonical Configuration Registry | Selesai untuk working baseline | Master dan A–N dipetakan ke 16 configuration mapping dengan owner, lineage, disposition, decision blocker, dan `production_effect=false` |
 | LLM Gateway | Selesai, default nonaktif | OpenAI/Anthropic adapter, prompt registry, structured output, redaction, klasifikasi, budget, retry, dan fail-closed |
 | Deployment | Selesai untuk staging sintetis | image API/worker/web, migration job, Compose, healthcheck, environment template, dan runbook |
 | Governance bersama | Selesai untuk backend pilot | object storage lokal/S3-compatible, versioning, hash, evidence, approval, exception, CAPA, dan audit tersedia |
-| FLOW-001 Sales | Selesai untuk backend pilot | Lead-to-Reservation lulus integration test PostgreSQL |
-| FLOW-002 Finance | Selesai untuk backend pilot | Payment-to-Reconciliation lulus dengan SoD dan pembaruan budget |
-| FLOW-003 Property | Selesai untuk backend pilot | review terpisah menghasilkan KPI atau exception dan CAPA |
-| FLOW-004 Legal | Selesai untuk backend pilot | izin dan kontrak mencapai keputusan Legal Human terkontrol |
-| FLOW-005 HR | Selesai untuk backend pilot | keputusan HR Human mengontrol pembuatan checklist personalia |
-| FLOW-006 AI Executive | Selesai untuk backend pilot | snapshot bersumber menghasilkan brief dan decision queue untuk Direktur |
+| Controlled pilot readiness | Selesai secara teknis | profil terversi, data sintetis, role/SoD gate, lifecycle proyek, worker/dead-letter check, recovery runbook, dan layar readiness |
+| FLOW-001 Sales | Selesai untuk pilot transaksi | layar dan API Lead-to-Reservation memakai project scope, Sales PIC, follow-up, evidence dokumen, reservasi, dan audit |
+| FLOW-002 Finance | Selesai untuk pilot transaksi | layar dan API Payment-to-Reconciliation memakai budget, evidence, SoD, approval manusia, pembayaran, dan rekonsiliasi |
+| FLOW-003 Property | Selesai untuk pilot transaksi | layar dan API evidence lapangan, review terpisah, KPI, exception, dan CAPA |
+| FLOW-004 Legal | Selesai untuk pilot transaksi | layar dan API izin/kontrak, sumber, evidence, serta keputusan Legal Human |
+| FLOW-005 HR | Selesai untuk pilot transaksi | layar dan API permintaan lintas divisi, scope data, review HR, dan checklist personalia |
+| FLOW-006 AI Executive | Selesai untuk pilot transaksi | layar dan API snapshot bersumber, lineage, serta keputusan Direktur Utama |
 | Operational Query API | Selesai untuk backend pilot | list/detail, pagination, filter, sorting, dan isolasi organisasi/divisi/project |
 | Identity & Access dasar | Selesai untuk pilot backend dan web | pre-provisioning akun, direktori, filter, status, role-divisi, akses project, masa berlaku, pencabutan, dan audit |
 | Operasi kerja & governance | Selesai untuk backend pilot | inbox personal/divisi, claim, delegasi, deadline, reminder/escalation, approval claim, Exception dan CAPA terkontrol |
 | Worker, outbox & integrasi | Selesai untuk backend pilot | scheduler deterministik, PostgreSQL outbox, lease/retry/dead-letter, notification internal, health, dan adaptor n8n bertanda tangan |
-| Workspace web operasional | Phase 6A selesai | Google OIDC, sesi, navigasi berbasis role/divisi, konteks proyek, dashboard, onboarding pengguna, antrean kerja, dokumen, risiko, dan observability memakai API nyata |
+| Workspace web operasional | Enam workflow dan konfigurasi pilot tersedia | Google OIDC, sesi, project lifecycle, role/divisi, dashboard, work queue, enam workflow, dokumen, risiko, dan readiness memakai API nyata |
 
 Status “selesai” di atas berarti siap untuk UAT internal berbasis data sintetis,
 bukan persetujuan penggunaan data perusahaan atau integrasi produksi.
 
-Phase 6A menyediakan kerangka aplikasi dan jalur kerja harian tanpa menggantikan kontrol
-backend. Administrasi identitas sudah tersedia untuk IT Admin dengan akses baca bagi
-Direktur dan Auditor. Form transaksi domain untuk enam workflow, layar keputusan approval,
-AI Executive, dan pelaporan lengkap dilanjutkan pada Phase 6B–6C.
+Kerangka aplikasi tidak menggantikan kontrol backend. Administrasi identitas tersedia untuk
+IT Admin dengan akses baca bagi Direktur dan Auditor. Enam workflow telah memiliki layar
+transaksi berbasis API nyata. Status siap pilot ditentukan oleh readiness gate, recovery drill,
+dan UAT manusia; kelulusan otomatis tidak dianggap sebagai persetujuan bisnis.
 
 ## 1. Tujuan
 
-Dokumen ini menetapkan dasar implementasi ALOS Internal v1 dan ruang lingkup pilot agent internal selama dua minggu. Rencana ini menerjemahkan blueprint menjadi arsitektur, model domain, rancangan data, lingkungan eksekusi agent bersama, alur kerja, pengamanan, strategi pengujian, dan kriteria penerimaan yang dapat dilaksanakan.
+Dokumen ini menetapkan dasar implementasi ALOS dan ruang lingkup pilot agent selama dua minggu. Rencana ini menerjemahkan blueprint menjadi arsitektur, model domain, rancangan data, lingkungan eksekusi agent bersama, alur kerja, pengamanan, strategi pengujian, dan kriteria penerimaan yang dapat dilaksanakan.
 
 Satu-satunya keputusan yang berstatus terkunci adalah struktur organisasi:
 
@@ -53,7 +56,7 @@ Seluruh ketentuan lain merupakan dasar desain atau implementasi yang wajib dapat
 
 ## 2. Sasaran Produk
 
-ALOS Internal v1 adalah satu aplikasi internal perusahaan yang menyediakan:
+ALOS adalah satu platform operasi perusahaan yang menyediakan:
 
 - autentikasi serta pengelolaan pengguna, peran, divisi, dan proyek;
 - antrean kerja, penugasan, tenggat, pengingat, dan eskalasi;

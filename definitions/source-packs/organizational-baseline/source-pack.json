@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "pack_id": "ALOS-SP-ORGANIZATION-BASELINE",
+  "version": "1.0.0",
+  "title": "ALOS Locked Organization Baseline",
+  "status": "RELEASED",
+  "authority": "LOCKED_ORGANIZATION",
+  "declared_document_date": "2026-08-30",
+  "classification": "INTERNAL - TERBATAS",
+  "decision_basis": "Keputusan langsung pengguna menetapkan hanya struktur Direktur Utama ke AI Executive Operating Layer ke enam divisi sebagai struktur yang terkunci.",
+  "contains_unratified_values": false,
+  "allowed_uses": ["ANALYZE", "GENERATE", "VALIDATE", "TEST", "DIFF", "STAGE", "RELEASE"],
+  "blocked_uses": ["PRODUCTION_ACTIVATION"],
+  "sources": [
+    {
+      "source_id": "ALOS-SRC-ORG-LOCKED-001",
+      "document_key": "DECISION",
+      "title": "Locked Organization Decision",
+      "source_type": "SYSTEM_BASELINE",
+      "version": "1.0.0",
+      "status": "RELEASED",
+      "authority": "LOCKED_ORGANIZATION",
+      "file_name": null,
+      "sha256": null,
+      "size_bytes": null,
+      "domains": ["organization", "governance"],
+      "notes": ["DIREKTUR UTAMA -> AI EXECUTIVE OPERATING LAYER -> KEUANGAN, SALES & MARKETING, PROPERTY, HR, LEGAL, IT", "Tidak menetapkan named PIC, RACI, materiality, KPI, atau detail implementasi sebagai locked."]
+    }
+  ]
+}

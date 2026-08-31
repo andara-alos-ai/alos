@@ -31,6 +31,7 @@ from alos.platform.models import (
     PaymentRequestCreate,
     PaymentRequestView,
     ProjectCreate,
+    ProjectStatusUpdate,
     ProjectView,
     PropertyReviewCreate,
     PropertyWorkflowResult,
@@ -190,6 +191,10 @@ class OperationalStore(Protocol):
 
     def create_project(self, command: ProjectCreate, principal: Principal) -> ProjectView: ...
 
+    def update_project_status(
+        self, project_id: UUID, command: ProjectStatusUpdate, principal: Principal
+    ) -> ProjectView: ...
+
     def list_projects(self, principal: Principal) -> tuple[ProjectView, ...]: ...
 
     def create_lead(
@@ -260,6 +265,12 @@ class OperationsService:
     def create_project(self, command: ProjectCreate, principal: Principal) -> ProjectView:
         require_any_role(principal, Role.DIRECTOR, Role.IT_ADMIN)
         return self._store.create_project(command, principal)
+
+    def update_project_status(
+        self, project_id: UUID, command: ProjectStatusUpdate, principal: Principal
+    ) -> ProjectView:
+        require_any_role(principal, Role.DIRECTOR)
+        return self._store.update_project_status(project_id, command, principal)
 
     def create_budget(self, command: BudgetCreate, principal: Principal) -> BudgetView:
         require_division_role(principal, "FINANCE", Role.FINANCE)

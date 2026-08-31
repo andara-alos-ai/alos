@@ -8,7 +8,7 @@
 
 ## 1. Tujuan
 
-Register ini mencatat keputusan arsitektur yang membentuk ALOS Internal v1. Setiap keputusan dapat digantikan oleh keputusan baru, tetapi riwayat dan alasan sebelumnya tidak dihapus.
+Register ini mencatat keputusan arsitektur yang membentuk ALOS. Setiap keputusan dapat digantikan oleh keputusan baru, tetapi riwayat dan alasan sebelumnya tidak dihapus.
 
 Status keputusan: `PROPOSED`, `ACCEPTED`, `SUPERSEDED`, atau `REJECTED`.
 

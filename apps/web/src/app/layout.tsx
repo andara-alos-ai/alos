@@ -5,7 +5,7 @@ import { SessionProvider } from "@/components/session-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ALOS Internal v1",
+  title: "ALOS",
   description: "Platform operasi internal PT Andara Rejo Makmur",
 };
 

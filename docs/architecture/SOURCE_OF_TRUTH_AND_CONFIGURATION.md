@@ -122,6 +122,15 @@ Pengelolaan teknis oleh IT tidak memindahkan kepemilikan bisnis kepada IT.
 
 Konstanta tidak boleh digandakan di banyak tempat jika dapat dirujuk dari satu definisi berversi.
 
+Source pack dokumen disimpan sebagai metadata pada `definitions/source-packs/`. Registry mencatat identitas, versi, status, authority, SHA-256, dan batas penggunaan; berkas Word asli tetap berada di document control perusahaan dan tidak dimasukkan ke repository. Nama file atau label `FINAL` tidak dapat menggantikan status lifecycle pada registry.
+
+Pemetaan Master dan Lampiran A–N disimpan pada
+`definitions/configuration/alos-master-an/register.json`. Setiap mapping menunjuk source
+reference, target registry, business owner, status `DRAFT`, `REVIEWED`, atau `APPROVED`,
+disposition `REUSE`, `EXTEND`, `CREATE`, atau `HOLD`, decision blocker, dan activation mode.
+Register pemetaan selalu `production_effect=false`; aktivasi tetap memerlukan konfigurasi
+domain berversi, pengujian, review, staging, dan release terpisah.
+
 ## 10. Nilai yang Belum Divalidasi
 
 Ambang persetujuan, SLA, rumus KPI, retensi, vendor, dan detail API yang belum diputuskan menggunakan `TBD`. Alur material yang bergantung pada nilai tersebut harus memasuki `BLOCKED_CONFIGURATION` atau menggunakan kebijakan khusus pilot yang telah disetujui. Contoh di blueprint tidak boleh dianggap sebagai kebijakan produksi.

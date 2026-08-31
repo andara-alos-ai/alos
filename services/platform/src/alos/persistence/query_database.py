@@ -23,6 +23,7 @@ class ResourceSpec:
     allow_shared_division: bool = False
     shared_division_filter: str | None = None
     ai_executive_filter: str | None = None
+    division_bypass_roles: frozenset[Role] = frozenset()
 
 
 RESOURCE_SPECS: dict[str, ResourceSpec] = {
@@ -77,7 +78,8 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
     "sales_interactions": ResourceSpec(
         select_sql="""
             i.interaction_id, i.lead_id, i.workflow_run_id, i.actor_user_id,
-            i.channel, i.outcome, i.notes, i.evidence_reference, i.occurred_at
+            i.channel, i.outcome, i.notes, i.evidence_reference,
+            i.evidence_document_version_id, i.occurred_at
         """,
         from_sql="""
             sales.interactions i
@@ -143,7 +145,8 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
             se.site_evidence_id, se.project_id, se.work_item_id, se.workflow_run_id,
             se.document_version_id, se.submitted_by_user_id, se.work_package_code,
             se.claim_date, se.claimed_progress, se.measured_progress, se.variance,
-            se.status, se.reviewer_user_id, se.verified_progress, se.reviewed_at,
+            se.measurement_note, se.status, se.reviewer_user_id,
+            se.verified_progress, se.review_notes, se.reviewed_at,
             se.created_at, se.updated_at
         """,
         from_sql="property.site_evidence se",
@@ -184,7 +187,8 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
     "legal_cases": ResourceSpec(
         select_sql="""
             lc.legal_case_id, lc.project_id, lc.work_item_id, lc.workflow_run_id,
-            lc.document_version_id, lc.document_type, lc.reference_code, lc.title,
+            lc.document_version_id, lc.submitted_by_user_id, lc.document_type,
+            lc.reference_code, lc.title,
             lc.counterparty, lc.source_authority, lc.effective_date, lc.expiry_date,
             lc.status, lc.legal_status, lc.official_source_verified,
             lc.reviewer_user_id, lc.reviewed_at, lc.created_at, lc.updated_at
@@ -207,15 +211,22 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
     "recruitment_requests": ResourceSpec(
         select_sql="""
             rr.recruitment_request_id, rr.project_id, rr.work_item_id,
-            rr.workflow_run_id, rr.position_title, rr.requesting_division_code,
+            rr.workflow_run_id, rr.submitted_by_user_id, rr.position_title,
+            rr.requesting_division_code,
             rr.employment_type, rr.headcount, rr.justification, rr.criteria_version,
-            rr.status, rr.reviewer_user_id, rr.decided_at, rr.created_at, rr.updated_at
+            rr.status, rr.reviewer_user_id, rr.decided_at, rr.created_at, rr.updated_at,
+            candidate.candidate_alias, candidate.screening_status,
+            candidate.missing_criteria
         """,
-        from_sql="hr.recruitment_requests rr",
+        from_sql="""
+            hr.recruitment_requests rr
+            JOIN hr.candidates candidate
+              ON candidate.recruitment_request_id = rr.recruitment_request_id
+        """,
         id_expression="rr.recruitment_request_id",
         organization_expression="rr.organization_id",
         project_expression="rr.project_id",
-        division_expression=None,
+        division_expression="rr.requesting_division_code",
         status_expression="rr.status",
         search_expression="concat_ws(' ', rr.position_title, rr.requesting_division_code)",
         sort_columns={
@@ -224,6 +235,7 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
             "position_title": "rr.position_title",
             "status": "rr.status",
         },
+        division_bypass_roles=frozenset({Role.HR}),
     ),
     "documents": ResourceSpec(
         select_sql="""
@@ -360,7 +372,10 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
             eb.executive_brief_id, es.project_id, eb.workflow_run_id,
             es.period_start, es.period_end, eb.title, eb.narrative,
             eb.source_references, eb.status, eb.reviewer_user_id, eb.review_notes,
-            eb.reviewed_at, eb.created_at, eb.updated_at
+            eb.reviewed_at, eb.created_at, eb.updated_at,
+            es.facts AS summary_counts,
+            (SELECT count(*) FROM executive.decision_items item
+             WHERE item.executive_brief_id = eb.executive_brief_id) AS decision_item_count
         """,
         from_sql="""
             executive.briefs eb
@@ -622,7 +637,8 @@ class PostgresQueryStore:
                     )
                 conditions.append(project_condition)
                 parameters["project_ids"] = [str(value) for value in principal.project_ids]
-        if spec.division_expression is not None and not organization_wide:
+        division_bypassed = bool(principal.roles.intersection(spec.division_bypass_roles))
+        if spec.division_expression is not None and not organization_wide and not division_bypassed:
             if not principal.division_codes:
                 parameters["empty_scope"] = True
                 return conditions, parameters

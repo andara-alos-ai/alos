@@ -1,9 +1,23 @@
 import hashlib
 import json
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from alos.agents.contract import CapabilityExecutionMode
+
+WORKFLOW_ID_PATTERN = r"^FLOW-\d{3}$"
+
+
+class WorkflowStatus(StrEnum):
+    DRAFT = "DRAFT"
+    VALIDATED = "VALIDATED"
+    TESTED = "TESTED"
+    REVIEWED = "REVIEWED"
+    STAGED = "STAGED"
+    RELEASED = "RELEASED"
+    DEPRECATED = "DEPRECATED"
+    RETIRED = "RETIRED"
 
 
 class AgentInvocation(BaseModel):
@@ -74,11 +88,11 @@ class WorkflowTransition(BaseModel):
 class WorkflowDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    workflow_id: str = Field(pattern=r"^FLOW-00[1-6]$")
+    workflow_id: str = Field(pattern=WORKFLOW_ID_PATTERN)
     name: str
     purpose: str
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
-    status: str
+    status: WorkflowStatus
     owner: str
     trigger: list[str] = Field(min_length=1)
     agents: list[str] = Field(min_length=1)

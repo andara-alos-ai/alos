@@ -34,7 +34,13 @@ def test_recruitment_decision_controls_personnel_checklist() -> None:
     try:
         submitter = _create_hr_user(client, admin_headers, "submitter")
         reviewer = _create_hr_user(client, admin_headers, "reviewer")
-        created["user_ids"] = [submitter, reviewer]
+        division_requester = _create_division_head(
+            client, admin_headers, "SALES_MARKETING", "sales-requester"
+        )
+        other_division_head = _create_division_head(
+            client, admin_headers, "FINANCE", "finance-observer"
+        )
+        created["user_ids"] = [submitter, reviewer, division_requester, other_division_head]
         project_response = client.post(
             "/api/v1/projects",
             headers=admin_headers,
@@ -47,6 +53,32 @@ def test_recruitment_decision_controls_personnel_checklist() -> None:
         reviewer_token = _token(client, organization_id, reviewer, ["HR"], ["HR"], [project_id])
         submitter_headers = {"Authorization": f"Bearer {submitter_token}"}
         reviewer_headers = {"Authorization": f"Bearer {reviewer_token}"}
+        division_requester_headers = {
+            "Authorization": (
+                "Bearer "
+                + _token(
+                    client,
+                    organization_id,
+                    division_requester,
+                    ["DIVISION_HEAD"],
+                    ["SALES_MARKETING"],
+                    [project_id],
+                )
+            )
+        }
+        other_division_headers = {
+            "Authorization": (
+                "Bearer "
+                + _token(
+                    client,
+                    organization_id,
+                    other_division_head,
+                    ["DIVISION_HEAD"],
+                    ["FINANCE"],
+                    [project_id],
+                )
+            )
+        }
 
         selected_document = _create_document(
             client, submitter_headers, project_id, "CV Sanitasi Kandidat A"
@@ -55,6 +87,41 @@ def test_recruitment_decision_controls_personnel_checklist() -> None:
             client, submitter_headers, project_id, "CV Sanitasi Kandidat B"
         )
         created["documents"].extend([selected_document, rejected_document])
+
+        division_document = _create_document(
+            client, division_requester_headers, project_id, "CV Sanitasi Kandidat Divisi"
+        )
+        created["documents"].append(division_document)
+        division_request = _submit_recruitment(
+            client,
+            division_requester_headers,
+            project_id,
+            division_document["document_version_id"],
+            "KANDIDAT-DIVISI",
+            "Staf Sales",
+            ["CV"],
+            ["CV"],
+            requesting_division_code="SALES_MARKETING",
+        )
+        created["requests"].append(division_request)
+        own_division_query = client.get(
+            "/api/v1/hr/recruitment-requests",
+            headers=division_requester_headers,
+            params={"project_id": project_id},
+        )
+        assert own_division_query.status_code == 200, own_division_query.text
+        assert own_division_query.json()["total"] == 1
+        assert (
+            own_division_query.json()["items"][0]["requesting_division_code"]
+            == "SALES_MARKETING"
+        )
+        other_division_query = client.get(
+            "/api/v1/hr/recruitment-requests",
+            headers=other_division_headers,
+            params={"project_id": project_id},
+        )
+        assert other_division_query.status_code == 200, other_division_query.text
+        assert other_division_query.json()["total"] == 0
 
         selected = _submit_recruitment(
             client,
@@ -133,7 +200,7 @@ def test_recruitment_decision_controls_personnel_checklist() -> None:
             params={"project_id": project_id},
         )
         assert recruitment_query.status_code == 200, recruitment_query.text
-        assert recruitment_query.json()["total"] == 2
+        assert recruitment_query.json()["total"] == 3
         checklist_query = client.get(
             (
                 "/api/v1/hr/recruitment-requests/"
@@ -187,6 +254,23 @@ def _create_hr_user(client: TestClient, headers: dict[str, str], label: str) -> 
     return response.json()["user_id"]
 
 
+def _create_division_head(
+    client: TestClient, headers: dict[str, str], division_code: str, label: str
+) -> str:
+    response = client.post(
+        "/api/v1/users",
+        headers=headers,
+        json={
+            "email": f"{label}-{uuid4().hex[:8]}@example.test",
+            "display_name": f"Kepala Divisi {label.title()} Sintetis",
+            "division_code": division_code,
+            "role": "DIVISION_HEAD",
+        },
+    )
+    assert response.status_code == 201
+    return response.json()["user_id"]
+
+
 def _create_document(
     client: TestClient, headers: dict[str, str], project_id: str, name: str
 ) -> dict[str, Any]:
@@ -217,6 +301,7 @@ def _submit_recruitment(
     position_title: str,
     required_criteria: list[str],
     met_criteria: list[str],
+    requesting_division_code: str = "HR",
 ) -> dict[str, Any]:
     response = client.post(
         "/api/v1/hr/recruitment-requests",
@@ -225,7 +310,7 @@ def _submit_recruitment(
             "project_id": project_id,
             "candidate_document_version_id": document_version_id,
             "position_title": position_title,
-            "requesting_division_code": "HR",
+            "requesting_division_code": requesting_division_code,
             "employment_type": "CONTRACT",
             "headcount": 1,
             "justification": "Kebutuhan tenaga tambahan untuk pengujian workflow internal.",

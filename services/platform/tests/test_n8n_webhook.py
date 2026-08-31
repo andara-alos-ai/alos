@@ -67,6 +67,7 @@ def test_n8n_webhook_uses_canonical_payload_hmac_and_idempotency(monkeypatch: An
     assert captured["timeout"] == 7.5
     assert request.get_header("X-alos-signature") == f"sha256={expected}"
     assert request.get_header("X-alos-idempotency-key") == event.idempotency_key
+    assert request.get_header("User-agent") == "ALOS-Worker/1.0"
     envelope = json.loads(body)
     assert envelope["event_id"] == str(event.outbox_event_id)
     assert envelope["data"]["reminder_type"] == "OVERDUE"

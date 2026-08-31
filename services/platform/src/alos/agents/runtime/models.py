@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from alos.agents.contract import AgentDefinition, AgentKind, CapabilityExecutionMode
 from alos.tools import ToolReference
+from alos.workflow.models import WORKFLOW_ID_PATTERN
 
 
 class AgentRunStatus(StrEnum):
@@ -50,7 +51,7 @@ class AgentRunRequest(BaseModel):
     material_action: bool = False
     correlation_id: UUID
     idempotency_key: str = Field(min_length=8, max_length=128)
-    workflow_id: str | None = Field(default=None, pattern=r"^FLOW-00[1-6]$")
+    workflow_id: str | None = Field(default=None, pattern=WORKFLOW_ID_PATTERN)
     workflow_version: str | None = Field(default=None, pattern=r"^\d+\.\d+\.\d+$")
     workflow_step_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]+$")
 

@@ -110,8 +110,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const principal = session.principal;
   const primaryRole = principal.roles[0];
-  const mainItems = visibleNavigation(primaryNavigation, principal.roles);
-  const systemItems = visibleNavigation(systemNavigation, principal.roles);
+  const mainItems = visibleNavigation(
+    primaryNavigation,
+    principal.roles,
+    principal.division_codes,
+  );
+  const systemItems = visibleNavigation(
+    systemNavigation,
+    principal.roles,
+    principal.division_codes,
+  );
   const roleLabel = primaryRole ? roleLabels[primaryRole] : "Pengguna ALOS";
   const divisionLabel = principal.division_codes.length
     ? principal.division_codes.map(humanizeCode).join(", ")
@@ -129,7 +137,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="brandRow">
           <Link className="brand" href="/" onClick={() => setMobileOpen(false)}>
             <span className="brandMark">A</span>
-            <span className="brandText"><strong>ALOS</strong><small>Internal v1</small></span>
+            <span className="brandText"><strong>ALOS</strong><small>Enterprise Operations</small></span>
           </Link>
           <button
             aria-label="Tutup menu"
@@ -177,7 +185,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ) : null}
         </div>
 
-        <div className="environmentBadge"><span /> Pilot Internal · Data Sintetis</div>
+        <div className="environmentBadge"><span /> Pilot Perusahaan · Data Sintetis</div>
       </aside>
 
       <div className="appColumn">

@@ -12,6 +12,7 @@ from alos.genesis.models import (
 from alos.genesis.pipeline import GenesisPipelineService
 from alos.genesis.repository import InMemoryGenesisStore, PostgresGenesisStore
 from alos.genesis.service import GenesisDesignService
+from alos.genesis.source import SourcePack, SourceRegistry, SourceRegistryError, SourceUse
 
 __all__ = [
     "GenesisChangeRequest",
@@ -25,4 +26,8 @@ __all__ = [
     "GenesisSubmitRequest",
     "InMemoryGenesisStore",
     "PostgresGenesisStore",
+    "SourcePack",
+    "SourceRegistry",
+    "SourceRegistryError",
+    "SourceUse",
 ]

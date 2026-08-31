@@ -40,9 +40,30 @@ jobs:
       - run: python -m ruff check services/platform
       - run: python -m ruff check services/platform/src --select S
       - run: python -m mypy services/platform/src
+      - run: python -m alos.agents.registry.cli --definitions-root definitions
+      - run: python -m alos.genesis.source.cli --definitions-root definitions
+      - run: python -m alos.governance.configuration.cli --definitions-root definitions
       - run: python -m alos.persistence.migrations
       - run: python -m pytest services/platform/tests
       - run: python -m pip_audit --local --skip-editable --progress-spinner off
+      - name: Validate recovery PowerShell scripts
+        shell: pwsh
+        run: |
+          $errors = @()
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "scripts/database/backup-alos.ps1"),
+            [ref]$null,
+            [ref]$errors
+          ) | Out-Null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "scripts/database/test-alos-restore.ps1"),
+            [ref]$null,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+            exit 1
+          }
       - name: Scan tracked files for credential patterns
         shell: bash
         run: |

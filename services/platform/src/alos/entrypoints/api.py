@@ -57,6 +57,7 @@ from alos.platform import (
     PaymentRequestCreate,
     PaymentRequestView,
     ProjectCreate,
+    ProjectStatusUpdate,
     ProjectView,
     PropertyReviewCreate,
     PropertyWorkflowResult,
@@ -363,6 +364,29 @@ def create_project(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="Kode proyek sudah digunakan") from exc
+    except OperationalError as exc:
+        raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
+
+
+@router.patch(
+    "/projects/{project_id}/status",
+    response_model=ProjectView,
+    tags=["projects"],
+)
+def update_project_status(
+    project_id: UUID,
+    request: ProjectStatusUpdate,
+    principal: PrincipalDependency,
+    service: OperationsDependency,
+) -> ProjectView:
+    try:
+        return service.update_project_status(project_id, request, principal)
+    except AuthorizationDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OperationalError as exc:
         raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
 

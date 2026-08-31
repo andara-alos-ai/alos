@@ -1,21 +1,38 @@
 import type {
   ApprovalRecord,
+  BudgetRecord,
   CapaRecord,
   DocumentRecord,
+  ExecutiveBriefRecord,
+  ExecutiveBriefResult,
   ExceptionRecord,
+  FinanceWorkflowResult,
+  LeadIntakeResult,
+  LeadRecord,
+  LegalCaseRecord,
+  LegalWorkflowResult,
   OperationsHealth,
   PageResult,
+  PaymentRequestRecord,
+  PersonnelChecklist,
+  PilotReadinessReport,
   Principal,
   Project,
   ProjectAssignment,
   Reminder,
+  RecruitmentRequestRecord,
+  RecruitmentWorkflowResult,
   Role,
   RoleAssignment,
+  SalesInteractionRecord,
+  SiteEvidenceRecord,
   UserDirectoryPage,
   UserDirectoryRecord,
   UserStatus,
   WorkItem,
+  WorkflowActionResult,
   WorkQueueScope,
+  PropertyWorkflowResult,
 } from "./types";
 
 const configuredBaseUrl = process.env.NEXT_PUBLIC_ALOS_API_URL?.replace(/\/$/, "");
@@ -106,6 +123,29 @@ export function getProjects(token: string) {
   return request<Project[]>("/projects", { token });
 }
 
+export function createProject(
+  token: string,
+  payload: { code: string; name: string },
+) {
+  return request<Project>("/projects", {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateProjectStatus(
+  token: string,
+  projectId: string,
+  payload: { status: Project["status"]; reason: string },
+) {
+  return request<Project>(`/projects/${projectId}/status`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getWorkQueue(
   token: string,
   scope: WorkQueueScope,
@@ -166,10 +206,19 @@ export function getOperationsHealth(token: string) {
   return request<OperationsHealth>("/system/operations-health", { token });
 }
 
+export function getPilotReadiness(token: string, projectId: string) {
+  const parameters = new URLSearchParams({ project_id: projectId });
+  return request<PilotReadinessReport>(`/system/pilot-readiness?${parameters}`, { token });
+}
+
 function queryPath(path: string, projectId: string | null, pageSize = 50): string {
   const parameters = new URLSearchParams({ page: "1", page_size: String(pageSize) });
   if (projectId) parameters.set("project_id", projectId);
   return `${path}?${parameters}`;
+}
+
+function idempotencyHeaders(): HeadersInit {
+  return { "Idempotency-Key": crypto.randomUUID() };
 }
 
 export function getDocuments(token: string, projectId: string | null) {
@@ -186,6 +235,351 @@ export function getExceptions(token: string, projectId: string | null) {
 
 export function getCapas(token: string, projectId: string | null) {
   return request<PageResult<CapaRecord>>(queryPath("/capas", projectId), { token });
+}
+
+export function getLeads(token: string, projectId: string | null) {
+  return request<PageResult<LeadRecord>>(queryPath("/leads", projectId, 100), { token });
+}
+
+export function getLeadInteractions(token: string, leadId: string) {
+  return request<PageResult<SalesInteractionRecord>>(
+    queryPath(`/leads/${leadId}/interactions`, null, 100),
+    { token },
+  );
+}
+
+export function createLead(
+  token: string,
+  input: {
+    project_id: string;
+    full_name: string;
+    phone: string | null;
+    email: string | null;
+    source: string;
+    consent_recorded: boolean;
+    priority: "LOW" | "NORMAL" | "HIGH" | "CRITICAL";
+  },
+) {
+  return request<LeadIntakeResult>("/leads", {
+    method: "POST",
+    token,
+    headers: idempotencyHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+export function assignSalesPic(token: string, workflowRunId: string, salesPicUserId: string) {
+  return request<WorkflowActionResult>(
+    `/workflow-runs/${workflowRunId}/sales-assignment`,
+    {
+      method: "POST",
+      token,
+      headers: idempotencyHeaders(),
+      body: JSON.stringify({ sales_pic_user_id: salesPicUserId }),
+    },
+  );
+}
+
+export function recordSalesInteraction(
+  token: string,
+  workflowRunId: string,
+  input: {
+    outcome: "qualified" | "reserved" | "follow_up" | "exception";
+    channel: string;
+    notes: string;
+    evidence_reference: string | null;
+    evidence_document_version_id: string | null;
+    reservation_reference: string | null;
+  },
+) {
+  return request<WorkflowActionResult>(`/workflow-runs/${workflowRunId}/interactions`, {
+    method: "POST",
+    token,
+    headers: idempotencyHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+export function getBudgets(token: string, projectId: string | null) {
+  return request<PageResult<BudgetRecord>>(queryPath("/finance/budgets", projectId, 100), {
+    token,
+  });
+}
+
+export function createBudget(
+  token: string,
+  input: {
+    project_id: string;
+    code: string;
+    name: string;
+    currency: string;
+    allocated_amount: string;
+  },
+) {
+  return request<BudgetRecord>("/finance/budgets", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export function getPaymentRequests(token: string, projectId: string | null) {
+  return request<PageResult<PaymentRequestRecord>>(
+    queryPath("/finance/payment-requests", projectId, 100),
+    { token },
+  );
+}
+
+export function createPaymentRequest(
+  token: string,
+  input: {
+    project_id: string;
+    budget_id: string;
+    document_version_id: string;
+    payee_name: string;
+    purpose: string;
+    amount: string;
+    currency: string;
+    requested_payment_date: string;
+  },
+) {
+  return request<PaymentRequestRecord>("/finance/payment-requests", {
+    method: "POST",
+    token,
+    headers: idempotencyHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+export function decidePaymentRequest(
+  token: string,
+  paymentRequestId: string,
+  decision: "APPROVED" | "REJECTED" | "REVISION_REQUESTED",
+  reason: string,
+) {
+  return request<FinanceWorkflowResult>(
+    `/finance/payment-requests/${paymentRequestId}/decision`,
+    { method: "POST", token, body: JSON.stringify({ decision, reason }) },
+  );
+}
+
+export function recordPayment(
+  token: string,
+  paymentRequestId: string,
+  input: {
+    payment_reference: string;
+    amount: string;
+    currency: string;
+    paid_at: string;
+    evidence_document_version_id: string;
+  },
+) {
+  return request<FinanceWorkflowResult>(
+    `/finance/payment-requests/${paymentRequestId}/payment`,
+    { method: "POST", token, body: JSON.stringify(input) },
+  );
+}
+
+export function reconcilePayment(
+  token: string,
+  paymentRequestId: string,
+  input: { transaction_reference: string; transaction_amount: string; currency: string },
+) {
+  return request<FinanceWorkflowResult>(
+    `/finance/payment-requests/${paymentRequestId}/reconciliation`,
+    {
+      method: "POST",
+      token,
+      headers: idempotencyHeaders(),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function getSiteEvidence(token: string, projectId: string | null) {
+  return request<PageResult<SiteEvidenceRecord>>(
+    queryPath("/property/site-evidence", projectId, 100),
+    { token },
+  );
+}
+
+export function submitSiteEvidence(
+  token: string,
+  input: {
+    project_id: string;
+    document_version_id: string;
+    work_package_code: string;
+    claim_date: string;
+    claimed_progress: string;
+    measured_progress: string;
+    measurement_note: string;
+  },
+) {
+  return request<PropertyWorkflowResult>("/property/site-evidence", {
+    method: "POST",
+    token,
+    headers: idempotencyHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+export function reviewSiteEvidence(
+  token: string,
+  siteEvidenceId: string,
+  input: {
+    decision: "ACCEPTED" | "VARIANCE";
+    verified_progress: string;
+    notes: string;
+  },
+) {
+  return request<PropertyWorkflowResult>(
+    `/property/site-evidence/${siteEvidenceId}/review`,
+    {
+      method: "POST",
+      token,
+      headers: idempotencyHeaders(),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function getLegalCases(token: string, projectId: string | null) {
+  return request<PageResult<LegalCaseRecord>>(queryPath("/legal/cases", projectId, 100), {
+    token,
+  });
+}
+
+export function submitLegalDocument(
+  token: string,
+  input: {
+    project_id: string;
+    document_version_id: string;
+    document_type: "PERMIT" | "CONTRACT";
+    reference_code: string;
+    title: string;
+    counterparty: string | null;
+    source_authority: string | null;
+    effective_date: string | null;
+    expiry_date: string | null;
+  },
+) {
+  return request<LegalWorkflowResult>("/legal/documents", {
+    method: "POST",
+    token,
+    headers: idempotencyHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+export function reviewLegalDocument(
+  token: string,
+  legalCaseId: string,
+  input: {
+    decision: "APPROVED" | "REVISION_REQUESTED" | "REJECTED";
+    legal_status: "VERIFIED" | "CONDITIONAL" | "NOT_APPROVED";
+    official_source_verified: boolean;
+    notes: string;
+  },
+) {
+  return request<LegalWorkflowResult>(`/legal/documents/${legalCaseId}/review`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export function getRecruitmentRequests(token: string, projectId: string | null) {
+  return request<PageResult<RecruitmentRequestRecord>>(
+    queryPath("/hr/recruitment-requests", projectId, 100),
+    { token },
+  );
+}
+
+export function submitRecruitmentRequest(
+  token: string,
+  input: {
+    project_id: string;
+    candidate_document_version_id: string;
+    position_title: string;
+    requesting_division_code: string;
+    employment_type: "PERMANENT" | "CONTRACT" | "INTERNSHIP";
+    headcount: number;
+    justification: string;
+    criteria_version: string;
+    candidate_alias: string;
+    required_criteria: string[];
+    met_criteria: string[];
+  },
+) {
+  return request<RecruitmentWorkflowResult>("/hr/recruitment-requests", {
+    method: "POST",
+    token,
+    headers: idempotencyHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+export function decideRecruitment(
+  token: string,
+  recruitmentRequestId: string,
+  input: {
+    decision: "SELECTED" | "REJECTED";
+    notes: string;
+    personnel_requirements: string[];
+  },
+) {
+  return request<RecruitmentWorkflowResult>(
+    `/hr/recruitment-requests/${recruitmentRequestId}/decision`,
+    {
+      method: "POST",
+      token,
+      headers: idempotencyHeaders(),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function getPersonnelChecklist(token: string, recruitmentRequestId: string) {
+  return request<PersonnelChecklist>(
+    `/hr/recruitment-requests/${recruitmentRequestId}/personnel-checklist`,
+    { token },
+  );
+}
+
+export function getExecutiveBriefs(token: string, projectId: string | null) {
+  return request<PageResult<ExecutiveBriefRecord>>(
+    queryPath("/executive/briefs", projectId, 100),
+    { token },
+  );
+}
+
+export function generateExecutiveBrief(
+  token: string,
+  input: {
+    title: string;
+    period_start: string;
+    period_end: string;
+    project_id: string | null;
+  },
+) {
+  return request<ExecutiveBriefResult>("/executive/briefs", {
+    method: "POST",
+    token,
+    headers: idempotencyHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+export function reviewExecutiveBrief(
+  token: string,
+  executiveBriefId: string,
+  input: { decision: "PUBLISHED" | "REVISION_REQUESTED"; notes: string },
+) {
+  return request<ExecutiveBriefResult>(`/executive/briefs/${executiveBriefId}/review`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
 }
 
 export function getUsers(

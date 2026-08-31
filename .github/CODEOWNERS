@@ -1,6 +1,8 @@
 * @reynaldptandararejomakmur
 /definitions/agents/ @reynaldptandararejomakmur
 /definitions/workflows/ @reynaldptandararejomakmur
+/definitions/source-packs/ @reynaldptandararejomakmur
+/definitions/configuration/ @reynaldptandararejomakmur
 /docs/security/ @reynaldptandararejomakmur
 
 # Business-owner review rules will be added after GitHub teams are confirmed.

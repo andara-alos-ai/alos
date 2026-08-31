@@ -5,6 +5,7 @@ export type NavigationItem = {
   href: string;
   icon: "home" | "work" | "approval" | "document" | "risk" | "agent" | "workflow" | "health" | "users";
   roles?: Role[];
+  divisions?: string[];
 };
 
 const businessRoles: Role[] = [
@@ -24,6 +25,46 @@ export const primaryNavigation: NavigationItem[] = [
   { label: "Ringkasan", href: "/", icon: "home", roles: businessRoles },
   { label: "Antrean Kerja", href: "/work-queue", icon: "work", roles: businessRoles },
   {
+    label: "Lead & Reservasi",
+    href: "/sales",
+    icon: "workflow",
+    roles: ["DIRECTOR", "AI_EXECUTIVE", "DIVISION_HEAD", "SALES", "AUDITOR"],
+    divisions: ["SALES_MARKETING"],
+  },
+  {
+    label: "Payment & Rekonsiliasi",
+    href: "/finance",
+    icon: "approval",
+    roles: ["DIRECTOR", "AI_EXECUTIVE", "DIVISION_HEAD", "FINANCE", "AUDITOR"],
+    divisions: ["FINANCE"],
+  },
+  {
+    label: "Progres Property",
+    href: "/property",
+    icon: "workflow",
+    roles: ["DIRECTOR", "AI_EXECUTIVE", "DIVISION_HEAD", "PROPERTY", "AUDITOR"],
+    divisions: ["PROPERTY"],
+  },
+  {
+    label: "Izin & Kontrak",
+    href: "/legal",
+    icon: "document",
+    roles: ["DIRECTOR", "AI_EXECUTIVE", "DIVISION_HEAD", "LEGAL", "AUDITOR"],
+    divisions: ["LEGAL"],
+  },
+  {
+    label: "Rekrutmen & Personalia",
+    href: "/hr",
+    icon: "users",
+    roles: ["DIRECTOR", "AI_EXECUTIVE", "DIVISION_HEAD", "HR", "AUDITOR"],
+  },
+  {
+    label: "AI Executive Brief",
+    href: "/executive",
+    icon: "home",
+    roles: ["DIRECTOR", "AI_EXECUTIVE", "AUDITOR"],
+  },
+  {
     label: "Persetujuan",
     href: "/approvals",
     icon: "approval",
@@ -34,6 +75,12 @@ export const primaryNavigation: NavigationItem[] = [
 ];
 
 export const systemNavigation: NavigationItem[] = [
+  {
+    label: "Proyek & Status",
+    href: "/projects",
+    icon: "workflow",
+    roles: ["DIRECTOR", "IT_ADMIN", "AUDITOR"],
+  },
   {
     label: "Pengguna & Akses",
     href: "/users",
@@ -60,8 +107,23 @@ export const systemNavigation: NavigationItem[] = [
   },
 ];
 
-export function visibleNavigation(items: NavigationItem[], roles: Role[]): NavigationItem[] {
-  return items.filter((item) => !item.roles || item.roles.some((role) => roles.includes(role)));
+export function visibleNavigation(
+  items: NavigationItem[],
+  roles: Role[],
+  divisionCodes: string[] = [],
+): NavigationItem[] {
+  const organizationWide = roles.some((role) => (
+    role === "DIRECTOR" || role === "AI_EXECUTIVE" || role === "AUDITOR"
+  ));
+  return items.filter((item) => {
+    const roleAllowed = !item.roles || item.roles.some((role) => roles.includes(role));
+    const divisionAllowed = (
+      !item.divisions
+      || organizationWide
+      || item.divisions.some((division) => divisionCodes.includes(division))
+    );
+    return roleAllowed && divisionAllowed;
+  });
 }
 
 export const roleLabels: Record<Role, string> = {

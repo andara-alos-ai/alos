@@ -1,4 +1,4 @@
-# Model Domain dan Database ALOS Internal v1
+# Model Domain dan Database ALOS
 
 | Metadata | Nilai |
 |---|---|
@@ -9,7 +9,7 @@
 
 ## 1. Tujuan
 
-Dokumen ini menetapkan bahasa domain bersama, batas kepemilikan data, entitas inti, hubungan, dan aturan penyimpanan ALOS Internal v1. Rancangan ini menjadi dasar migrasi database dan kontrak antar-modul, bukan kamus data bisnis final perusahaan.
+Dokumen ini menetapkan bahasa domain bersama, batas kepemilikan data, entitas inti, hubungan, dan aturan penyimpanan ALOS. Rancangan ini menjadi dasar migrasi database dan kontrak antar-modul, bukan kamus data bisnis final perusahaan.
 
 ## 2. Prinsip Model Data
 

@@ -147,7 +147,7 @@ export default function LoginPage() {
   return (
     <main className="loginPage">
       <section className="loginIntro">
-        <div className="loginBrand"><span className="brandMark">A</span><strong>ALOS Internal v1</strong></div>
+        <div className="loginBrand"><span className="brandMark">A</span><strong>ALOS</strong></div>
         <div>
           <p className="eyebrow light">Andara Leverage Operating System</p>
           <h1>Satu pusat kerja untuk operasi internal yang dapat diaudit.</h1>

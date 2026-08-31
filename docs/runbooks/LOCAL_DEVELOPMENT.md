@@ -2,7 +2,7 @@
 
 ## Tujuan
 
-Menjalankan fondasi ALOS Internal v1 dengan data sintetis pada workstation pengembang. Prosedur ini tidak mengaktifkan integrasi produksi atau LLM.
+Menjalankan fondasi ALOS dengan data sintetis pada workstation pengembang. Prosedur ini tidak mengaktifkan integrasi produksi atau LLM.
 
 ## Prasyarat
 
@@ -166,7 +166,7 @@ pnpm test
 pnpm build
 ```
 
-Registry valid hanya jika tepat 18 Core Agent, 38 tool, dan enam workflow dapat dimuat. Setiap langkah agent wajib memiliki capability invocation yang valid; workflow harus menolak transisi yang tidak didefinisikan.
+Registry valid hanya jika tepat 18 Core Agent, 38 tool, enam workflow pilot wajib tersedia, dan seluruh source pack dapat dimuat. Workflow tambahan diperbolehkan setelah memiliki definisi valid; status selain `STAGED` atau `RELEASED` tidak dapat dijalankan. Setiap langkah agent wajib memiliki capability invocation yang valid dan workflow harus menolak transisi yang tidak didefinisikan.
 
 Pemeriksaan web juga mencakup redirect tanpa sesi, login pilot, dashboard data nyata,
 navigasi role/divisi, konteks proyek, tampilan kosong/error, serta breakpoint ponsel.

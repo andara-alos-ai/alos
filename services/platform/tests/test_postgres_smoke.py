@@ -1,3 +1,4 @@
+import hashlib
 import os
 from typing import Any
 from uuid import uuid4
@@ -34,6 +35,7 @@ def test_sales_workflow_is_persisted_from_lead_to_reservation() -> None:
     project_id: str | None = None
     sales_user_id: str | None = None
     result: dict[str, Any] | None = None
+    document: dict[str, Any] | None = None
 
     try:
         user_response = client.post(
@@ -81,6 +83,20 @@ def test_sales_workflow_is_persisted_from_lead_to_reservation() -> None:
         result = lead_response.json()
         assert result["current_step"] == "sales-assignment"
 
+        duplicate_response = client.post(
+            "/api/v1/leads",
+            headers={**sales_headers, "Idempotency-Key": f"duplicate-{uuid4().hex}"},
+            json={
+                "project_id": project_id,
+                "full_name": "Lead Duplikat",
+                "phone": "0812-3456-7890",
+                "source": "manual-duplicate-test",
+                "consent_recorded": True,
+            },
+        )
+        assert duplicate_response.status_code == 422
+        assert "sudah terdaftar" in duplicate_response.json()["detail"]
+
         assignment_response = client.post(
             f"/api/v1/workflow-runs/{result['workflow_run_id']}/sales-assignment",
             headers={**sales_headers, "Idempotency-Key": f"assign-{uuid4().hex}"},
@@ -102,6 +118,23 @@ def test_sales_workflow_is_persisted_from_lead_to_reservation() -> None:
         assert follow_up_response.json()["current_step"] == "interaction-review"
         assert follow_up_response.json()["terminal"] is False
 
+        content = f"synthetic-reservation-{uuid4()}".encode()
+        document_response = client.post(
+            "/api/v1/documents",
+            headers=sales_headers,
+            json={
+                "project_id": project_id,
+                "logical_name": "Form Reservasi Sintetis",
+                "classification": "INTERNAL",
+                "object_key": f"synthetic/reservation/{uuid4()}.pdf",
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "media_type": "application/pdf",
+                "size_bytes": len(content),
+            },
+        )
+        assert document_response.status_code == 201
+        document = document_response.json()
+
         reservation_reference = f"RSV-{uuid4().hex[:12].upper()}"
         reservation_response = client.post(
             f"/api/v1/workflow-runs/{result['workflow_run_id']}/interactions",
@@ -111,6 +144,7 @@ def test_sales_workflow_is_persisted_from_lead_to_reservation() -> None:
                 "channel": "site-visit",
                 "notes": "Sales Human mencatat reservasi setelah konfirmasi pelanggan.",
                 "evidence_reference": "synthetic-evidence:reservation-form",
+                "evidence_document_version_id": document["document_version_id"],
                 "reservation_reference": reservation_reference,
             },
         )
@@ -162,8 +196,16 @@ def test_sales_workflow_is_persisted_from_lead_to_reservation() -> None:
                 )
                 == 1
             )
+            assert (
+                _count(
+                    connection,
+                    "SELECT count(*) FROM platform.evidence WHERE work_item_id = %s",
+                    result["work_item_id"],
+                )
+                == 1
+            )
     finally:
-        _cleanup(database_url, project_id, sales_user_id, result)
+        _cleanup(database_url, project_id, sales_user_id, result, document)
 
 
 def _local_token(
@@ -197,6 +239,7 @@ def _cleanup(
     project_id: str | None,
     sales_user_id: str | None,
     result: dict[str, Any] | None,
+    document: dict[str, Any] | None,
 ) -> None:
     with psycopg.connect(database_url) as connection:
         entity_ids = [item for item in [project_id, sales_user_id] if item]
@@ -220,8 +263,22 @@ def _cleanup(
             )
             connection.execute("DELETE FROM sales.leads WHERE lead_id = %s", (result["lead_id"],))
             connection.execute(
+                "DELETE FROM platform.evidence WHERE work_item_id = %s",
+                (result["work_item_id"],),
+            )
+            connection.execute(
                 "DELETE FROM platform.work_items WHERE work_item_id = %s",
                 (result["work_item_id"],),
+            )
+        if document is not None:
+            entity_ids.extend([document["document_id"], document["document_version_id"]])
+            connection.execute(
+                "DELETE FROM platform.document_versions WHERE document_version_id = %s",
+                (document["document_version_id"],),
+            )
+            connection.execute(
+                "DELETE FROM platform.documents WHERE document_id = %s",
+                (document["document_id"],),
             )
         if entity_ids:
             connection.execute("DELETE FROM audit.entries WHERE entity_id = ANY(%s)", (entity_ids,))

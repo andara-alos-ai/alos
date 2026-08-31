@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -39,6 +40,13 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=3, max_length=160)
 
 
+class ProjectStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ProjectStatus
+    reason: str = Field(min_length=8, max_length=500)
+
+
 class ProjectView(BaseModel):
     project_id: UUID
     organization_id: UUID
@@ -58,6 +66,31 @@ class LeadIntake(BaseModel):
     source: str = Field(min_length=2, max_length=80)
     consent_recorded: bool
     priority: WorkItemPriority = WorkItemPriority.NORMAL
+
+    @field_validator("full_name", "source")
+    @classmethod
+    def normalize_lead_text(cls, value: str) -> str:
+        return " ".join(value.split())
+
+    @field_validator("phone")
+    @classmethod
+    def normalize_phone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = re.sub(r"[\s().-]", "", value)
+        if not re.fullmatch(r"\+?[0-9]{8,20}", normalized):
+            raise ValueError("Format telepon lead tidak valid")
+        return normalized
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", normalized):
+            raise ValueError("Format email lead tidak valid")
+        return normalized
 
     @model_validator(mode="after")
     def require_contact_channel(self) -> "LeadIntake":
@@ -111,12 +144,16 @@ class SalesInteraction(BaseModel):
     channel: str = Field(min_length=2, max_length=40)
     notes: str = Field(min_length=3, max_length=2000)
     evidence_reference: str | None = Field(default=None, max_length=500)
+    evidence_document_version_id: UUID | None = None
     reservation_reference: str | None = Field(default=None, max_length=120)
 
     @model_validator(mode="after")
     def require_reservation_reference(self) -> "SalesInteraction":
-        if self.outcome == InteractionOutcome.RESERVED and not self.reservation_reference:
-            raise ValueError("Referensi reservasi wajib untuk outcome reserved")
+        if self.outcome == InteractionOutcome.RESERVED:
+            if not self.reservation_reference:
+                raise ValueError("Referensi reservasi wajib untuk outcome reserved")
+            if self.evidence_document_version_id is None:
+                raise ValueError("Dokumen evidence wajib untuk outcome reserved")
         if self.outcome != InteractionOutcome.RESERVED and self.reservation_reference:
             raise ValueError("Referensi reservasi hanya boleh digunakan untuk outcome reserved")
         return self
@@ -348,6 +385,13 @@ class PaymentRecordCreate(BaseModel):
     currency: str = Field(default="IDR", pattern=r"^[A-Z]{3}$")
     paid_at: datetime
     evidence_document_version_id: UUID
+
+    @field_validator("paid_at")
+    @classmethod
+    def require_paid_at_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Waktu pembayaran wajib menyertakan zona waktu")
+        return value
 
 
 class ReconciliationCreate(BaseModel):

@@ -19,7 +19,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    application_name: str = "ALOS Internal v1"
+    application_name: str = "ALOS"
     environment: Literal["local", "test", "staging", "production"] = "local"
     log_level: str = "INFO"
     api_prefix: str = "/api/v1"
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     llm_daily_request_limit: int = Field(default=500, ge=1, le=100_000)
     llm_daily_output_token_limit: int = Field(default=500_000, ge=1_000, le=100_000_000)
     auth_issuer: str = "alos-local"
-    auth_audience: str = "alos-internal"
+    auth_audience: str = "alos-platform"
     auth_signing_secret: SecretStr = Field(
         default=SecretStr("local-development-only-change-me"), min_length=32
     )

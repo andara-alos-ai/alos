@@ -42,7 +42,7 @@ def test_genesis_release_package_is_audited_immutable_and_not_deployed() -> None
             json={
                 "strategy": "REUSE",
                 "justification": "Menggunakan BCA untuk pengujian release package Genesis.",
-                "source_references": ["specification:genesis-postgres-test"],
+                "source_references": ["ALOS-SP-SYNTHETIC-PILOT@1.0.0"],
                 "target": {"agent_id": "BCA", "version": "0.1.0"},
             },
         )

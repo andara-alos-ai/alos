@@ -1,4 +1,4 @@
-# Arsitektur ALOS Internal v1
+# Arsitektur ALOS
 
 | Metadata | Nilai |
 |---|---|
@@ -9,7 +9,7 @@
 
 ## 1. Tujuan dan Cakupan
 
-Dokumen ini menetapkan arsitektur logis dan deployment ALOS Internal v1. Rancangan pilot mempertahankan batas modul yang tegas agar sistem dapat berkembang tanpa memperkenalkan microservice, database, atau aplikasi terpisah sebelum terdapat kebutuhan terukur.
+Dokumen ini menetapkan arsitektur logis dan deployment ALOS. Rancangan pilot mempertahankan batas modul yang tegas agar sistem dapat berkembang tanpa memperkenalkan microservice, database, atau aplikasi terpisah sebelum terdapat kebutuhan terukur.
 
 ## 2. Keputusan Arsitektur
 

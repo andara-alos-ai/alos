@@ -5,6 +5,10 @@ from alos.agents.registry import AgentRegistry
 from alos.tools import ToolEffect, ToolRegistry, ToolRegistryError
 from alos.workflow.models import WorkflowDefinition
 
+PILOT_WORKFLOW_IDS = frozenset(
+    {"FLOW-001", "FLOW-002", "FLOW-003", "FLOW-004", "FLOW-005", "FLOW-006"}
+)
+
 
 class WorkflowRegistry:
     def __init__(
@@ -27,10 +31,11 @@ class WorkflowRegistry:
             WorkflowDefinition.model_validate_json(path.read_text(encoding="utf-8"))
             for path in files
         )
-        if len(workflows) != 6:
-            raise ValueError(f"Registry wajib berisi tepat 6 workflow; ditemukan {len(workflows)}")
         if len({item.workflow_id for item in workflows}) != len(workflows):
             raise ValueError("workflow_id harus unik")
+        missing_pilot = sorted(PILOT_WORKFLOW_IDS - {item.workflow_id for item in workflows})
+        if missing_pilot:
+            raise ValueError(f"Workflow pilot wajib tersedia; missing={missing_pilot}")
         for workflow in workflows:
             self._validate_invocations(workflow)
         self._cache = workflows

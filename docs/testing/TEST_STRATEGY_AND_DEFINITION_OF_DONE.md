@@ -2,10 +2,10 @@
 
 | Metadata | Nilai |
 |---|---|
-| Status | Rancangan untuk Pilot Internal |
+| Status | Diterapkan untuk Controlled Pilot |
 | Versi | 0.1.0 |
-| Cakupan | ALOS Internal Agent Pilot v0.1 |
-| Pembaruan terakhir | 30 Agustus 2026 |
+| Cakupan | ALOS Agent Pilot v0.1 |
+| Pembaruan terakhir | 31 Agustus 2026 |
 
 ## 1. Tujuan
 
