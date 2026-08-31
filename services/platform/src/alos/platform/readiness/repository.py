@@ -25,6 +25,10 @@ class PilotReadinessFacts:
     dead_letter_count: int
     last_worker_status: str | None
     last_worker_completed_at: datetime | None
+    latest_uat_status: str | None = None
+    latest_uat_scenario_count: int = 0
+    latest_uat_signoff_count: int = 0
+    recovery_evidence_count: int = 0
 
 
 class PostgresPilotReadinessRepository:
@@ -128,6 +132,64 @@ class PostgresPilotReadinessRepository:
                 .mappings()
                 .one_or_none()
             )
+            latest_uat: Any = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT uat_run_id, status
+                        FROM uat.runs
+                        WHERE organization_id = :organization_id
+                          AND project_id = :project_id
+                        ORDER BY cycle_number DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"organization_id": organization_id, "project_id": project_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            latest_uat_scenario_count = 0
+            latest_uat_signoff_count = 0
+            recovery_evidence_count = 0
+            if latest_uat is not None:
+                latest_uat_scenario_count = int(
+                    connection.execute(
+                        text(
+                            """
+                            SELECT count(*) FROM uat.scenario_results
+                            WHERE uat_run_id = :uat_run_id
+                              AND status IN ('PASSED', 'PASSED_WITH_RISK')
+                            """
+                        ),
+                        {"uat_run_id": latest_uat["uat_run_id"]},
+                    ).scalar_one()
+                )
+                latest_uat_signoff_count = int(
+                    connection.execute(
+                        text(
+                            "SELECT count(*) FROM uat.signoffs "
+                            "WHERE uat_run_id = :uat_run_id"
+                        ),
+                        {"uat_run_id": latest_uat["uat_run_id"]},
+                    ).scalar_one()
+                )
+                recovery_evidence_count = int(
+                    connection.execute(
+                        text(
+                            """
+                            SELECT count(*)
+                            FROM uat.evidence_references er
+                            JOIN uat.scenario_results sr
+                              ON sr.scenario_result_id = er.scenario_result_id
+                            WHERE sr.uat_run_id = :uat_run_id
+                              AND sr.scenario_id = 'UAT-07'
+                              AND sr.status IN ('PASSED', 'PASSED_WITH_RISK')
+                            """
+                        ),
+                        {"uat_run_id": latest_uat["uat_run_id"]},
+                    ).scalar_one()
+                )
         return PilotReadinessFacts(
             project_status=project_status,
             division_codes=division_codes,
@@ -136,4 +198,8 @@ class PostgresPilotReadinessRepository:
             dead_letter_count=dead_letter_count,
             last_worker_status=latest_worker["status"] if latest_worker else None,
             last_worker_completed_at=latest_worker["completed_at"] if latest_worker else None,
+            latest_uat_status=latest_uat["status"] if latest_uat else None,
+            latest_uat_scenario_count=latest_uat_scenario_count,
+            latest_uat_signoff_count=latest_uat_signoff_count,
+            recovery_evidence_count=recovery_evidence_count,
         )

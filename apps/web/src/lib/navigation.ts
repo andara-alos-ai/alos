@@ -72,6 +72,12 @@ export const primaryNavigation: NavigationItem[] = [
   },
   { label: "Dokumen & Bukti", href: "/documents", icon: "document", roles: businessRoles },
   { label: "Exception & CAPA", href: "/risks", icon: "risk", roles: businessRoles },
+  {
+    label: "UAT & Go-Live",
+    href: "/uat",
+    icon: "workflow",
+    roles: businessRoles,
+  },
 ];
 
 export const systemNavigation: NavigationItem[] = [

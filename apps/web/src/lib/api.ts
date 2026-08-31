@@ -29,6 +29,9 @@ import type {
   UserDirectoryPage,
   UserDirectoryRecord,
   UserStatus,
+  UatRun,
+  UatScenarioStatus,
+  UatSignoffScope,
   WorkItem,
   WorkflowActionResult,
   WorkQueueScope,
@@ -209,6 +212,64 @@ export function getOperationsHealth(token: string) {
 export function getPilotReadiness(token: string, projectId: string) {
   const parameters = new URLSearchParams({ project_id: projectId });
   return request<PilotReadinessReport>(`/system/pilot-readiness?${parameters}`, { token });
+}
+
+export function getGoLiveReadiness(token: string, projectId: string) {
+  const parameters = new URLSearchParams({ project_id: projectId });
+  return request<PilotReadinessReport>(`/system/go-live-readiness?${parameters}`, { token });
+}
+
+export function getUatRuns(token: string, projectId: string) {
+  const parameters = new URLSearchParams({ project_id: projectId });
+  return request<UatRun[]>(`/uat/runs?${parameters}`, { token });
+}
+
+export function createUatRun(token: string, projectId: string, title: string) {
+  return request<UatRun>("/uat/runs", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ project_id: projectId, title }),
+  });
+}
+
+export function startUatRun(token: string, uatRunId: string) {
+  return request<UatRun>(`/uat/runs/${uatRunId}/start`, { method: "POST", token });
+}
+
+export function recordUatScenario(
+  token: string,
+  uatRunId: string,
+  scenarioId: string,
+  input: {
+    status: UatScenarioStatus;
+    actual_result: string | null;
+    defect_severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | null;
+    defect_summary: string | null;
+    evidence: Array<{ document_version_id: string | null; reference: string | null }>;
+  },
+) {
+  return request<UatRun>(`/uat/runs/${uatRunId}/scenarios/${scenarioId}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export function signoffUatRun(
+  token: string,
+  uatRunId: string,
+  input: {
+    signoff_scope: UatSignoffScope;
+    decision: "ACCEPTED" | "ACCEPTED_WITH_RISK" | "REJECTED";
+    risk_severity: "LOW" | "MEDIUM" | null;
+    notes: string;
+  },
+) {
+  return request<UatRun>(`/uat/runs/${uatRunId}/signoffs`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
 }
 
 function queryPath(path: string, projectId: string | null, pageSize = 50): string {

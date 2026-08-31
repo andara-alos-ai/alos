@@ -12,6 +12,7 @@ from alos.platform.readiness.models import (
     ReadinessOverallStatus,
 )
 from alos.platform.readiness.repository import ActiveRole, PostgresPilotReadinessRepository
+from alos.uat.catalog import load_uat_catalog
 from alos.workflow.registry import WorkflowRegistry
 
 
@@ -35,6 +36,7 @@ class PilotReadinessService:
         self._agents = agents
         self._workflows = workflows
         self._profile = load_pilot_readiness_profile(settings.definitions_root)
+        self._uat_catalog = load_uat_catalog(settings.definitions_root)
 
     def evaluate(self, organization_id: UUID, project_id: UUID) -> PilotReadinessReport:
         now = datetime.now(UTC)
@@ -128,7 +130,48 @@ class PilotReadinessService:
                 "Jalankan worker ALOS dan pastikan siklusnya COMPLETED atau PARTIAL.",
             )
         )
-        checks.extend(self._environment_checks())
+        checks.extend(self._environment_checks(facts.recovery_evidence_count))
+        return self._report(organization_id, project_id, now, checks)
+
+    def evaluate_go_live(
+        self, organization_id: UUID, project_id: UUID
+    ) -> PilotReadinessReport:
+        now = datetime.now(UTC)
+        facts = self._repository.collect(organization_id, project_id)
+        base = self.evaluate(organization_id, project_id)
+        checks = list(base.checks)
+        checks.append(
+            self._count_check(
+                "PILOT-UAT-SCENARIOS",
+                "UAT",
+                "Seluruh skenario UAT lulus",
+                facts.latest_uat_scenario_count,
+                len(self._uat_catalog.scenarios),
+                "Seluruh skenario UAT memiliki hasil dan evidence.",
+                "Selesaikan skenario UAT yang belum PASSED atau PASSED_WITH_RISK.",
+            )
+        )
+        checks.append(
+            self._count_check(
+                "PILOT-UAT-SIGNOFFS",
+                "UAT",
+                "Seluruh sign-off manusia tersedia",
+                facts.latest_uat_signoff_count,
+                len(self._uat_catalog.required_signoff_scopes),
+                "Business owner, IT, AI Executive, dan Direktur telah memberi sign-off.",
+                "Lengkapi sign-off manusia yang masih kosong pada siklus UAT terbaru.",
+            )
+        )
+        checks.append(self._uat_acceptance_check(facts.latest_uat_status))
+        return self._report(organization_id, project_id, now, checks)
+
+    def _report(
+        self,
+        organization_id: UUID,
+        project_id: UUID,
+        now: datetime,
+        checks: list[PilotReadinessCheck],
+    ) -> PilotReadinessReport:
         passed = sum(check.status == ReadinessCheckStatus.PASS for check in checks)
         warnings = sum(check.status == ReadinessCheckStatus.WARNING for check in checks)
         blocked = sum(check.status == ReadinessCheckStatus.BLOCKED for check in checks)
@@ -149,6 +192,37 @@ class PilotReadinessService:
             warning_checks=warnings,
             blocked_checks=blocked,
             checks=tuple(checks),
+        )
+
+    @staticmethod
+    def _uat_acceptance_check(status: str | None) -> PilotReadinessCheck:
+        if status == "ACCEPTED":
+            return PilotReadinessCheck(
+                check_id="PILOT-UAT-ACCEPTANCE",
+                category="UAT",
+                title="Siklus UAT diterima",
+                status=ReadinessCheckStatus.PASS,
+                required=True,
+                detail="Siklus UAT terbaru diterima tanpa risk terbuka.",
+            )
+        if status == "ACCEPTED_WITH_RISK":
+            return PilotReadinessCheck(
+                check_id="PILOT-UAT-ACCEPTANCE",
+                category="UAT",
+                title="Siklus UAT diterima dengan risk",
+                status=ReadinessCheckStatus.WARNING,
+                required=True,
+                detail="Siklus UAT diterima dengan risk LOW atau MEDIUM yang terdokumentasi.",
+                remediation="Pastikan owner, due date, dan mitigasi risk dipantau sebelum go-live.",
+            )
+        return PilotReadinessCheck(
+            check_id="PILOT-UAT-ACCEPTANCE",
+            category="UAT",
+            title="Siklus UAT diterima",
+            status=ReadinessCheckStatus.BLOCKED,
+            required=True,
+            detail=f"Status siklus UAT terbaru: {status or 'BELUM ADA'}.",
+            remediation="Selesaikan UAT dan seluruh sign-off manusia sebelum go-live.",
         )
 
     def _role_checks(self, roles: tuple[ActiveRole, ...]) -> list[PilotReadinessCheck]:
@@ -198,7 +272,7 @@ class PilotReadinessService:
             "Aktifkan pengguna berbeda, role/divisi yang benar, dan project assignment aktif.",
         )
 
-    def _environment_checks(self) -> list[PilotReadinessCheck]:
+    def _environment_checks(self, recovery_evidence_count: int) -> list[PilotReadinessCheck]:
         oidc_ready = self._settings.oidc_provider == "google"
         oidc_required = self._settings.environment in {"staging", "production"}
         storage_ready = self._settings.object_storage_provider == "s3"
@@ -231,14 +305,14 @@ class PilotReadinessService:
                 "Scanner dokumen eksternal aktif.",
                 "Aktifkan scanner dokumen sebelum production atau penggunaan data asli.",
             ),
-            PilotReadinessCheck(
-                check_id="PILOT-RECOVERY-DRILL",
-                category="RECOVERY",
-                title="Backup dan restore telah diuji",
-                status=ReadinessCheckStatus.WARNING,
-                required=False,
-                detail="Verifikasi recovery harus dicatat sebagai evidence operasional manual.",
-                remediation="Jalankan runbook backup/restore staging dan lampirkan hasil uji.",
+            self._optional_check(
+                "PILOT-RECOVERY-DRILL",
+                "RECOVERY",
+                "Backup dan restore telah diuji",
+                recovery_evidence_count > 0,
+                False,
+                "Hasil uji recovery telah dicatat sebagai evidence UAT-07.",
+                "Jalankan runbook backup/restore staging dan lampirkan hasilnya pada UAT-07.",
             ),
         ]
 

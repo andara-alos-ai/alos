@@ -12,6 +12,7 @@ from alos.entrypoints.oidc_api import router as oidc_router
 from alos.entrypoints.operations_api import router as operations_router
 from alos.entrypoints.query_api import router as query_router
 from alos.entrypoints.system_api import router as system_router
+from alos.entrypoints.uat_api import router as uat_router
 from alos.security.request_limits import RequestBodyLimitMiddleware
 
 settings = get_settings()
@@ -41,3 +42,4 @@ app.include_router(operations_router, prefix=settings.api_prefix)
 app.include_router(system_router, prefix=settings.api_prefix)
 app.include_router(genesis_router, prefix=settings.api_prefix)
 app.include_router(agent_runtime_router, prefix=settings.api_prefix)
+app.include_router(uat_router, prefix=settings.api_prefix)

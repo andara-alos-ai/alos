@@ -35,6 +35,9 @@ def test_database_migrations_are_ordered_and_unique() -> None:
         "024",
         "025",
         "026",
+        "027",
+        "028",
+        "029",
     ]
     assert all(len(migration.checksum) == 64 for migration in migrations)
 

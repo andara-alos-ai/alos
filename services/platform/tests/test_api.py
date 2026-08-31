@@ -252,6 +252,10 @@ def test_phase_four_operational_contract_is_published() -> None:
     assert "/api/v1/capas/{capa_id}/transition" in paths
     assert "/api/v1/system/operations-health" in paths
     assert "/api/v1/system/pilot-readiness" in paths
+    assert "/api/v1/system/go-live-readiness" in paths
+    assert "/api/v1/uat/runs" in paths
+    assert "/api/v1/uat/runs/{uat_run_id}/scenarios/{scenario_id}" in paths
+    assert "/api/v1/uat/runs/{uat_run_id}/signoffs" in paths
     assert "/api/v1/projects/{project_id}/status" in paths
     assert "/api/v1/system/outbox/{outbox_event_id}/requeue" in paths
 
@@ -263,6 +267,10 @@ def test_phase_four_operational_endpoint_requires_authentication() -> None:
         client.get(
             "/api/v1/system/pilot-readiness", params={"project_id": str(uuid4())}
         ).status_code
+        == 401
+    )
+    assert (
+        client.get("/api/v1/uat/runs", params={"project_id": str(uuid4())}).status_code
         == 401
     )
     assert (

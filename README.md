@@ -4,7 +4,7 @@ ALOS (Andara Leverage Operating System) adalah platform operasi internal PT Anda
 
 ## Status
 
-Tahap saat ini adalah **Controlled Pilot Technical Candidate**. Enam workflow telah tersedia melalui backend dan layar transaksi, disertai IAM, project lifecycle, readiness gate, penyimpanan dokumen berversi, work queue, worker/outbox, observability, recovery drill, shared runtime untuk 18 Core Agent, LLM Gateway provider-neutral, dan pipeline design-time Genesis. Seluruh contoh data wajib sintetis atau telah disanitasi. Aktivasi pilot tetap menunggu readiness proyek aktual, recovery evidence, UAT pemilik bisnis, dan keputusan manajemen; integrasi serta data production belum diaktifkan.
+Tahap saat ini adalah **Controlled Pilot Technical Candidate**. Enam workflow telah tersedia melalui backend dan layar transaksi, disertai IAM, project lifecycle, readiness dan go-live gate, UAT berbasis evidence dan delapan sign-off manusia, penyimpanan dokumen berversi, work queue, worker/outbox, observability, recovery drill, shared runtime untuk 18 Core Agent, LLM Gateway provider-neutral, dan pipeline design-time Genesis. Seluruh contoh data wajib sintetis atau telah disanitasi. Mekanisme teknis tahap 7–8 sudah tersedia, tetapi UAT perusahaan tetap menunggu pengguna sebenarnya, recovery evidence, hasil uji business owner, dan keputusan manajemen; integrasi serta data production belum diaktifkan.
 
 ## Struktur Utama
 

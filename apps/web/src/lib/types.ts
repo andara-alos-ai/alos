@@ -136,6 +136,87 @@ export type PilotReadinessReport = {
   checks: PilotReadinessCheck[];
 };
 
+export type UatRunStatus =
+  | "DRAFT"
+  | "IN_PROGRESS"
+  | "READY_FOR_SIGNOFF"
+  | "ACCEPTED"
+  | "ACCEPTED_WITH_RISK"
+  | "REJECTED";
+
+export type UatScenarioStatus =
+  | "NOT_STARTED"
+  | "IN_PROGRESS"
+  | "PASSED"
+  | "PASSED_WITH_RISK"
+  | "FAILED"
+  | "BLOCKED";
+
+export type UatSignoffScope =
+  | "SALES_MARKETING"
+  | "FINANCE"
+  | "PROPERTY"
+  | "HR"
+  | "LEGAL"
+  | "IT"
+  | "AI_EXECUTIVE"
+  | "DIRECTOR";
+
+export type UatEvidence = {
+  evidence_reference_id: string;
+  document_version_id: string | null;
+  reference: string | null;
+  created_at: string;
+};
+
+export type UatScenarioResult = {
+  scenario_result_id: string;
+  scenario_id: string;
+  workspace: string;
+  division_code: string | null;
+  title: string;
+  objective: string;
+  allowed_roles: Role[];
+  status: UatScenarioStatus;
+  tester_user_id: string | null;
+  actual_result: string | null;
+  defect_severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | null;
+  defect_summary: string | null;
+  tested_at: string | null;
+  evidence: UatEvidence[];
+  version: number;
+};
+
+export type UatSignoff = {
+  signoff_id: string;
+  signoff_scope: UatSignoffScope;
+  decision: "ACCEPTED" | "ACCEPTED_WITH_RISK" | "REJECTED";
+  risk_severity: "LOW" | "MEDIUM" | null;
+  signer_user_id: string | null;
+  signer_role: string;
+  notes: string;
+  signed_at: string;
+};
+
+export type UatRun = {
+  uat_run_id: string;
+  organization_id: string;
+  project_id: string;
+  title: string;
+  cycle_number: number;
+  status: UatRunStatus;
+  data_policy: "SYNTHETIC_OR_SANITIZED";
+  created_by_user_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+  scenarios: UatScenarioResult[];
+  signoffs: UatSignoff[];
+  required_signoff_scopes: UatSignoffScope[];
+};
+
 export type PageResult<T> = {
   items: T[];
   page: number;

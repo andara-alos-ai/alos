@@ -93,6 +93,27 @@ def pilot_readiness(
         raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
 
 
+@router.get(
+    "/system/go-live-readiness",
+    response_model=PilotReadinessReport,
+    tags=["system", "pilot-readiness", "uat"],
+)
+def go_live_readiness(
+    project_id: UUID,
+    principal: PrincipalDependency,
+    service: ReadinessServiceDependency,
+) -> PilotReadinessReport:
+    try:
+        require_any_role(principal, *tuple(Role))
+        if not principal.can_access_project(project_id):
+            raise AuthorizationDenied("Pengguna tidak memiliki akses ke proyek")
+        return service.evaluate_go_live(principal.organization_id, project_id)
+    except AuthorizationDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except OperationalError as exc:
+        raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
+
+
 @router.post(
     "/system/outbox/{outbox_event_id}/requeue",
     response_model=OutboxEvent,

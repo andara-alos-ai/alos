@@ -17,6 +17,16 @@ Pilih proyek pada ALOS, lalu buka **Kesehatan Sistem**. Pemeriksaan membaca prof
 
 Status `BLOCKED` wajib ditutup sebelum UAT. Status `ATTENTION` memerlukan penerimaan risiko tertulis dan tidak pernah mengizinkan production secara otomatis.
 
+## Provisioning Pilot Sintetis
+
+Provisioning opsional tersedia untuk environment lokal atau staging non-production. Script bersifat idempotent, menolak data selain `example.test`, menolak production, dan tidak mencetak token.
+
+1. Siapkan token IT Admin dan token Direktur pada environment variable `ALOS_PILOT_ADMIN_TOKEN` dan `ALOS_PILOT_DIRECTOR_TOKEN`.
+2. Jalankan `scripts/development/provision-controlled-pilot.ps1`.
+3. Buka **Kesehatan Sistem** dan tutup seluruh pemeriksaan `BLOCKED`.
+
+Untuk target non-lokal, parameter `-AllowRemote` hanya boleh digunakan setelah hostname dan environment staging diverifikasi. Data pengguna sebenarnya tetap dibuat melalui proses IAM resmi, bukan fixture sintetis.
+
 ## Backup Terkontrol
 
 Simpan backup pada media terenkripsi dengan akses terbatas. Direktori backup tidak boleh berada di Git.
@@ -47,6 +57,17 @@ Lampirkan log perintah, checksum, waktu mulai/selesai, operator, hasil integrity
 6. Pastikan worker baru, tidak ada dead-letter, dan log tidak memuat secret atau isi dokumen.
 7. Jalankan UAT delapan skenario dengan data sintetis/sanitasi.
 8. Catat defect, risiko tersisa, owner, target perbaikan, dan sign-off.
+
+## Pelaksanaan UAT dan Go-Live Gate
+
+1. Buka **UAT & Go-Live**, pilih proyek `ACTIVE`, lalu buat satu siklus UAT.
+2. IT atau Direktur memulai siklus; setiap operator menjalankan skenario sesuai role dan divisinya.
+3. Catat hasil aktual dan referensi evidence. Lampirkan hasil restore drill pada UAT-07.
+4. Perbaiki `FAILED`, `BLOCKED`, `HIGH`, dan `CRITICAL`; jangan menerimanya sebagai risiko.
+5. Setelah delapan skenario lulus, minta sign-off dari lima Kepala Divisi bisnis, IT, AI Executive, dan Direktur.
+6. Buka go-live gate. Status `READY` atau keputusan `ACCEPTED_WITH_RISK` tetap tidak mendeploy sistem secara otomatis; release mengikuti otorisasi deployment terpisah.
+
+Sistem tidak membuat tanda tangan atau hasil uji atas nama manusia. Jika satu scope menolak, siklus menjadi `REJECTED` dan tim membuat siklus baru setelah perbaikan.
 
 ## Respons Kegagalan
 

@@ -13,6 +13,7 @@ describe("navigasi berbasis peran", () => {
       "/sales",
       "/documents",
       "/risks",
+      "/uat",
     ]);
     expect(system).toHaveLength(0);
   });

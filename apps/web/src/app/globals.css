@@ -260,6 +260,21 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .06em; text-transform:
 
 .readinessPanel { margin-top: 15px; }
 .readinessPanel .panelHeader p:last-child { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+
+.uatMetrics { margin-bottom: 18px; }
+.uatLayout { margin-bottom: 18px; }
+.uatScenarioList { display: grid; gap: 8px; }
+.uatScenarioList button { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--white); text-align: left; cursor: pointer; }
+.uatScenarioList button.selected { border-color: var(--navy); box-shadow: inset 3px 0 var(--navy); }
+.uatScenarioList button span:first-child { display: grid; gap: 3px; }
+.uatScenarioList button small { color: var(--muted); }
+.uatScenarioPanel, .uatSignoffPanel { margin-top: 18px; }
+.uatScenarioPanel .panelHeader p:last-child, .uatSignoffPanel .panelHeader p:last-child { margin: 5px 0 0; max-width: 760px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.uatScenarioBody { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .85fr); gap: 18px; padding: 20px; }
+.uatSignoffGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 20px; }
+.uatSignoffGrid article { display: grid; gap: 8px; align-content: start; min-height: 102px; padding: 13px; border: 1px solid var(--line); border-radius: 9px; }
+.uatSignoffGrid small { color: var(--muted); line-height: 1.4; }
+.uatSignoffForm { margin: 0 20px 20px; }
 .statusBadge.readiness-ready { background: var(--green-100); color: var(--green-700); }
 .statusBadge.readiness-attention { background: var(--amber-bg); color: var(--amber); }
 .statusBadge.readiness-blocked { background: var(--red-bg); color: var(--red); }
@@ -401,6 +416,8 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .06em; text-transform:
   .workspaceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .transactionLayout { grid-template-columns: 1fr; }
   .transactionRecordList { max-height: 420px; }
+  .uatScenarioBody { grid-template-columns: 1fr; }
+  .uatSignoffGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 620px) {
@@ -440,4 +457,5 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .06em; text-transform:
   .metricGrid.compact { grid-template-columns: 1fr; }
   .readinessList article { grid-template-columns: 28px minmax(0, 1fr); padding: 13px 14px; }
   .readinessList b { grid-column: 2; }
+  .uatSignoffGrid { grid-template-columns: 1fr; }
 }

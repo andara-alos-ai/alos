@@ -154,6 +154,7 @@ Rincian batas komponen terdapat pada `docs/architecture/ALOS_V1_ARCHITECTURE.md`
 | `it` | insiden, kesehatan layanan, rilis, pemeriksaan backup dan pemulihan |
 | `integration` | konektor, referensi eksternal, kotak masuk/keluar, webhook |
 | `audit` | catatan audit hanya-tambah dan metadata integritas |
+| `uat` | siklus pengujian, hasil skenario, evidence, defect, dan sign-off manusia |
 
 Setiap fakta harus memiliki pemilik resmi, sumber, status verifikasi, versi, klasifikasi, dan riwayat. Berkas disimpan di penyimpanan objek; database menyimpan metadata, hash, versi, dan relasinya.
 
@@ -264,3 +265,16 @@ Pilot dinyatakan selesai apabila:
 - format laporan dan perwakilan bisnis untuk UAT.
 
 Nilai tersebut berstatus `TBD` dan tidak boleh diisi melalui asumsi implementasi.
+
+## 15. Status Tahap 7 dan 8
+
+Fondasi teknis tahap 7–8 telah tersedia dengan batas berikut:
+
+- proyek, pengguna, role, divisi, project assignment, fixture sintetis aman, readiness, backup, dan restore membentuk gate controlled pilot;
+- delapan skenario UAT dikelola melalui lifecycle deterministik dan audit trail;
+- hasil lulus wajib memiliki evidence; temuan tinggi/kritis tidak dapat diterima sebagai risiko;
+- penerimaan akhir memerlukan delapan sign-off manusia yang terpisah sesuai kewenangan;
+- go-live readiness menggabungkan readiness platform, recovery evidence, hasil skenario, dan sign-off;
+- tidak ada provisioning production, tanda tangan manusia, data perusahaan, atau keputusan go-live yang dibuat otomatis.
+
+Implementasi teknis tidak berarti UAT perusahaan telah selesai. Status operasional baru sah setelah pengguna sebenarnya, data yang diizinkan, hasil uji, recovery evidence, dan sign-off business owner diisi pada environment pilot.

@@ -30,11 +30,11 @@ def test_all_migrations_apply_to_a_fresh_database() -> None:
         connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
     try:
         applied = apply_migrations(temporary_url, REPOSITORY_ROOT / "infra" / "database")
-        assert len(applied) == 26
+        assert len(applied) == 29
         with psycopg.connect(temporary_url) as connection:
             assert (
                 connection.execute("SELECT count(*) FROM platform.schema_migrations").fetchone()[0]
-                    == 26
+                    == 29
             )
             constraint_exists = connection.execute(
                 """
@@ -51,6 +51,10 @@ def test_all_migrations_apply_to_a_fresh_database() -> None:
                 """
             ).fetchone()
             assert reservation_evidence_column is not None
+            assert connection.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = 'uat' AND table_name = 'signoffs'"
+            ).fetchone() is not None
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:
             connection.execute(
