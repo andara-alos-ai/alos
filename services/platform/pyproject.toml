@@ -5,12 +5,10 @@ build-backend = "hatchling.build"
 [project]
 name = "alos-platform"
 version = "0.1.0"
-description = "Backend modular dan shared Agent Runtime ALOS"
+description = "Genesis MVP1 control plane dan shared Agent Runtime ALOS"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-  "boto3>=1.43.81,<2",
   "fastapi[standard]==0.141.1",
-  "httpx>=0.28,<1",
   "pyjwt[crypto]>=2.10,<3",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
@@ -20,14 +18,10 @@ dependencies = [
 
 [project.scripts]
 alos-migrate = "alos.persistence.migrations:main"
-alos-validate-sources = "alos.genesis.source.cli:main"
-alos-validate-configuration = "alos.governance.configuration.cli:main"
-alos-verify-audit = "alos.audit.cli:main"
 
 [project.optional-dependencies]
 dev = [
-  "boto3-stubs[s3]>=1.43.83,<2",
-  "httpx2>=2.12,<3",
+  "httpx>=0.28,<1",
   "mypy>=1.17,<2",
   "pip-audit>=2.9,<3",
   "pytest>=9.0.3,<10",
@@ -42,7 +36,7 @@ packages = ["src/alos"]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
 markers = [
-  "postgres: requires the local PostgreSQL integration service"
+  "postgres: requires the local disposable PostgreSQL integration service"
 ]
 
 [tool.ruff]
