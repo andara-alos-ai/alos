@@ -154,6 +154,12 @@ def llm_gateway_for_config(
     llm_max_data_classification: str,
     llm_daily_request_limit: int,
     llm_daily_output_token_limit: int,
+    llm_input_token_cost_usd: float,
+    llm_output_token_cost_usd: float,
+    llm_fallback_provider: str,
+    llm_fallback_api_key: str,
+    llm_fallback_model: str,
+    llm_fallback_base_url: str,
 ) -> LLMGateway:
     prompts = PromptRegistry(definitions_root)
     provider: OpenAIProvider | AnthropicProvider | LocalOpenAIProvider | DisabledProvider
@@ -180,12 +186,25 @@ def llm_gateway_for_config(
         )
     else:
         provider = DisabledProvider()
+    fallback = (
+        AnthropicProvider(
+            llm_fallback_api_key,
+            llm_fallback_model,
+            llm_fallback_base_url or "https://api.anthropic.com/v1",
+            llm_timeout_seconds,
+        )
+        if llm_fallback_provider == "anthropic"
+        else None
+    )
     return LLMGateway(
         prompts,
         provider,
+        fallback_provider=fallback,
         max_classification=DataClassification[llm_max_data_classification],
         daily_request_limit=llm_daily_request_limit,
         daily_output_token_limit=llm_daily_output_token_limit,
+        input_token_cost_usd=llm_input_token_cost_usd,
+        output_token_cost_usd=llm_output_token_cost_usd,
     )
 
 
@@ -205,6 +224,12 @@ def llm_gateway(settings: SettingsDependency) -> LLMGateway:
         settings.llm_max_data_classification,
         settings.llm_daily_request_limit,
         settings.llm_daily_output_token_limit,
+        settings.llm_input_token_cost_usd,
+        settings.llm_output_token_cost_usd,
+        settings.llm_fallback_provider,
+        settings.llm_fallback_api_key_value or "",
+        settings.llm_fallback_model,
+        settings.llm_fallback_base_url or "",
     )
 
 
@@ -222,6 +247,12 @@ def shared_runtime_for_config(
     llm_max_data_classification: str,
     llm_daily_request_limit: int,
     llm_daily_output_token_limit: int,
+    llm_input_token_cost_usd: float,
+    llm_output_token_cost_usd: float,
+    llm_fallback_provider: str,
+    llm_fallback_api_key: str,
+    llm_fallback_model: str,
+    llm_fallback_base_url: str,
 ) -> SharedAgentRuntime:
     gateway = llm_gateway_for_config(
         definitions_root,
@@ -233,6 +264,12 @@ def shared_runtime_for_config(
         llm_max_data_classification,
         llm_daily_request_limit,
         llm_daily_output_token_limit,
+        llm_input_token_cost_usd,
+        llm_output_token_cost_usd,
+        llm_fallback_provider,
+        llm_fallback_api_key,
+        llm_fallback_model,
+        llm_fallback_base_url,
     )
     handlers = build_default_handler_registry(
         CapabilityRegistry(definitions_root), gateway
@@ -260,6 +297,12 @@ def shared_runtime(settings: SettingsDependency) -> SharedAgentRuntime:
         settings.llm_max_data_classification,
         settings.llm_daily_request_limit,
         settings.llm_daily_output_token_limit,
+        settings.llm_input_token_cost_usd,
+        settings.llm_output_token_cost_usd,
+        settings.llm_fallback_provider,
+        settings.llm_fallback_api_key_value or "",
+        settings.llm_fallback_model,
+        settings.llm_fallback_base_url or "",
     )
 
 

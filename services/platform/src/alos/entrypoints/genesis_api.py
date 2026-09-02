@@ -6,9 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from alos.agents.capabilities import CapabilityRegistry
-from alos.agents.registry import AgentRegistry
 from alos.config import Settings, get_settings
-from alos.entrypoints.api import LLMGatewayDependency, current_principal, database_for_url
+from alos.entrypoints.api import (
+    LLMGatewayDependency,
+    agent_registry_for_root,
+    current_principal,
+    database_for_url,
+)
 from alos.genesis import (
     GenesisAnalyzeRequest,
     GenesisAnalyzeResult,
@@ -43,7 +47,10 @@ PrincipalDependency = Annotated[Principal, Depends(current_principal)]
 
 
 def genesis_service(settings: SettingsDependency) -> GenesisPipelineService:
-    agents = AgentRegistry(settings.definitions_root)
+    # Use the same registry instance as the runtime.  Releasing a contract
+    # invalidates its cache, so a later human activation or execution observes
+    # the immutable generated version without process restart.
+    agents = agent_registry_for_root(settings.definitions_root)
     return GenesisPipelineService(
         GenesisDesignService(agents),
         CapabilityRegistry(settings.definitions_root),
@@ -59,7 +66,7 @@ def genesis_analyze_service(
     settings: SettingsDependency,
     gateway: LLMGatewayDependency,
 ) -> GenesisAnalyzeService:
-    agents = AgentRegistry(settings.definitions_root)
+    agents = agent_registry_for_root(settings.definitions_root)
     sources = SourceRegistry(settings.definitions_root)
     return GenesisAnalyzeService(gateway, agents, sources)
 

@@ -1,3 +1,4 @@
+from alos.agents.runtime.application import AgentCapabilityService, AgentLifecycleService
 from alos.agents.runtime.builtin_handlers import build_default_handler_registry
 from alos.agents.runtime.handlers import (
     CapabilityHandler,
@@ -20,6 +21,8 @@ from alos.agents.runtime.service import RuntimePolicyViolation, SharedAgentRunti
 __all__ = [
     "AgentCapabilityExecuteRequest",
     "AgentCapabilityExecutionView",
+    "AgentCapabilityService",
+    "AgentLifecycleService",
     "AgentExecutionPlan",
     "AgentRunRequest",
     "AgentRunStatus",

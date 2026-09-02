@@ -141,7 +141,7 @@ export default function LoginPage() {
         <div>
           <p className="eyebrow light">Andara Leverage Operating System</p>
           <h1>Satu pusat kerja untuk operasi internal yang dapat diaudit.</h1>
-          <p>Kelola pekerjaan, deadline, bukti, persetujuan, risiko, dan 18 Core Agent dalam satu platform perusahaan.</p>
+          <p>Kelola Genesis, evidence, persetujuan, audit, dan logical agent dalam satu platform perusahaan.</p>
         </div>
         <ul className="loginAssurances">
           <li><Icon name="check" /> Keputusan material tetap melalui manusia berwenang</li>

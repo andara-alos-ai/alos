@@ -44,15 +44,18 @@ def test_genesis_analyze_fallback_vendor_payment() -> None:
             "Buat agent untuk membantu Finance memeriksa pengajuan pembayaran vendor. "
             "Agent harus memeriksa invoice, evidence pekerjaan, anggaran, pajak, "
             "dan jalur approval. Agent tidak boleh menyetujui atau melakukan pembayaran."
-        )
+        ),
+        source_references=("ALOS-SP-SYNTHETIC-PILOT@1.0.0",),
     )
 
     result = service.analyze(request, principal)
 
     assert isinstance(result, GenesisAnalyzeResult)
-    assert result.parent_core_agent_id in {"FRA", "BCA"}
-    assert result.domain == "FINANCE"
-    assert result.strategy in {GenesisStrategy.EXTEND, GenesisStrategy.CREATE}
+    assert result.runtime_scope == "SHARED_AGENT_RUNTIME"
+    assert result.domain == "shared-enterprise"
+    assert result.strategy == GenesisStrategy.CREATE
+    assert result.agent_contract_draft.agent_kind == "LOGICAL"
+    assert result.agent_contract_draft.division_scope == ("FINANCE",)
     assert result.production_effect is False
     assert len(result.agent_contract_draft.forbidden_actions) > 0
     assert len(result.workflow_proposal.steps) > 0
@@ -71,66 +74,43 @@ def test_genesis_analyze_local_openai_provider_mock() -> None:
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": json.dumps(
-                        {
-                            "understanding": "Kebutuhan verifikasi invoice vendor untuk Finance.",
-                            "strategy": "EXTEND",
-                            "strategy_justification": (
-                                "Memperluas FRA untuk validasi invoice vendor."
-                            ),
-                            "parent_core_agent_id": "FRA",
-                            "business_owner": "Kepala Keuangan",
-                                "domain": "FINANCE",
+                        "content": json.dumps(
+                            {
+                                "understanding": (
+                                    "Kebutuhan verifikasi invoice vendor untuk Finance."
+                                ),
+                                "business_owner": "Kepala Keuangan",
                                 "agent_contract_draft": {
-                                    "contract_version": "1.0.0",
-                                    "agent_id": "SUB_FRA_VENDOR_CHECK",
+                                    "agent_id": "GENESIS_FINANCE_VENDOR_CHECK",
                                     "name": "Vendor Invoice Checker",
-                                    "purpose": "Verifikasi invoice dan evidence vendor.",
-                                    "agent_kind": "SUB_AGENT",
-                                    "parent_agent_id": "FRA",
-                                    "parent_agent_version": "0.1.0",
-                                    "extends": "FRA",
-                                    "domain": "finance",
+                                    "purpose": (
+                                        "Verifikasi invoice dan evidence vendor secara read-only."
+                                    ),
+                                    "division_scope": ["FINANCE"],
                                     "human_owner": "Kepala Keuangan",
-                                    "triggers": ["Invoice diunggah"],
                                     "inputs": ["invoice_file", "evidence_doc"],
                                     "outputs": ["verification_status"],
                                     "source_of_truth": ["RAB", "SOP Finance"],
-                                    "capabilities": ["extract_invoice_fields"],
+                                    "capabilities": ["validate_invoice_rules"],
                                     "tools_allowed": ["alos.invoice.read"],
                                     "approval_boundary": ["Tidak boleh menyetujui pembayaran"],
                                     "evidence_requirement": ["Invoice asli"],
                                     "forbidden_actions": ["Transfer bank", "Approval mandiri"],
                                     "kpi_metrics": ["Akurasi"],
                                     "escalation": ["Invoice tidak terbaca"],
-                                    "version": "0.1.0",
-                                    "status": "DRAFT",
-                            },
-                            "workflow_proposal": {
-                                "workflow_name": "Vendor Payment Verification Workflow",
-                                "steps": [
-                                    {
-                                        "step_id": "STEP-1",
-                                        "name": "Extract Invoice",
-                                        "actor": "SUB-FRA-VENDOR-CHECK",
-                                        "description": (
-                                            "Ekstrak invoice dan verifikasi terhadap RAB"
-                                        ),
-                                    },
-                                    {
-                                        "step_id": "STEP-2",
-                                        "name": "Review Human",
-                                        "actor": "Finance PIC",
-                                        "description": "Persetujuan manusia",
-                                    },
-                                ],
-                            },
-                            "risks_and_blockers": ["Aturan pajak khusus perlu validasi TIA."],
-                            "unanswered_questions": ["Berapa batas nominal approval Direktur?"],
-                            "governance_notes": "Proposal DRAFT design-time.",
-                            "production_effect": False,
-                        }
-                    ),
+                                    "prompt_ref": "genesis.validation@0.1.0",
+                                    "model_policy_ref": "openai-primary-claude-fallback@0.1.0",
+                                    "permission_policy_ref": "read-only-evidence@0.1.0",
+                                    "risk_level": "LOW"
+                                },
+                                "workflow_proposal": {
+                                    "workflow_name": "Vendor Payment Verification Workflow",
+                                    "steps": []
+                                },
+                                "risks_and_blockers": ["Aturan pajak perlu validasi."],
+                                "unanswered_questions": ["Berapa batas nominal approval Direktur?"]
+                            }
+                        ),
                 },
             }
         ],
@@ -161,13 +141,14 @@ def test_genesis_analyze_local_openai_provider_mock() -> None:
     )
 
     request = GenesisAnalyzeRequest(
-        prompt="Buat sub-agent finance untuk verifikasi invoice vendor."
+        prompt="Buat logical agent finance untuk verifikasi invoice vendor.",
+        source_references=("ALOS-SP-SYNTHETIC-PILOT@1.0.0",),
     )
     result = service.analyze(request, principal)
 
-    assert result.strategy == GenesisStrategy.EXTEND
-    assert result.parent_core_agent_id == "FRA"
-    assert result.agent_contract_draft.agent_id == "SUB_FRA_VENDOR_CHECK"
+    assert result.strategy == GenesisStrategy.CREATE
+    assert result.runtime_scope == "SHARED_AGENT_RUNTIME"
+    assert result.agent_contract_draft.agent_id == "GENESIS_FINANCE_VENDOR_CHECK"
     assert result.llm_result_status == "COMPLETED"
     assert result.production_effect is False
 
@@ -201,8 +182,8 @@ def test_genesis_analyze_api_endpoint() -> None:
     data = response.json()
     assert "understanding" in data
     assert "strategy" in data
-    assert "parent_core_agent_id" in data
-    assert data["parent_core_agent_id"] in {"SLA", "CFA", "DIA"}
+    assert data["runtime_scope"] == "SHARED_AGENT_RUNTIME"
+    assert data["agent_contract_draft"]["agent_kind"] == "LOGICAL"
     assert data["production_effect"] is False
     assert "agent_contract_draft" in data
 

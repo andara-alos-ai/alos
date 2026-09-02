@@ -835,6 +835,7 @@ def _ai_handler(gateway: LLMGateway) -> CapabilityHandler:
             "input_tokens": result.usage.input_tokens,
             "output_tokens": result.usage.output_tokens,
             "latency_ms": result.latency_ms,
+            "estimated_cost_usd": result.estimated_cost_usd,
             "redacted_fields": list(result.redacted_fields),
         }
         return CapabilityHandlerOutput(

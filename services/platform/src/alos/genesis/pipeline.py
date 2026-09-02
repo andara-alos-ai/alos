@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 
 from alos.agents.capabilities import CapabilityRegistry
 from alos.agents.contract import AgentDefinition
+from alos.agents.registry import AgentRegistry
 from alos.genesis.models import (
     GenesisLifecycleStatus,
     GenesisPipelineView,
@@ -28,11 +29,13 @@ class GenesisPipelineService:
         capabilities: CapabilityRegistry,
         store: GenesisStore,
         sources: SourceRegistry,
+        registry: AgentRegistry | None = None,
     ) -> None:
         self._design = design
         self._capabilities = capabilities
         self._store = store
         self._sources = sources
+        self._registry = registry or design.registry
 
     def submit(self, command: GenesisSubmitRequest, principal: Principal) -> GenesisPipelineView:
         require_any_role(
@@ -139,7 +142,13 @@ class GenesisPipelineService:
         if existing.release is not None and existing.release.staged_by_user_id == principal.user_id:
             raise AuthorizationDenied("Pelaksana staging tidak boleh merilis paket yang sama")
         self._sources.validate_references(existing.source_references, SourceUse.RELEASE)
-        return self._store.release(request_id, principal.organization_id, principal.user_id)
+        released = self._store.release(request_id, principal.organization_id, principal.user_id)
+        if existing.strategy != "REUSE":
+            contract = existing.proposal.resolved_contract
+            if contract is None:
+                raise ValueError("Release Genesis tidak memiliki Agent Contract")
+            self._registry.release_generated(contract)
+        return released
 
     def _test_proposal(
         self,

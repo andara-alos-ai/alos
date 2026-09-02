@@ -3,7 +3,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from alos.agents.capabilities import CapabilityRegistry, CapabilityRegistryError
-from alos.agents.contract import AgentDefinition, AgentKind, AgentStatus
+from alos.agents.contract import AgentDefinition, AgentKind, AgentReference, AgentStatus
+from alos.agents.contract.policies import ContractPolicyRegistry
+from alos.llm import PromptRegistry
 from alos.tools import ToolRegistry, ToolRegistryError
 
 # Kept only for the legacy controlled-pilot validator. Runtime discovery is
@@ -48,6 +50,8 @@ class AgentRegistry:
         self._definitions_root = definitions_root
         self._tool_registry = tool_registry or ToolRegistry(definitions_root)
         self._capability_registry = CapabilityRegistry(definitions_root)
+        self._prompt_registry = PromptRegistry(definitions_root)
+        self._policy_registry = ContractPolicyRegistry(definitions_root)
         self._cache: tuple[AgentDefinition, ...] | None = None
 
     def load_all(self, *, force_reload: bool = False) -> tuple[AgentDefinition, ...]:
@@ -66,6 +70,7 @@ class AgentRegistry:
                 self._tool_registry.validate_allowed_tools(agent.tools_allowed)
                 if self._capability_registry.exists:
                     self._capability_registry.validate_references(agent.capabilities)
+                self._validate_logical_configuration(agent)
         except ToolRegistryError as exc:
             raise RegistryError(f"Referensi Tool Registry tidak valid: {exc}") from exc
         except CapabilityRegistryError as exc:
@@ -80,6 +85,96 @@ class AgentRegistry:
 
         return self.load_all(force_reload=True)
 
+    @property
+    def definitions_root(self) -> Path:
+        """Root containing versioned definitions; never contains credentials."""
+
+        return self._definitions_root
+
+    def release_generated(self, candidate: AgentDefinition) -> AgentDefinition:
+        """Materialize a human-approved Genesis candidate in the shared registry.
+
+        The registry is the only definition source consulted by the runtime. A
+        generated release is immutable by identity and version; a different
+        payload for the same identity/version is rejected instead of replaced.
+        """
+
+        if candidate.status != AgentStatus.DRAFT:
+            raise RegistryError("Genesis hanya dapat merilis candidate berstatus DRAFT")
+        self.validate_candidate(candidate)
+        released = candidate.model_copy(update={"status": AgentStatus.RELEASED})
+        path = self._generated_path(released.agent_id, released.version)
+        if path.exists():
+            existing = self._load_file(path)
+            if existing.contract_digest != released.contract_digest:
+                raise RegistryError(
+                    "Version Agent Contract sudah ada dengan payload berbeda: "
+                    f"{released.agent_id}@{released.version}"
+                )
+            return existing
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(released.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self._cache = None
+        return released
+
+    def activate_generated(self, agent_id: str, version: str) -> AgentDefinition:
+        """Make one generated version active and retire a previously active version.
+
+        An Agent Registry identity represents one logical agent.  Only one
+        version of that identity may be ACTIVE at a time, so activation remains
+        deterministic and rollback always has an unambiguous target.
+        """
+
+        current = self._load_generated(agent_id, version)
+        if current.status not in {AgentStatus.RELEASED, AgentStatus.SUSPENDED}:
+            raise RegistryError(
+                f"Transition {current.status} -> {AgentStatus.ACTIVE} tidak diizinkan untuk "
+                f"{current.agent_id}@{current.version}"
+            )
+        generated_root = self._generated_path(current.agent_id, version).parents[1]
+        if generated_root.exists():
+            for path in generated_root.glob("*/agent.json"):
+                sibling = self._load_file(path)
+                if sibling.version != current.version and sibling.status == AgentStatus.ACTIVE:
+                    self._write_generated(
+                        sibling.model_copy(update={"status": AgentStatus.ROLLED_BACK})
+                    )
+        return self._transition_generated(agent_id, version, AgentStatus.ACTIVE)
+
+    def suspend_generated(self, agent_id: str, version: str) -> AgentDefinition:
+        return self._transition_generated(agent_id, version, AgentStatus.SUSPENDED)
+
+    def rollback_generated(
+        self,
+        agent_id: str,
+        version: str,
+        rollback_target: AgentReference,
+    ) -> AgentDefinition:
+        current = self._load_generated(agent_id, version)
+        if current.status not in {AgentStatus.ACTIVE, AgentStatus.SUSPENDED}:
+            raise RegistryError("Rollback hanya dapat dilakukan dari agent ACTIVE atau SUSPENDED")
+        target = self._load_generated(rollback_target.agent_id, rollback_target.version)
+        if target.agent_id != current.agent_id or target.version == current.version:
+            raise RegistryError("Rollback wajib menargetkan versi lain dari agent yang sama")
+        if self._semantic_version(target.version) >= self._semantic_version(current.version):
+            raise RegistryError("Rollback target wajib merupakan versi yang lebih lama")
+        if target.status not in {
+            AgentStatus.RELEASED,
+            AgentStatus.SUSPENDED,
+            AgentStatus.ROLLED_BACK,
+        }:
+            raise RegistryError(
+                "Rollback target harus merupakan generated release yang dapat dipulihkan"
+            )
+        self._write_generated(current.model_copy(update={"status": AgentStatus.ROLLED_BACK}))
+        restored = target.model_copy(update={"status": AgentStatus.ACTIVE})
+        self._write_generated(restored)
+        self._cache = None
+        return restored
+
     def validate_candidate(self, candidate: AgentDefinition) -> None:
         """Validate a design-time candidate without writing it to the registry."""
 
@@ -89,6 +184,7 @@ class AgentRegistry:
             self._tool_registry.validate_allowed_tools(candidate.tools_allowed)
             if self._capability_registry.exists:
                 self._capability_registry.validate_references(candidate.capabilities)
+            self._validate_logical_configuration(candidate)
         except ToolRegistryError as exc:
             raise RegistryError(f"Referensi Tool Registry tidak valid: {exc}") from exc
         except CapabilityRegistryError as exc:
@@ -130,7 +226,13 @@ class AgentRegistry:
             raise KeyError(f"{normalized}@{version}")
         if not matches:
             raise KeyError(normalized)
-        return max(matches, key=lambda item: self._semantic_version(item.version))
+        return max(
+            matches,
+            key=lambda item: (
+                self._status_priority(item.status),
+                self._semantic_version(item.version),
+            ),
+        )
 
     def find(
         self,
@@ -222,6 +324,10 @@ class AgentRegistry:
     ) -> None:
         if agent.agent_kind == AgentKind.CORE:
             return
+        if agent.agent_kind == AgentKind.LOGICAL and (
+            agent.parent_agent_id is None or agent.parent_agent_version is None
+        ):
+            return
         if agent.parent_agent_id is None or agent.parent_agent_version is None:
             raise RegistryError(f"Metadata parent untuk {key[0]}@{key[1]} tidak lengkap")
         parent_key = (agent.parent_agent_id, agent.parent_agent_version)
@@ -230,6 +336,8 @@ class AgentRegistry:
                 f"Parent {parent_key[0]}@{parent_key[1]} untuk {key[0]}@{key[1]} tidak ditemukan"
             )
         parent = index[parent_key]
+        if agent.agent_kind == AgentKind.LOGICAL:
+            return
         expected_kind = (
             AgentKind.CORE if agent.agent_kind == AgentKind.SUB_AGENT else AgentKind.SUB_AGENT
         )
@@ -267,3 +375,86 @@ class AgentRegistry:
     def _semantic_version(version: str) -> tuple[int, int, int]:
         major, minor, patch = version.split(".")
         return int(major), int(minor), int(patch)
+
+    @staticmethod
+    def _status_priority(status: AgentStatus) -> int:
+        """Prefer the currently active contract when no version was requested."""
+
+        return {
+            AgentStatus.ACTIVE: 9,
+            AgentStatus.RELEASED: 8,
+            AgentStatus.STAGED: 7,
+            AgentStatus.TESTED: 6,
+            AgentStatus.REVIEWED: 5,
+            AgentStatus.VALIDATED: 4,
+            AgentStatus.DRAFT: 3,
+            AgentStatus.SUSPENDED: 2,
+            AgentStatus.ROLLED_BACK: 1,
+            AgentStatus.DEPRECATED: 0,
+            AgentStatus.RETIRED: -1,
+        }[status]
+
+    def _generated_path(self, agent_id: str, version: str) -> Path:
+        return self._definitions_root / "agents" / "generated" / agent_id / version / "agent.json"
+
+    def _validate_logical_configuration(self, agent: AgentDefinition) -> None:
+        if agent.agent_kind != AgentKind.LOGICAL:
+            return
+        if (
+            agent.prompt_ref is None
+            or agent.model_policy_ref is None
+            or agent.permission_policy_ref is None
+        ):
+            raise RegistryError("Logical Agent wajib memiliki configuration reference")
+        prompt_id, separator, prompt_version = agent.prompt_ref.rpartition("@")
+        if not separator or not prompt_id or not prompt_version:
+            raise RegistryError(f"Prompt reference tidak versioned: {agent.prompt_ref}")
+        try:
+            self._prompt_registry.get(prompt_id, prompt_version)
+            self._policy_registry.validate(agent.model_policy_ref, agent.permission_policy_ref)
+            permission = self._policy_registry.permission_policy(agent.permission_policy_ref)
+            disallowed = [
+                tool_id
+                for tool_id in agent.tools_allowed
+                if self._tool_registry.get(tool_id).effect.value
+                not in permission.allowed_tool_effects
+            ]
+            if disallowed:
+                raise ValueError(
+                    f"Permission policy menolak effect tool: {sorted(disallowed)}"
+                )
+        except (KeyError, ValueError) as exc:
+            raise RegistryError(f"Configuration reference tidak valid: {exc}") from exc
+
+    def _load_generated(self, agent_id: str, version: str) -> AgentDefinition:
+        path = self._generated_path(agent_id.upper(), version)
+        if not path.exists():
+            raise RegistryError(f"Generated Agent Contract tidak ditemukan: {agent_id}@{version}")
+        return self._load_file(path)
+
+    def _transition_generated(
+        self, agent_id: str, version: str, target_status: AgentStatus
+    ) -> AgentDefinition:
+        current = self._load_generated(agent_id, version)
+        allowed = {
+            AgentStatus.ACTIVE: {AgentStatus.RELEASED, AgentStatus.SUSPENDED},
+            AgentStatus.SUSPENDED: {AgentStatus.ACTIVE, AgentStatus.RELEASED},
+        }
+        if current.status not in allowed[target_status]:
+            raise RegistryError(
+                f"Transition {current.status} -> {target_status} tidak diizinkan untuk "
+                f"{current.agent_id}@{current.version}"
+            )
+        updated = current.model_copy(update={"status": target_status})
+        self._write_generated(updated)
+        self._cache = None
+        return updated
+
+    def _write_generated(self, definition: AgentDefinition) -> None:
+        path = self._generated_path(definition.agent_id, definition.version)
+        if not path.exists():
+            raise RegistryError("Hanya definition generated yang dapat diubah lifecycle-nya")
+        path.write_text(
+            json.dumps(definition.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )

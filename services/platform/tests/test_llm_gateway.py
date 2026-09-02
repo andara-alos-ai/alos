@@ -35,6 +35,19 @@ class RecordingProvider:
         )
 
 
+class FailingProvider:
+    provider = LLMProvider.OPENAI
+
+    def generate(
+        self,
+        prompt: object,
+        input_data: dict[str, Any],
+        max_output_tokens: int,
+        safety_identifier: str,
+    ) -> ProviderOutput:
+        raise RuntimeError("primary provider unavailable")
+
+
 def valid_output() -> dict[str, Any]:
     return {
         "summary": "Ringkasan sintetis",
@@ -61,6 +74,25 @@ def test_gateway_redacts_pii_hashes_identity_and_validates_schema() -> None:
     assert result.redacted_fields == ("contact",)
     assert provider.received is not None
     assert provider.received["contact"] == "[EMAIL_REDACTED] / [PHONE_REDACTED]"
+
+
+def test_gateway_records_token_based_cost_estimate() -> None:
+    gateway = LLMGateway(
+        PromptRegistry(REPOSITORY_ROOT / "definitions"),
+        RecordingProvider(valid_output()),
+        input_token_cost_usd=0.001,
+        output_token_cost_usd=0.002,
+    )
+
+    result = gateway.generate(
+        LLMRequest(
+            prompt_id="agent.structured-analysis",
+            input_data={"value": "synthetic"},
+            safety_identifier="user-001",
+        )
+    )
+
+    assert result.estimated_cost_usd == 0.05
 
 
 def test_gateway_redacts_pii_in_nested_lists() -> None:
@@ -124,6 +156,29 @@ def test_gateway_fails_closed_on_schema_violation() -> None:
 
     assert result.status == LLMResultStatus.FAILED
     assert provider.received is not None
+
+
+def test_gateway_uses_anthropic_fallback_only_after_openai_failure() -> None:
+    fallback = RecordingProvider(valid_output())
+    fallback.provider = LLMProvider.ANTHROPIC
+    gateway = LLMGateway(
+        PromptRegistry(REPOSITORY_ROOT / "definitions"),
+        FailingProvider(),
+        fallback_provider=fallback,
+    )
+
+    result = gateway.generate(
+        LLMRequest(
+            prompt_id="agent.structured-analysis",
+            input_data={"value": "synthetic"},
+            safety_identifier="user-001",
+        )
+    )
+
+    assert result.status == LLMResultStatus.COMPLETED
+    assert result.provider == LLMProvider.ANTHROPIC
+    assert fallback.received == {"value": "synthetic"}
+    assert "fallback anthropic used" in result.warnings[0]
 
 
 def test_openai_provider_uses_responses_structured_output_contract() -> None:

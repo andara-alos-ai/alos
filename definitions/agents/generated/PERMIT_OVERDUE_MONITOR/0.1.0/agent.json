@@ -1,0 +1,72 @@
+{
+  "contract_version": "1.0.0",
+  "agent_id": "PERMIT_OVERDUE_MONITOR",
+  "name": "Permit and Overdue Monitor Agent",
+  "agent_kind": "LOGICAL",
+  "parent_agent_id": null,
+  "parent_agent_version": null,
+  "extends": null,
+  "domain": "shared-enterprise",
+  "division_scope": [
+    "PROPERTY",
+    "LEGAL"
+  ],
+  "purpose": "Menghitung status tenggat permit dan overdue secara deterministik serta menyiapkan alert read-only.",
+  "human_owner": "AI Executive Operating Layer",
+  "triggers": [
+    "ON_DEMAND",
+    "SCHEDULED"
+  ],
+  "inputs": [
+    "synthetic_source_record",
+    "workspace_context"
+  ],
+  "source_of_truth": [
+    "Registered synthetic source",
+    "Verified source metadata"
+  ],
+  "capabilities": [
+    "monitor_capa_deadline"
+  ],
+  "outputs": [
+    "structured_result",
+    "citation_references"
+  ],
+  "tools_allowed": [
+    "alos.legal.read"
+  ],
+  "approval_boundary": [
+    "Human review is required before any material action"
+  ],
+  "evidence_requirement": [
+    "Every result references registered source evidence"
+  ],
+  "forbidden_actions": [
+    "write production data",
+    "approve its own release",
+    "create or modify a tool"
+  ],
+  "metrics": [
+    "citation coverage",
+    "test pass rate",
+    "cost per run"
+  ],
+  "escalation": [
+    "Escalate blocked or unsupported results to the domain owner"
+  ],
+  "prompt_ref": "genesis.validation@0.1.0",
+  "model_policy_ref": "openai-primary-claude-fallback@0.1.0",
+  "permission_policy_ref": "read-only-evidence@0.1.0",
+  "risk_level": "LOW",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "additionalProperties": false
+  },
+  "rollback_target": null,
+  "version": "0.1.0",
+  "status": "RELEASED"
+}

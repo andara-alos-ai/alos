@@ -1,7 +1,9 @@
+from collections.abc import Callable
 from typing import Protocol
 from uuid import UUID, uuid4
 
 from alos.agents.capabilities import CapabilityRegistry
+from alos.agents.contract import AgentDefinition, AgentReference
 from alos.agents.registry import AgentRegistry
 from alos.agents.runtime.models import (
     AgentCapabilityExecuteRequest,
@@ -24,6 +26,16 @@ class StandaloneAgentRunStore(Protocol):
         plan: AgentExecutionPlan,
         principal: Principal,
         project_id: UUID | None,
+    ) -> None: ...
+
+    def record_agent_lifecycle_transition(
+        self,
+        before: AgentDefinition,
+        after: AgentDefinition,
+        principal: Principal,
+        action: str,
+        reason: str,
+        correlation_id: UUID,
     ) -> None: ...
 
 
@@ -71,6 +83,14 @@ class AgentCapabilityService:
         if allowed_roles is None:
             raise AuthorizationDenied(f"Domain agent tidak didukung: {agent.domain}")
         require_any_role(principal, *allowed_roles)
+        if (
+            agent.division_scope
+            and not principal.has_any_role(Role.DIRECTOR, Role.AI_EXECUTIVE)
+            and not (set(principal.division_codes) & set(agent.division_scope))
+        ):
+            raise AuthorizationDenied(
+                "Pengguna tidak memiliki konteks divisi yang diizinkan Agent Contract"
+            )
         if command.project_id is not None:
             require_project_access(principal, command.project_id)
         capability = self._capabilities.get(command.capability)
@@ -113,3 +133,89 @@ class AgentCapabilityService:
             requires_human_review=executed.requires_human_review,
             correlation_id=executed.correlation_id,
         )
+
+
+class AgentLifecycleService:
+    """Human-only lifecycle controls for generated logical agents."""
+
+    def __init__(self, agents: AgentRegistry, store: StandaloneAgentRunStore) -> None:
+        self._agents = agents
+        self._store = store
+
+    def activate(
+        self,
+        agent_id: str,
+        version: str,
+        principal: Principal,
+        reason: str,
+        correlation_id: UUID | None = None,
+    ) -> AgentDefinition:
+        return self._change(
+            agent_id,
+            version,
+            principal,
+            reason,
+            correlation_id,
+            "agent.activated",
+            lambda: self._agents.activate_generated(agent_id, version),
+        )
+
+    def suspend(
+        self,
+        agent_id: str,
+        version: str,
+        principal: Principal,
+        reason: str,
+        correlation_id: UUID | None = None,
+    ) -> AgentDefinition:
+        return self._change(
+            agent_id,
+            version,
+            principal,
+            reason,
+            correlation_id,
+            "agent.suspended",
+            lambda: self._agents.suspend_generated(agent_id, version),
+        )
+
+    def rollback(
+        self,
+        agent_id: str,
+        version: str,
+        target: AgentReference,
+        principal: Principal,
+        reason: str,
+        correlation_id: UUID | None = None,
+    ) -> AgentDefinition:
+        return self._change(
+            agent_id,
+            version,
+            principal,
+            reason,
+            correlation_id,
+            "agent.rolled_back",
+            lambda: self._agents.rollback_generated(agent_id, version, target),
+        )
+
+    def _change(
+        self,
+        agent_id: str,
+        version: str,
+        principal: Principal,
+        reason: str,
+        correlation_id: UUID | None,
+        action: str,
+        change: Callable[[], AgentDefinition],
+    ) -> AgentDefinition:
+        require_any_role(principal, Role.IT_ADMIN)
+        before = self._agents.get(agent_id, version)
+        after = change()
+        self._store.record_agent_lifecycle_transition(
+            before,
+            after,
+            principal,
+            action,
+            reason,
+            correlation_id or uuid4(),
+        )
+        return after

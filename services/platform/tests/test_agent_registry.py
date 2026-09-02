@@ -77,17 +77,18 @@ def _write_definition(root: Path, relative: str, payload: dict[str, object]) -> 
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
-def test_registry_contains_exactly_18_unique_core_agents() -> None:
+def test_registry_keeps_legacy_core_contracts_without_fixed_total() -> None:
     registry = AgentRegistry(REPOSITORY_ROOT / "definitions")
     agents = registry.load_all()
     core_agents = registry.load_core()
 
-    assert len(agents) == 18
     assert len(core_agents) == 18
     assert {agent.agent_id for agent in core_agents} == CORE_AGENT_IDS
     assert all(agent.agent_kind == AgentKind.CORE for agent in core_agents)
     assert all(agent.contract_version == "1.0.0" for agent in core_agents)
     assert all(agent.parent_agent_id is None for agent in core_agents)
+    assert len(agents) >= len(core_agents)
+    assert any(agent.agent_kind == AgentKind.LOGICAL for agent in agents)
 
 
 def test_it_is_not_business_owner_of_all_agents() -> None:

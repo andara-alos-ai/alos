@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, text
@@ -312,7 +312,7 @@ class PostgresGenesisConversationStore:
         ).fetchone()
         if row is None:
             raise KeyError("Genesis conversation tidak ditemukan")
-        return row.organization_id
+        return cast(UUID, row.organization_id)
 
     def create_conversation(
         self,

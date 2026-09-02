@@ -107,7 +107,7 @@ def test_pilot_authentication_endpoints_are_hidden_outside_local_environment() -
     assert login.status_code == 404
 
 
-def test_agents_endpoint_returns_18_agents() -> None:
+def test_agents_endpoint_returns_legacy_and_generated_agents() -> None:
     token_response = client.post(
         "/api/v1/auth/local-token",
         json={
@@ -122,8 +122,10 @@ def test_agents_endpoint_returns_18_agents() -> None:
     )
 
     assert response.status_code == 200
-    assert len(response.json()) == 18
-    assert {agent["agent_kind"] for agent in response.json()} == {"CORE"}
+    assert len(response.json()) >= 21
+    assert {"CORE", "LOGICAL"}.issubset(
+        {agent["agent_kind"] for agent in response.json()}
+    )
     assert {agent["contract_version"] for agent in response.json()} == {"1.0.0"}
     assert all(agent["parent_agent_id"] is None for agent in response.json())
 

@@ -32,7 +32,7 @@ class SharedAgentRuntime:
         tool_registry: ToolRegistry,
         handlers: CapabilityHandlerRegistry | None = None,
         runnable_statuses: frozenset[AgentStatus] = frozenset(
-            {AgentStatus.STAGED, AgentStatus.RELEASED}
+            {AgentStatus.STAGED, AgentStatus.RELEASED, AgentStatus.ACTIVE}
         ),
     ) -> None:
         self._registry = registry

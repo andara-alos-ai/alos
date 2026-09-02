@@ -31,15 +31,21 @@ class PromptDefinition(BaseModel):
 
 class PromptRegistry:
     def __init__(self, definitions_root: Path) -> None:
-        self._path = definitions_root / "prompts" / "registry.json"
+        self._directory = definitions_root / "prompts"
         self._cache: tuple[PromptDefinition, ...] | None = None
 
     def load_all(self) -> tuple[PromptDefinition, ...]:
         if self._cache is None:
-            payload = json.loads(self._path.read_text(encoding="utf-8"))
-            if payload.get("schema_version") != "1.0.0":
-                raise ValueError("schema_version Prompt Registry tidak didukung")
-            prompts = tuple(PromptDefinition.model_validate(item) for item in payload["prompts"])
+            files = sorted(self._directory.glob("*.json"))
+            if not files:
+                raise ValueError("Prompt Registry tidak ditemukan")
+            items: list[PromptDefinition] = []
+            for path in files:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if payload.get("schema_version") != "1.0.0":
+                    raise ValueError("schema_version Prompt Registry tidak didukung")
+                items.extend(PromptDefinition.model_validate(item) for item in payload["prompts"])
+            prompts = tuple(items)
             keys = [(item.prompt_id, item.version) for item in prompts]
             if len(keys) != len(set(keys)):
                 raise ValueError("prompt_id dan version wajib unik")

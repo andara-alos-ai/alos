@@ -4,10 +4,11 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, cast
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import Engine, create_engine, text
 
+from alos.agents.contract import AgentDefinition
 from alos.agents.runtime import AgentExecutionPlan
 from alos.audit import compute_audit_entry_hash
 from alos.config import default_repository_root
@@ -343,6 +344,31 @@ class PostgresOperationalStore:
                     "status": execution.status.value,
                     "production_effect": False,
                 },
+            )
+
+    def record_agent_lifecycle_transition(
+        self,
+        before: AgentDefinition,
+        after: AgentDefinition,
+        principal: Principal,
+        action: str,
+        reason: str,
+        correlation_id: UUID,
+    ) -> None:
+        """Append an immutable audit entry for a human lifecycle operation."""
+
+        entity_id = uuid5(NAMESPACE_URL, f"alos-agent:{after.agent_id}:{after.version}")
+        with self._engine.begin() as connection:
+            self._append_audit(
+                connection,
+                principal,
+                action,
+                "agent_contract",
+                entity_id,
+                correlation_id,
+                before.model_dump(mode="json"),
+                after.model_dump(mode="json"),
+                reason,
             )
 
     def create_document(self, command: DocumentCreate, principal: Principal) -> DocumentView:

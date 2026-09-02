@@ -49,6 +49,7 @@ class GenesisAnalyzeLLMMetadata(BaseModel):
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     latency_ms: int = Field(default=0, ge=0)
+    estimated_cost_usd: float = Field(default=0.0, ge=0)
     redacted_fields: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
@@ -71,11 +72,9 @@ class GenesisAnalyzeContractDraft(BaseModel):
     agent_id: str
     name: str
     purpose: str
-    agent_kind: str
-    parent_agent_id: str | None = None
-    domain: str = "operations"
-    parent_agent_version: str | None = None
-    extends: str | None = None
+    agent_kind: str = "LOGICAL"
+    domain: str = "shared-enterprise"
+    division_scope: tuple[str, ...] = ()
     contract_version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
     human_owner: str = "Pemilik proses terkait"
     triggers: tuple[str, ...] = ("Permintaan pengguna berwenang",)
@@ -89,6 +88,16 @@ class GenesisAnalyzeContractDraft(BaseModel):
     forbidden_actions: tuple[str, ...] = ()
     kpi_metrics: tuple[str, ...] = ()
     escalation: tuple[str, ...] = ("Eskalasi ke pemilik proses manusia",)
+    prompt_ref: str = "genesis.validation@0.1.0"
+    model_policy_ref: str = "openai-primary-claude-fallback@0.1.0"
+    permission_policy_ref: str = "read-only-evidence@0.1.0"
+    risk_level: str = "LOW"
+    input_schema: dict[str, object] = Field(
+        default_factory=lambda: {"type": "object", "additionalProperties": False}
+    )
+    output_schema: dict[str, object] = Field(
+        default_factory=lambda: {"type": "object", "additionalProperties": False}
+    )
     version: str = Field(default="0.1.0", pattern=r"^\d+\.\d+\.\d+$")
     status: str = "DRAFT"
 
@@ -99,7 +108,7 @@ class GenesisAnalyzeResult(BaseModel):
     understanding: str
     strategy: GenesisStrategy
     strategy_justification: str
-    parent_core_agent_id: str
+    runtime_scope: str = "SHARED_AGENT_RUNTIME"
     business_owner: str
     domain: str
     agent_contract_draft: GenesisAnalyzeContractDraft

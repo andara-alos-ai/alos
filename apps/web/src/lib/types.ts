@@ -676,6 +676,7 @@ export type GenesisAnalyzeLLMMetadata = {
   input_tokens: number;
   output_tokens: number;
   latency_ms: number;
+  estimated_cost_usd: number;
   redacted_fields: string[];
   warnings: string[];
 };
@@ -685,13 +686,11 @@ export type GenesisAnalyzeContractDraft = {
   name: string;
   purpose: string;
   agent_kind: string;
-  parent_agent_id: string;
-  parent_agent_version: string | null;
   contract_version: string;
   domain: string;
+  division_scope: string[];
   human_owner: string;
   triggers: string[];
-  extends: string | null;
   inputs: string[];
   outputs: string[];
   source_of_truth: string[];
@@ -702,6 +701,12 @@ export type GenesisAnalyzeContractDraft = {
   forbidden_actions: string[];
   kpi_metrics: string[];
   escalation: string[];
+  prompt_ref: string;
+  model_policy_ref: string;
+  permission_policy_ref: string;
+  risk_level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
   version: string;
   status: string;
 };
@@ -710,7 +715,7 @@ export type GenesisAnalyzeResult = {
   understanding: string;
   strategy: "REUSE" | "EXTEND" | "CREATE";
   strategy_justification: string;
-  parent_core_agent_id: string;
+  runtime_scope: "SHARED_AGENT_RUNTIME";
   business_owner: string;
   domain: string;
   agent_contract_draft: GenesisAnalyzeContractDraft;

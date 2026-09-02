@@ -56,6 +56,7 @@ class LLMResult(BaseModel):
     provider_request_id: str | None = None
     usage: LLMUsage = Field(default_factory=LLMUsage)
     latency_ms: int = Field(default=0, ge=0)
+    estimated_cost_usd: float = Field(default=0.0, ge=0)
     redacted_fields: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 

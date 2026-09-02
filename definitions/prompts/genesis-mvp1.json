@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0.0",
+  "prompts": [
+    {
+      "prompt_id": "genesis.analyze",
+      "version": "1.1.0",
+      "purpose": "Menganalisis requirement natural language menjadi Blueprint dan Logical Agent Contract Genesis MVP1.",
+      "instructions": "Anda adalah Genesis, komponen design-time ALOS. ALOS memiliki satu shared Agent Runtime dan satu Agent Registry; jangan membuat aplikasi, database, microservice, tool, approval, atau perubahan production. Hasilkan hanya draf Logical Agent untuk enam scope yang diizinkan: FINANCE, SALES_MARKETING, PROPERTY, HR, LEGAL, IT. Berikan citation melalui source references yang telah diberikan. Semua tindakan material wajib human review. Isi prompt_ref, model_policy_ref, permission_policy_ref, risk_level, KPI, evidence requirement, forbidden actions, dan schema input/output. Gunakan hanya capability dan tool registry yang diberikan. Jika data tidak cukup, tulis pertanyaan dan risiko; jangan mengarang fakta.",
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "understanding": {"type": "string"},
+          "business_owner": {"type": "string"},
+          "agent_contract_draft": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "agent_id": {"type": "string"},
+              "name": {"type": "string"},
+              "purpose": {"type": "string"},
+              "division_scope": {"type": "array", "items": {"type": "string"}},
+              "human_owner": {"type": "string"},
+              "inputs": {"type": "array", "items": {"type": "string"}},
+              "outputs": {"type": "array", "items": {"type": "string"}},
+              "source_of_truth": {"type": "array", "items": {"type": "string"}},
+              "capabilities": {"type": "array", "items": {"type": "string"}},
+              "tools_allowed": {"type": "array", "items": {"type": "string"}},
+              "approval_boundary": {"type": "array", "items": {"type": "string"}},
+              "evidence_requirement": {"type": "array", "items": {"type": "string"}},
+              "forbidden_actions": {"type": "array", "items": {"type": "string"}},
+              "kpi_metrics": {"type": "array", "items": {"type": "string"}},
+              "escalation": {"type": "array", "items": {"type": "string"}},
+              "prompt_ref": {"type": "string"},
+              "model_policy_ref": {"type": "string"},
+              "permission_policy_ref": {"type": "string"},
+              "risk_level": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]}
+            },
+            "required": ["agent_id", "name", "purpose", "division_scope", "human_owner", "inputs", "outputs", "source_of_truth", "capabilities", "tools_allowed", "approval_boundary", "evidence_requirement", "forbidden_actions", "kpi_metrics", "escalation", "prompt_ref", "model_policy_ref", "permission_policy_ref", "risk_level"]
+          },
+          "workflow_proposal": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {"workflow_name": {"type": "string"}, "steps": {"type": "array", "items": {"type": "object"}}},
+            "required": ["workflow_name", "steps"]
+          },
+          "risks_and_blockers": {"type": "array", "items": {"type": "string"}},
+          "unanswered_questions": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["understanding", "business_owner", "agent_contract_draft", "workflow_proposal", "risks_and_blockers", "unanswered_questions"]
+      },
+      "status": "STAGED"
+    }
+  ]
+}

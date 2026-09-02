@@ -133,3 +133,33 @@ def test_local_google_oidc_accepts_registered_localhost_callback() -> None:
 def test_samesite_none_requires_secure_cookie() -> None:
     with pytest.raises(ValidationError, match="SameSite=None"):
         isolated_settings(session_cookie_samesite="none")
+
+
+def test_local_model_is_limited_to_local_or_test_environment() -> None:
+    with pytest.raises(ValidationError, match="local atau test"):
+        isolated_settings(
+            environment="staging",
+            auth_signing_secret="staging-signing-secret-value-9X7q2L",
+            llm_provider="local",
+            llm_model="ollama-test",
+        )
+
+
+def test_claude_fallback_requires_separate_secret_and_model() -> None:
+    with pytest.raises(ValidationError, match="Fallback Claude"):
+        isolated_settings(
+            llm_provider="openai",
+            llm_api_key="openai-test-key",
+            llm_model="gpt-test",
+            llm_fallback_provider="anthropic",
+        )
+
+    settings = isolated_settings(
+        llm_provider="openai",
+        llm_api_key="openai-test-key",
+        llm_model="gpt-test",
+        llm_fallback_provider="anthropic",
+        llm_fallback_api_key="anthropic-test-key",
+        llm_fallback_model="claude-test",
+    )
+    assert settings.llm_fallback_api_key_value == "anthropic-test-key"

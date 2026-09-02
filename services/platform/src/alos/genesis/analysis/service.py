@@ -1,7 +1,9 @@
+"""Genesis design-time analysis for logical agents in one shared runtime."""
+
 import re
 from typing import Any
 
-from alos.agents.contract import AgentDefinition, AgentKind, AgentReference, AgentStatus
+from alos.agents.contract import AgentDefinition, AgentKind, AgentStatus
 from alos.agents.registry import AgentRegistry, RegistryError
 from alos.genesis.analysis.models import (
     GenesisAnalyzeContractDraft,
@@ -17,14 +19,22 @@ from alos.llm import DataClassification, LLMGateway, LLMRequest, LLMResult, LLMR
 from alos.security import Principal, Role
 from alos.security.authorization import require_any_role
 
+DIVISIONS = ("FINANCE", "SALES_MARKETING", "PROPERTY", "HR", "LEGAL", "IT")
+
 
 def _has_word(text: str, words: tuple[str, ...]) -> bool:
-    pattern = r"\b(" + "|".join(re.escape(w) for w in words) + r")\b"
+    pattern = r"\b(" + "|".join(re.escape(word) for word in words) + r")\b"
     return bool(re.search(pattern, text, re.IGNORECASE))
 
 
+def _items(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(str(item).strip() for item in value if str(item).strip())
+
+
 class GenesisAnalyzeService:
-    """Analyze natural language workforce requirements into structured, fail-closed proposals."""
+    """Create fail-closed logical-agent blueprints; it never changes production."""
 
     def __init__(
         self,
@@ -50,159 +60,94 @@ class GenesisAnalyzeService:
         )
         if request.source_references:
             self._sources.validate_references(request.source_references, SourceUse.ANALYZE)
-
-        llm_request = LLMRequest(
-            prompt_id="genesis.analyze",
-            input_data={
-                "prompt": request.prompt,
-                "division_code": request.division_code,
-                "source_references": list(request.source_references),
-            },
-            classification=DataClassification.INTERNAL,
-            safety_identifier=f"user_{principal.user_id}",
-            max_output_tokens=3000,
-        )
-        llm_result = self._gateway.generate(llm_request)
-
-        if llm_result.status == LLMResultStatus.COMPLETED and llm_result.output:
-            return self._build_from_llm_output(
-                llm_result.output,
-                request.source_references,
-                llm_result,
+        llm_result = self._gateway.generate(
+            LLMRequest(
+                prompt_id="genesis.analyze",
+                input_data={
+                    "prompt": request.prompt,
+                    "division_code": request.division_code,
+                    "source_references": list(request.source_references),
+                    "shared_runtime": True,
+                },
+                classification=DataClassification.INTERNAL,
+                safety_identifier=f"user_{principal.user_id}",
+                max_output_tokens=3000,
             )
-
-        return self._build_deterministic_fallback(
-            request,
-            llm_result,
         )
+        if llm_result.status == LLMResultStatus.COMPLETED and llm_result.output:
+            return self._build_from_llm_output(llm_result.output, request, llm_result)
+        return self._build_deterministic_fallback(request, llm_result)
 
     def _build_from_llm_output(
         self,
         output: dict[str, Any],
-        source_references: tuple[str, ...],
+        request: GenesisAnalyzeRequest,
         llm_result: LLMResult,
     ) -> GenesisAnalyzeResult:
-        strategy_str = str(output.get("strategy", "EXTEND")).upper()
-        strategy = (
-            GenesisStrategy(strategy_str)
-            if strategy_str in GenesisStrategy.__members__
-            else GenesisStrategy.EXTEND
+        raw = output.get("agent_contract_draft")
+        raw_contract = raw if isinstance(raw, dict) else {}
+        division_scope = self._division_scope(
+            raw_contract.get("division_scope"), request.division_code
         )
-
-        parent_core = str(output.get("parent_core_agent_id") or "UNRESOLVED").upper().strip()
-
-        raw_contract = output.get("agent_contract_draft") or {}
-        if not isinstance(raw_contract, dict):
-            raw_contract = {}
-        extends_val = raw_contract.get("extends") or (
-            parent_core if strategy == GenesisStrategy.EXTEND else None
-        )
-        contract_draft = GenesisAnalyzeContractDraft(
-            agent_id=str(raw_contract.get("agent_id") or f"SUB_{parent_core}_CUSTOM"),
-            name=str(raw_contract.get("name") or "Custom Digital Workforce Agent"),
-            purpose=str(raw_contract.get("purpose") or output.get("understanding", "")),
-            agent_kind=str(raw_contract.get("agent_kind") or "SUB_AGENT"),
-            parent_agent_id=parent_core,
-            domain=str(raw_contract.get("domain") or output.get("domain") or "operations")
-            .strip()
-            .lower(),
-            parent_agent_version=(
-                str(raw_contract.get("parent_agent_version"))
-                if raw_contract.get("parent_agent_version")
-                else self._latest_core_version(parent_core)
+        draft = self._draft(
+            agent_id=str(raw_contract.get("agent_id") or self._agent_id(division_scope)),
+            name=str(raw_contract.get("name") or "Genesis Logical Agent"),
+            purpose=str(
+                raw_contract.get("purpose")
+                or output.get("understanding")
+                or request.prompt
             ),
-            extends=extends_val,
-            contract_version=str(raw_contract.get("contract_version") or "1.0.0"),
-            human_owner=str(raw_contract.get("human_owner") or output.get("business_owner") or ""),
-            triggers=tuple(str(item) for item in raw_contract.get("triggers", [])),
-            inputs=tuple(str(item) for item in raw_contract.get("inputs", [])),
-            outputs=tuple(str(item) for item in raw_contract.get("outputs", [])),
-            source_of_truth=tuple(str(item) for item in raw_contract.get("source_of_truth", [])),
-            capabilities=tuple(str(item) for item in raw_contract.get("capabilities", [])),
-            tools_allowed=tuple(str(item) for item in raw_contract.get("tools_allowed", [])),
-            approval_boundary=tuple(
-                str(item) for item in raw_contract.get("approval_boundary", [])
+            division_scope=division_scope,
+            owner=str(
+                raw_contract.get("human_owner")
+                or output.get("business_owner")
+                or "Pemilik proses terkait"
             ),
-            evidence_requirement=tuple(
-                str(item) for item in raw_contract.get("evidence_requirement", [])
+            capabilities=_items(raw_contract.get("capabilities")),
+            tools=_items(raw_contract.get("tools_allowed")),
+            inputs=_items(raw_contract.get("inputs")),
+            outputs=_items(raw_contract.get("outputs")),
+            source_of_truth=_items(raw_contract.get("source_of_truth")),
+            approval_boundary=_items(raw_contract.get("approval_boundary")),
+            evidence_requirement=_items(raw_contract.get("evidence_requirement")),
+            forbidden_actions=_items(raw_contract.get("forbidden_actions")),
+            metrics=_items(raw_contract.get("kpi_metrics")),
+            escalation=_items(raw_contract.get("escalation")),
+            risk_level=str(raw_contract.get("risk_level") or "LOW"),
+            prompt_ref=str(raw_contract.get("prompt_ref") or "genesis.validation@0.1.0"),
+            model_policy_ref=str(
+                raw_contract.get("model_policy_ref")
+                or "openai-primary-claude-fallback@0.1.0"
             ),
-            forbidden_actions=tuple(
-                str(item) for item in raw_contract.get("forbidden_actions", [])
+            permission_policy_ref=str(
+                raw_contract.get("permission_policy_ref") or "read-only-evidence@0.1.0"
             ),
-            kpi_metrics=tuple(str(item) for item in raw_contract.get("kpi_metrics", [])),
-            escalation=tuple(str(item) for item in raw_contract.get("escalation", [])),
-            version=str(raw_contract.get("version") or "0.1.0"),
-            status=str(raw_contract.get("status") or "DRAFT").upper(),
         )
-
-        raw_workflow = output.get("workflow_proposal") or {}
-        raw_steps = raw_workflow.get("steps") or []
-        steps = tuple(
-            GenesisAnalyzeWorkflowStep(
-                step_id=str(s.get("step_id") or f"STEP-{idx + 1}"),
-                name=str(s.get("name") or f"Langkah {idx + 1}"),
-                actor=str(s.get("actor") or "Human / Agent"),
-                description=str(s.get("description") or ""),
-            )
-            for idx, s in enumerate(raw_steps)
-        )
-        workflow_proposal = GenesisAnalyzeWorkflowProposal(
-            workflow_name=str(raw_workflow.get("workflow_name") or "Alur Kerja Digital Workforce"),
-            steps=steps,
-        )
-
-        required_contract_fields = {
-            "agent_id",
-            "name",
-            "purpose",
-            "agent_kind",
-            "parent_agent_id",
-            "parent_agent_version",
-            "contract_version",
-            "human_owner",
-            "triggers",
-            "domain",
-            "inputs",
-            "outputs",
-            "source_of_truth",
-            "capabilities",
-            "tools_allowed",
-            "approval_boundary",
-            "evidence_requirement",
-            "forbidden_actions",
-            "kpi_metrics",
-            "escalation",
-            "version",
-            "status",
-        }
-        missing_contract_fields = tuple(
-            sorted(field for field in required_contract_fields if field not in raw_contract)
-        )
+        workflow = self._workflow_from_output(output.get("workflow_proposal"), draft.name)
         validations = self._run_governance_validations(
-            contract_draft,
-            strategy,
-            parent_core,
-            missing_contract_fields=missing_contract_fields,
+            draft, request.source_references, raw_contract
         )
-
         return GenesisAnalyzeResult(
-            understanding=str(output.get("understanding") or ""),
-            strategy=strategy,
-            strategy_justification=str(output.get("strategy_justification") or ""),
-            parent_core_agent_id=parent_core,
-            business_owner=str(output.get("business_owner") or "Divisi Terkait"),
-            domain=str(output.get("domain") or "OPERATIONS"),
-            agent_contract_draft=contract_draft,
-            workflow_proposal=workflow_proposal,
-            risks_and_blockers=tuple(str(r) for r in output.get("risks_and_blockers", [])),
-            unanswered_questions=tuple(str(q) for q in output.get("unanswered_questions", [])),
-            governance_notes=str(
-                output.get("governance_notes")
-                or "Draf hasil analisis Genesis. production_effect=false."
+            understanding=str(output.get("understanding") or request.prompt),
+            strategy=GenesisStrategy.CREATE,
+            strategy_justification=(
+                "Genesis mengusulkan logical agent baru dalam shared Agent Runtime; "
+                "reuse atau extend hanya dipilih pada proposal contract berikutnya."
+            ),
+            runtime_scope="SHARED_AGENT_RUNTIME",
+            business_owner=draft.human_owner,
+            domain=draft.domain,
+            agent_contract_draft=draft,
+            workflow_proposal=workflow,
+            risks_and_blockers=_items(output.get("risks_and_blockers")),
+            unanswered_questions=_items(output.get("unanswered_questions")),
+            governance_notes=(
+                "Draf design-time. Genesis tidak dapat auto-approve, membuat tool, "
+                "mengaktifkan agent, atau mengubah production."
             ),
             validations=validations,
             production_effect=False,
-            source_references=source_references,
+            source_references=request.source_references,
             llm_result_status=llm_result.status.value,
             llm_metadata=self._llm_metadata(llm_result),
         )
@@ -212,303 +157,84 @@ class GenesisAnalyzeService:
         request: GenesisAnalyzeRequest,
         llm_result: LLMResult,
     ) -> GenesisAnalyzeResult:
-        prompt_text = request.prompt
-
-        inputs: tuple[str, ...]
-        outputs: tuple[str, ...]
-        capabilities: tuple[str, ...]
-        tools_allowed: tuple[str, ...]
-        approval_boundary: tuple[str, ...]
-        forbidden_actions: tuple[str, ...]
-        steps: tuple[GenesisAnalyzeWorkflowStep, ...]
-
-        # Keyword mapping for fallback analysis
-        if _has_word(
-            prompt_text,
-            ("lead", "sales", "crm", "customer", "prospek", "pembeli", "follow up", "follow-up"),
-        ):
-            parent_core = "SLA"
-            domain = "SALES"
-            business_owner = "Kepala Sales & Marketing"
-            strategy = GenesisStrategy.EXTEND
-            strategy_justification = (
-                "Kebutuhan terkait kualifikasi dan follow-up prospek memperluas fungsi SLA dan CFA."
-            )
-            agent_id = "SUB_SLA_QUALIFICATION_ASSISTANT"
-            name = "Sales Lead Qualification Assistant"
-            purpose = (
-                "Membantu tim Sales mengkualifikasi lead masuk dan menyusun rekomendasi"
-                " follow-up terstruktur."
-            )
-            inputs = ("lead_contact_info", "interaction_notes", "project_catalog")
-            outputs = ("lead_score", "qualification_tier", "recommended_follow_up")
-            capabilities = ("classify_lead", "recommend_follow_up", "schedule_follow_up_task")
-            tools_allowed = ("alos.lead.read", "alos.crm.read", "alos.work_item.create")
-            approval_boundary = (
-                "Tidak boleh memberikan diskon di luar wewenang",
-                "Reservasi unit wajib konfirmasi Sales Manager",
-            )
-            forbidden_actions = (
-                "Mengubah harga unit resmi",
-                "Menjanjikan ketersediaan unit tanpa verifikasi sistem",
-            )
-            steps = (
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-1",
-                    name="Intake Lead",
-                    actor="SLA",
-                    description="Penerimaan dan deduplikasi kontak prospek",
-                ),
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-2",
-                    name="Kualifikasi Prospek",
-                    actor="SUB_SLA_QUALIFICATION_ASSISTANT",
-                    description="Skoring minat dan daya beli prospek",
-                ),
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-3",
-                    name="Follow-Up Sales",
-                    actor="Sales PIC",
-                    description="Interaksi langsung dan presentasi unit",
-                ),
-            )
-        elif _has_word(
-            prompt_text,
-            ("invoice", "pembayaran", "vendor", "tagihan", "pajak", "anggaran", "kas", "rab"),
-        ):
-            parent_core = "FRA"
-            domain = "FINANCE"
-            business_owner = "Kepala Keuangan"
-            strategy = GenesisStrategy.EXTEND
-            strategy_justification = (
-                "Kebutuhan terkait verifikasi invoice dan pengajuan pembayaran vendor memperluas"
-                " fungsi FRA (Finance Reconciliation Agent) dan BCA."
-            )
-            agent_id = "SUB_FRA_VENDOR_INVOICE_CHECK"
-            name = "Vendor Payment & Invoice Verifier"
-            purpose = (
-                "Membantu Keuangan memverifikasi kelengkapan invoice, kesesuaian anggaran, dan"
-                " evidence pekerjaan vendor tanpa melakukan approval atau pembayaran mandiri."
-            )
-            inputs = (
-                "invoice_document",
-                "work_evidence",
-                "rab_budget_line",
-                "vendor_tax_data",
-            )
-            outputs = (
-                "invoice_verification_result",
-                "budget_match_status",
-                "tax_compliance_notes",
-            )
-            capabilities = (
-                "extract_invoice_fields",
-                "check_budget_deterministically",
-                "validate_invoice_rules",
-            )
-            tools_allowed = (
-                "alos.invoice.read",
-                "alos.budget.read",
-                "alos.tax_rule.read",
-            )
-            approval_boundary = (
-                "Tidak boleh menyetujui payment request secara mandiri",
-                "Approval wajib dilakukan Finance Human",
-            )
-            forbidden_actions = (
-                "Melakukan transfer dana atau eksekusi bank",
-                "Mengubah nominal anggaran RAB",
-                "Menyetujui approval step secara mandiri",
-            )
-            steps = (
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-1",
-                    name="Intake Dokumen",
-                    actor="Pemohon / DIA",
-                    description="Unggah invoice dan bukti pekerjaan",
-                ),
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-2",
-                    name="Pemeriksaan Anggaran & Pajak",
-                    actor="SUB_FRA_VENDOR_INVOICE_CHECK",
-                    description="Verifikasi invoice terhadap RAB dan validasi pajak",
-                ),
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-3",
-                    name="Approval Pembayaran",
-                    actor="Finance Human (ARA)",
-                    description="Review dan persetujuan pejabat berwenang",
-                ),
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-4",
-                    name="Eksekusi & Rekonsiliasi",
-                    actor="Finance Human & FRA",
-                    description="Pembayaran perbankan dan rekonsiliasi akhir",
-                ),
-            )
-        elif _has_word(
-            prompt_text,
-            (
-                "progres",
-                "lapangan",
-                "opname",
-                "konstruksi",
-                "defect",
-                "inspeksi",
-                "properti",
-                "property",
-            ),
-        ):
-            parent_core = "TPA"
-            domain = "PROPERTY"
-            business_owner = "Kepala Property"
-            strategy = GenesisStrategy.EXTEND
-            strategy_justification = (
-                "Kebutuhan inspeksi progres lapangan memperluas fungsi TPA"
-                " (Technical Progress Agent)."
-            )
-            agent_id = "SUB_TPA_SITE_INSPECTION_CHECK"
-            name = "Site Progress & Inspection Assistant"
-            purpose = (
-                "Membantu tim Property memverifikasi foto dan evidence fisik progres pekerjaan"
-                " kontraktor."
-            )
-            inputs = (
-                "site_photo_evidence",
-                "contractor_progress_claim",
-                "spk_milestone",
-            )
-            outputs = ("verified_physical_progress", "deviation_notes", "defect_list")
-            capabilities = (
-                "check_site_evidence",
-                "calculate_progress_variance",
-                "identify_defects",
-            )
-            tools_allowed = ("alos.evidence.read", "alos.property.read")
-            approval_boundary = (
-                "Opname resmi wajib diverifikasi Site Engineer manusia",
-                "Pembayaran progres bergantung pada persetujuan Property Head",
-            )
-            forbidden_actions = (
-                "Mengesahkan BAST tanpa verifikasi fisik Site Engineer",
-                "Menyetujui klaim progres kontraktor secara otonom",
-            )
-            steps = (
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-1",
-                    name="Unggah Evidence Progres",
-                    actor="Kontraktor / CEA",
-                    description="Pengunggahan bukti foto dan laporan fisik",
-                ),
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-2",
-                    name="Evaluasi Progres Fisik",
-                    actor="SUB_TPA_SITE_INSPECTION_CHECK",
-                    description="Analisis kesesuaian fisik terhadap milestone SPK",
-                ),
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-3",
-                    name="Verifikasi Opname",
-                    actor="Property Human",
-                    description="Pemeriksaan langsung dan persetujuan opname lapangan",
-                ),
-            )
-        else:
-            parent_core = "DIA"
-            domain = (
-                "EXECUTIVE"
-                if _has_word(prompt_text, ("direktur", "direksi", "eksekutif", "brief"))
-                else "OPERATIONS"
-            )
-            business_owner = "Divisi Terkait"
-            strategy = GenesisStrategy.CREATE
-            strategy_justification = (
-                "Kebutuhan umum dianalisis sebagai proposal kapabilitas baru dengan"
-                " basis Document Intelligence Agent (DIA)."
-            )
-            agent_id = f"SUB_{parent_core}_ASSISTANT"
-            name = "Digital Workforce Task Assistant"
-            purpose = f"Membantu operasi terkait: {request.prompt[:120]}..."
-            inputs = ("input_document", "context_parameters")
-            outputs = ("analysis_summary", "structured_findings")
-            capabilities = ("classify_document", "summarize_document")
-            tools_allowed = ("alos.document.read", "ai.document.analyze")
-            approval_boundary = ("Keputusan akhir tetap berada di tangan PIC manusia",)
-            forbidden_actions = ("Mengubah data master atau produksi secara sepihak",)
-            steps = (
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-1",
-                    name="Pengumpulan Data",
-                    actor="Pemohon / DIA",
-                    description="Pengumpulan berkas dan konteks kasus",
-                ),
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-2",
-                    name="Pemrosesan Draf",
-                    actor=agent_id,
-                    description="Ekstraksi dan penyusunan rekomendasi terstruktur",
-                ),
-                GenesisAnalyzeWorkflowStep(
-                    step_id="STEP-3",
-                    name="Review Manusia",
-                    actor="Human PIC",
-                    description="Verifikasi dan keputusan resmi",
-                ),
-            )
-
-        contract_draft = GenesisAnalyzeContractDraft(
-            agent_id=agent_id,
+        division, capability, tool, owner = self._profile(request)
+        division_scope = self._division_scope(None, request.division_code or division)
+        name = f"{division.replace('_', ' ').title()} Validation Agent"
+        draft = self._draft(
+            agent_id=self._agent_id(division_scope),
             name=name,
-            purpose=purpose,
-            agent_kind="SUB_AGENT",
-            parent_agent_id=parent_core,
-            domain=domain.lower(),
-            parent_agent_version=self._latest_core_version(parent_core),
-            contract_version="1.0.0",
-            human_owner=business_owner,
-            triggers=("Permintaan pengguna berwenang", "Data terkait berubah"),
-            extends=parent_core if strategy == GenesisStrategy.EXTEND else None,
-            inputs=inputs,
-            outputs=outputs,
-            source_of_truth=("Database ALOS", "Dokumen Terverifikasi"),
-            capabilities=capabilities,
-            tools_allowed=tools_allowed,
-            approval_boundary=approval_boundary,
-            evidence_requirement=("Dokumen pendukung valid", "Metadata lengkap"),
-            forbidden_actions=forbidden_actions,
-            kpi_metrics=("Tingkat kepatuhan validasi", "Latensi pemeriksaan"),
-            escalation=(
-                "Eskalasi ke pemilik proses manusia",
-                "Eskalasi ke AI Executive bila lintas divisi",
+            purpose=(
+                "Menganalisis requirement secara read-only, menghasilkan evidence dan "
+                "rekomendasi yang harus ditinjau manusia sebelum tindakan material."
             ),
-            version="0.1.0",
-            status="DRAFT",
+            division_scope=division_scope,
+            owner=owner,
+            capabilities=(capability,),
+            tools=(tool,),
+            inputs=("registered_source", "workspace_context"),
+            outputs=("structured_result", "citation_references"),
+            source_of_truth=("Registered source and version",),
+            approval_boundary=("Human review is required before any material action",),
+            evidence_requirement=("Every result includes registered source evidence",),
+            forbidden_actions=(
+                "write production data",
+                "approve its own release",
+                "create or modify a tool",
+            ),
+            metrics=("citation coverage", "test pass rate", "cost per run"),
+            escalation=("Escalate unsupported or conflicting evidence to the owner",),
+            risk_level="LOW",
+            prompt_ref="genesis.validation@0.1.0",
+            model_policy_ref="openai-primary-claude-fallback@0.1.0",
+            permission_policy_ref="read-only-evidence@0.1.0",
         )
-        workflow_proposal = GenesisAnalyzeWorkflowProposal(
-            workflow_name=f"Workflow Usulan - {name}",
-            steps=steps,
+        validations = self._run_governance_validations(
+            draft, request.source_references, None
         )
-        validations = self._run_governance_validations(contract_draft, strategy, parent_core)
-
         return GenesisAnalyzeResult(
-            understanding=f"Analisis kebutuhan: {request.prompt}",
-            strategy=strategy,
-            strategy_justification=strategy_justification,
-            parent_core_agent_id=parent_core,
-            business_owner=business_owner,
-            domain=domain,
-            agent_contract_draft=contract_draft,
-            workflow_proposal=workflow_proposal,
+            understanding=f"Analisis requirement: {request.prompt}",
+            strategy=GenesisStrategy.CREATE,
+            strategy_justification=(
+                "Requirement dirancang sebagai logical agent baru pada shared runtime, "
+                "bukan aplikasi atau microservice baru."
+            ),
+            runtime_scope="SHARED_AGENT_RUNTIME",
+            business_owner=owner,
+            domain="shared-enterprise",
+            agent_contract_draft=draft,
+            workflow_proposal=GenesisAnalyzeWorkflowProposal(
+                workflow_name=f"Genesis proposal — {name}",
+                steps=(
+                    GenesisAnalyzeWorkflowStep(
+                        step_id="ANALYZE",
+                        name="Analyze source and requirement",
+                        actor="Genesis",
+                        description="Analisis design-time dengan source reference terdaftar.",
+                    ),
+                    GenesisAnalyzeWorkflowStep(
+                        step_id="REVIEW",
+                        name="Human review",
+                        actor="Business and Technical Reviewers",
+                        description="Dua reviewer berbeda memeriksa contract dan evidence test.",
+                    ),
+                    GenesisAnalyzeWorkflowStep(
+                        step_id="RUN",
+                        name="Shared runtime execution",
+                        actor="Shared Agent Runtime",
+                        description="Runtime menjalankan capability yang diizinkan contract.",
+                    ),
+                ),
+            ),
             risks_and_blockers=(
-                "Aturan SLA dan ambang batas approval spesifik harus dikonfirmasi pemilik bisnis"
-                " sebelum rilis.",
+                "Capability, tool, permission, cost cap, dan source evidence harus tetap "
+                "lulus validasi sebelum release proposal.",
             ),
             unanswered_questions=(
-                "Apakah ada batasan nominal spesifik yang memerlukan eskalasi ke Direktur Utama?",
-                "Format dokumen apa saja yang diterima sebagai bukti sah?",
+                "Siapa owner bisnis yang menyetujui hasil dan KPI agent ini?",
             ),
             governance_notes=(
-                "Draf dihasilkan secara fail-closed pada design-time. production_effect=false."
+                "Fallback deterministik digunakan; tidak ada LLM, approval, aktivasi, "
+                "atau perubahan production yang dilakukan."
             ),
             validations=validations,
             production_effect=False,
@@ -517,41 +243,215 @@ class GenesisAnalyzeService:
             llm_metadata=self._llm_metadata(llm_result),
         )
 
-    def _latest_core_version(self, agent_id: str) -> str | None:
-        try:
-            agent = self._registry.get(agent_id)
-        except (KeyError, RegistryError):
-            return None
-        return agent.version if agent.agent_kind == AgentKind.CORE else None
+    @staticmethod
+    def _workflow_from_output(value: object, name: str) -> GenesisAnalyzeWorkflowProposal:
+        raw = value if isinstance(value, dict) else {}
+        raw_steps_value = raw.get("steps")
+        raw_steps: list[object] = list(raw_steps_value) if isinstance(raw_steps_value, list) else []
+        steps = tuple(
+            GenesisAnalyzeWorkflowStep(
+                step_id=str(item.get("step_id") or f"STEP_{index}"),
+                name=str(item.get("name") or f"Step {index}"),
+                actor=str(item.get("actor") or "Human reviewer"),
+                description=str(item.get("description") or "Review required."),
+            )
+            for index, item in enumerate(raw_steps, 1)
+            if isinstance(item, dict)
+        )
+        return GenesisAnalyzeWorkflowProposal(
+            workflow_name=str(raw.get("workflow_name") or f"Genesis proposal — {name}"),
+            steps=steps,
+        )
 
-    def _to_agent_definition(
+    @staticmethod
+    def _division_scope(value: object, requested: str | None) -> tuple[str, ...]:
+        candidates = (
+            _items(value)
+            if value is not None
+            else ((requested,) if requested else DIVISIONS)
+        )
+        normalized = tuple(
+            dict.fromkeys(item.upper() for item in candidates if item.upper() in DIVISIONS)
+        )
+        return normalized or DIVISIONS
+
+    @staticmethod
+    def _agent_id(division_scope: tuple[str, ...]) -> str:
+        scope = "ALL" if set(division_scope) == set(DIVISIONS) else "_".join(division_scope)
+        return f"GENESIS_{scope}_AGENT"[:64]
+
+    @staticmethod
+    def _profile(request: GenesisAnalyzeRequest) -> tuple[str, str, str, str]:
+        text = request.prompt
+        if request.division_code in DIVISIONS:
+            division = request.division_code
+        elif _has_word(text, ("invoice", "payment", "vendor", "budget", "pajak", "finance")):
+            division = "FINANCE"
+        elif _has_word(text, ("sales", "lead", "prospek", "customer", "marketing")):
+            division = "SALES_MARKETING"
+        elif _has_word(text, ("property", "properti", "permit", "deadline", "lapangan")):
+            division = "PROPERTY"
+        elif _has_word(text, ("hr", "recruitment", "karyawan", "personnel")):
+            division = "HR"
+        elif _has_word(text, ("legal", "kontrak", "compliance", "izin")):
+            division = "LEGAL"
+        elif _has_word(text, ("it", "security", "evidence", "audit")):
+            division = "IT"
+        else:
+            division = "ALL"
+        profiles = {
+            "FINANCE": ("validate_invoice_rules", "alos.invoice.read", "Kepala Keuangan"),
+            "SALES_MARKETING": (
+                "validate_lead_fields",
+                "alos.lead.read",
+                "Kepala Sales & Marketing",
+            ),
+            "PROPERTY": ("calculate_progress_variance", "alos.property.read", "Kepala Property"),
+            "HR": ("check_personnel_file_completeness", "alos.hr.read", "Kepala HR"),
+            "LEGAL": ("monitor_capa_deadline", "alos.legal.read", "Kepala Legal"),
+            "IT": ("validate_evidence_metadata", "alos.evidence.read", "Kepala IT"),
+            "ALL": ("aggregate_verified_facts", "alos.audit.read", "AI Executive Operating Layer"),
+        }
+        capability, tool, owner = profiles[division]
+        return division, capability, tool, owner
+
+    @staticmethod
+    def _draft(
+        *,
+        agent_id: str,
+        name: str,
+        purpose: str,
+        division_scope: tuple[str, ...],
+        owner: str,
+        capabilities: tuple[str, ...],
+        tools: tuple[str, ...],
+        inputs: tuple[str, ...],
+        outputs: tuple[str, ...],
+        source_of_truth: tuple[str, ...],
+        approval_boundary: tuple[str, ...],
+        evidence_requirement: tuple[str, ...],
+        forbidden_actions: tuple[str, ...],
+        metrics: tuple[str, ...],
+        escalation: tuple[str, ...],
+        risk_level: str,
+        prompt_ref: str,
+        model_policy_ref: str,
+        permission_policy_ref: str,
+    ) -> GenesisAnalyzeContractDraft:
+        return GenesisAnalyzeContractDraft(
+            agent_id=agent_id.upper().replace("-", "_"),
+            name=name,
+            purpose=purpose,
+            agent_kind="LOGICAL",
+            domain="shared-enterprise",
+            division_scope=division_scope,
+            human_owner=owner,
+            triggers=("ON_DEMAND", "SOURCE_UPDATED"),
+            inputs=inputs,
+            outputs=outputs,
+            source_of_truth=source_of_truth,
+            capabilities=capabilities,
+            tools_allowed=tools,
+            approval_boundary=approval_boundary,
+            evidence_requirement=evidence_requirement,
+            forbidden_actions=forbidden_actions,
+            kpi_metrics=metrics,
+            escalation=escalation,
+            prompt_ref=prompt_ref,
+            model_policy_ref=model_policy_ref,
+            permission_policy_ref=permission_policy_ref,
+            risk_level=risk_level.upper(),
+            status="DRAFT",
+        )
+
+    @staticmethod
+    def _llm_metadata(result: LLMResult) -> GenesisAnalyzeLLMMetadata:
+        return GenesisAnalyzeLLMMetadata(
+            provider=result.provider.value,
+            model=result.model,
+            prompt_id=result.prompt_id,
+            prompt_version=result.prompt_version,
+            prompt_digest=result.prompt_digest,
+            input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
+            latency_ms=result.latency_ms,
+            estimated_cost_usd=result.estimated_cost_usd,
+            redacted_fields=result.redacted_fields,
+            warnings=result.warnings,
+        )
+
+    def _run_governance_validations(
         self,
         draft: GenesisAnalyzeContractDraft,
-        parent_core: str,
-    ) -> AgentDefinition:
-        kind = AgentKind(draft.agent_kind.upper())
-        parent: AgentDefinition | None = None
-        if kind != AgentKind.CORE:
-            parent = self._registry.get(parent_core)
-            if parent.agent_kind != AgentKind.CORE:
-                raise RegistryError(f"Parent {parent_core} bukan Core Agent")
-        parent_version = (draft.parent_agent_version or parent.version) if parent else None
-        extends = None
-        if draft.extends:
-            extends_agent = self._registry.get(draft.extends)
-            extends = AgentReference(
-                agent_id=extends_agent.agent_id,
-                version=extends_agent.version,
+        source_references: tuple[str, ...],
+        raw_contract: dict[str, Any] | None,
+    ) -> tuple[GenesisValidation, ...]:
+        validations = [
+            GenesisValidation(
+                code="ORGANIZATION_LOCK",
+                passed=True,
+                message="Proposal tidak dapat mengubah struktur organisasi perusahaan.",
+            ),
+            GenesisValidation(
+                code="SHARED_RUNTIME_ONLY",
+                passed=draft.agent_kind == "LOGICAL" and draft.domain == "shared-enterprise",
+                message="Agent adalah logical agent pada shared runtime, bukan service baru.",
+            ),
+            GenesisValidation(
+                code="SOURCE_CITATION_REQUIRED",
+                passed=bool(source_references),
+                message=(
+                    "Source reference tersedia untuk citation."
+                    if source_references
+                    else "Tambahkan source reference sebelum proposal dapat masuk pipeline."
+                ),
+            ),
+            GenesisValidation(
+                code="HUMAN_AUTHORITY_BOUNDARY",
+                passed=bool(draft.approval_boundary) and bool(draft.forbidden_actions),
+                message="Approval boundary dan forbidden actions harus eksplisit.",
+            ),
+        ]
+        required_fields = {
+            "agent_id", "name", "purpose", "division_scope", "human_owner", "capabilities",
+            "tools_allowed", "approval_boundary", "evidence_requirement", "forbidden_actions",
+            "kpi_metrics", "prompt_ref", "model_policy_ref", "permission_policy_ref", "risk_level",
+        }
+        missing = sorted(required_fields - set(raw_contract)) if raw_contract is not None else []
+        contract_valid = False
+        message = "Agent Contract belum tervalidasi."
+        if not missing and draft.status == "DRAFT":
+            try:
+                self._registry.validate_candidate(self._to_agent_definition(draft))
+                contract_valid = True
+                message = "Logical Agent Contract lengkap dan kompatibel dengan registry."
+            except (RegistryError, ValueError) as exc:
+                message = f"Agent Contract tidak valid: {exc}"
+        elif missing:
+            message = "Output analisis belum memuat field wajib: " + ", ".join(missing)
+        validations.extend(
+            (
+                GenesisValidation(
+                    code="AGENT_CONTRACT_VALID", passed=contract_valid, message=message
+                ),
+                GenesisValidation(
+                    code="DESIGN_TIME_ONLY",
+                    passed=True,
+                    message="Genesis hanya menghasilkan DRAFT tanpa efek production.",
+                ),
             )
+        )
+        return tuple(validations)
+
+    @staticmethod
+    def _to_agent_definition(draft: GenesisAnalyzeContractDraft) -> AgentDefinition:
         return AgentDefinition(
             contract_version=draft.contract_version,
             agent_id=draft.agent_id,
             name=draft.name,
-            agent_kind=kind,
-            parent_agent_id=None if parent is None else parent.agent_id,
-            parent_agent_version=None if kind == AgentKind.CORE else parent_version,
-            extends=extends,
+            agent_kind=AgentKind.LOGICAL,
             domain=draft.domain,
+            division_scope=draft.division_scope,
             purpose=draft.purpose,
             human_owner=draft.human_owner,
             triggers=draft.triggers,
@@ -565,115 +465,12 @@ class GenesisAnalyzeService:
             forbidden_actions=draft.forbidden_actions,
             metrics=draft.kpi_metrics,
             escalation=draft.escalation,
+            prompt_ref=draft.prompt_ref,
+            model_policy_ref=draft.model_policy_ref,
+            permission_policy_ref=draft.permission_policy_ref,
+            risk_level=draft.risk_level,
+            input_schema=draft.input_schema,
+            output_schema=draft.output_schema,
             version=draft.version,
             status=AgentStatus.DRAFT,
         )
-
-    def _llm_metadata(self, result: LLMResult) -> GenesisAnalyzeLLMMetadata:
-        return GenesisAnalyzeLLMMetadata(
-            provider=result.provider.value,
-            model=result.model,
-            prompt_id=result.prompt_id,
-            prompt_version=result.prompt_version,
-            prompt_digest=result.prompt_digest,
-            input_tokens=result.usage.input_tokens,
-            output_tokens=result.usage.output_tokens,
-            latency_ms=result.latency_ms,
-            redacted_fields=result.redacted_fields,
-            warnings=result.warnings,
-        )
-
-    def _run_governance_validations(
-        self,
-        draft: GenesisAnalyzeContractDraft,
-        strategy: GenesisStrategy,
-        parent_core: str,
-        *,
-        missing_contract_fields: tuple[str, ...] = (),
-    ) -> tuple[GenesisValidation, ...]:
-        validations: list[GenesisValidation] = []
-        try:
-            core_ids = {agent.agent_id for agent in self._registry.load_top_level()}
-        except RegistryError:
-            core_ids = set()
-
-        validations.append(
-            GenesisValidation(
-                code="ORGANIZATION_LOCK",
-                passed=True,
-                message=(
-                    "Proposal tidak mengubah struktur organisasi; agent top-level maupun"
-                    " turunan tetap wajib melewati governance gate."
-                ),
-            )
-        )
-
-        is_top_level = draft.agent_kind.upper() == "CORE"
-        parent_valid = is_top_level or parent_core in core_ids
-        validations.append(
-            GenesisValidation(
-                code="VALID_PARENT_CORE",
-                passed=parent_valid,
-                message=(
-                    "Agent top-level tidak memerlukan parent."
-                    if is_top_level
-                    else f"Parent Core Agent {parent_core} terdaftar dalam Agent Registry."
-                    if parent_valid
-                    else f"Parent Core Agent {parent_core} tidak ditemukan pada Agent Registry."
-                ),
-            )
-        )
-
-        has_boundaries = bool(draft.approval_boundary) and bool(draft.forbidden_actions)
-        validations.append(
-            GenesisValidation(
-                code="HUMAN_AUTHORITY_BOUNDARY",
-                passed=has_boundaries,
-                message=(
-                    "Batas kewenangan manusia dan larangan tindakan material "
-                    "ditetapkan secara eksplisit."
-                    if has_boundaries
-                    else "Approval boundary dan forbidden actions wajib diisi."
-                ),
-            )
-        )
-
-        contract_valid = False
-        contract_error = "Agent Contract belum tervalidasi terhadap schema dan registry."
-        if (
-            not missing_contract_fields
-            and parent_valid
-            and draft.status.upper() == "DRAFT"
-        ):
-            try:
-                candidate = self._to_agent_definition(draft, parent_core)
-                self._registry.validate_candidate(candidate)
-                contract_valid = True
-                contract_error = "Agent Contract lengkap dan seluruh referensi terdaftar."
-            except (KeyError, RegistryError, ValueError) as exc:
-                contract_error = f"Agent Contract tidak valid: {exc}"
-        elif missing_contract_fields:
-            contract_error = (
-                "Output analisis belum memuat field Agent Contract wajib: "
-                + ", ".join(missing_contract_fields)
-            )
-
-        validations.append(
-            GenesisValidation(
-                code="AGENT_CONTRACT_VALID",
-                passed=contract_valid,
-                message=contract_error,
-            )
-        )
-
-        validations.append(
-            GenesisValidation(
-                code="DESIGN_TIME_ONLY",
-                passed=True,
-                message=(
-                    "Draf berstatus design-time tanpa efek perubahan langsung ke production"
-                    " (production_effect=false)."
-                ),
-            )
-        )
-        return tuple(validations)

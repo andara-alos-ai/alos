@@ -19,6 +19,12 @@ class GenesisDesignService:
     def __init__(self, registry: AgentRegistry) -> None:
         self._registry = registry
 
+    @property
+    def registry(self) -> AgentRegistry:
+        """The shared registry used for validation; this is not a per-agent registry."""
+
+        return self._registry
+
     def propose(self, request: GenesisChangeRequest) -> GenesisProposal:
         if request.strategy == GenesisStrategy.REUSE:
             return self._propose_reuse(request)
@@ -31,7 +37,11 @@ class GenesisDesignService:
         resolved: AgentDefinition | None = None
         try:
             resolved = self._registry.get(request.target.agent_id, request.target.version)
-            runnable = resolved.status in {AgentStatus.STAGED, AgentStatus.RELEASED}
+            runnable = resolved.status in {
+                AgentStatus.STAGED,
+                AgentStatus.RELEASED,
+                AgentStatus.ACTIVE,
+            }
             validations.append(
                 GenesisValidation(
                     code="TARGET_RUNNABLE",
@@ -144,7 +154,11 @@ class GenesisDesignService:
                     message="Base EXTEND ditemukan dalam Agent Registry.",
                 )
             )
-            runnable = base.status in {AgentStatus.STAGED, AgentStatus.RELEASED}
+            runnable = base.status in {
+                AgentStatus.STAGED,
+                AgentStatus.RELEASED,
+                AgentStatus.ACTIVE,
+            }
             validations.append(
                 GenesisValidation(
                     code="BASE_RUNNABLE",

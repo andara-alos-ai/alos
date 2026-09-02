@@ -29,12 +29,18 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_model: str = Field(default="", max_length=120)
     llm_base_url: str | None = None
+    llm_fallback_provider: Literal["disabled", "anthropic"] = "disabled"
+    llm_fallback_api_key: SecretStr | None = None
+    llm_fallback_model: str = Field(default="", max_length=120)
+    llm_fallback_base_url: str | None = None
     llm_timeout_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
     llm_max_data_classification: Literal[
         "PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"
     ] = "INTERNAL"
     llm_daily_request_limit: int = Field(default=500, ge=1, le=100_000)
     llm_daily_output_token_limit: int = Field(default=500_000, ge=1_000, le=100_000_000)
+    llm_input_token_cost_usd: float = Field(default=0.0, ge=0, le=10)
+    llm_output_token_cost_usd: float = Field(default=0.0, ge=0, le=10)
     auth_issuer: str = "alos-local"
     auth_audience: str = "alos-platform"
     auth_signing_secret: SecretStr = Field(
@@ -153,7 +159,16 @@ class Settings(BaseSettings):
             raise ValueError("OIDC staging/production wajib menggunakan HTTPS")
 
     def _validate_llm_configuration(self) -> None:
+        if self.llm_provider == "local" and self.environment not in {"local", "test"}:
+            raise ValueError("Ollama/local hanya boleh digunakan pada environment local atau test")
+        if (
+            self.environment in {"staging", "production"}
+            and self.llm_provider not in {"disabled", "openai"}
+        ):
+            raise ValueError("OpenAI wajib menjadi provider utama pada staging/production")
         if self.llm_provider == "disabled":
+            if self.llm_fallback_provider != "disabled":
+                raise ValueError("Fallback tidak dapat aktif ketika provider utama dinonaktifkan")
             return
         if self.llm_provider in {"openai", "anthropic"} and (
             self.llm_api_key is None or not self.llm_api_key.get_secret_value().strip()
@@ -169,6 +184,18 @@ class Settings(BaseSettings):
                 raise ValueError("ALOS_LLM_BASE_URL tidak boleh memuat credential atau fragment")
             if self.environment in {"staging", "production"} and parsed.scheme != "https":
                 raise ValueError("Endpoint LLM staging/production wajib HTTPS")
+        if self.llm_fallback_provider == "anthropic":
+            fallback_key = self.llm_fallback_api_key_value
+            if not fallback_key or not self.llm_fallback_model.strip():
+                raise ValueError("Fallback Claude memerlukan API key dan model terpisah")
+            if self.llm_fallback_base_url:
+                parsed = urlsplit(self.llm_fallback_base_url)
+                if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                    raise ValueError("ALOS_LLM_FALLBACK_BASE_URL bukan URL HTTP(S) yang valid")
+                if parsed.username or parsed.password or parsed.fragment:
+                    raise ValueError("ALOS_LLM_FALLBACK_BASE_URL tidak boleh memuat credential")
+                if self.environment in {"staging", "production"} and parsed.scheme != "https":
+                    raise ValueError("Endpoint fallback staging/production wajib HTTPS")
 
     def _validate_n8n_configuration(self) -> None:
         url = (self.n8n_webhook_url or "").strip()
@@ -228,6 +255,13 @@ class Settings(BaseSettings):
         if self.oidc_client_secret is None:
             return None
         value = self.oidc_client_secret.get_secret_value().strip()
+        return value or None
+
+    @property
+    def llm_fallback_api_key_value(self) -> str | None:
+        if self.llm_fallback_api_key is None:
+            return None
+        value = self.llm_fallback_api_key.get_secret_value().strip()
         return value or None
 
     @property

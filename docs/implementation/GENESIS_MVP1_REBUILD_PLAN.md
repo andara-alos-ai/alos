@@ -1,6 +1,6 @@
 # GENESIS MVP1 — Rencana Rebuild Terkendali
 
-**Status:** DRAFT — menunggu persetujuan sebelum pembersihan atau perubahan aplikasi  
+**Status:** IMPLEMENTATION IN PROGRESS — persetujuan diterima, branch `develop` aktif
 **Tanggal audit:** 2 September 2026  
 **Baseline desain:** `C:\Users\User\Downloads\GENESIS_MVP1_Timeline_1_Minggu_Breakdown_Harian_v8.3_02-09-2026.docx` (berkas lampiran yang tersedia)  
 **Otoritas:** permintaan pengguna pada task ini selalu mengalahkan isi baseline bila ada perbedaan.
@@ -57,7 +57,7 @@ Direktur Utama dan AI Executive Operating Layer adalah lapisan lintas divisi. Ke
 | P1 | UI berisi dashboard dan halaman operasional per divisi. | Mengalihkan delivery dari vertical slice Genesis. | Tahan/arsipkan UI legacy; MVP hanya perlu Genesis, registry, review, run, audit/cost. |
 | P2 | Migrasi historis mencampur foundation, workflow bisnis, pilot, dan hardening. | Fresh bootstrap MVP sulit dibaca. | Jangan hapus migrasi historis; buat baseline baru yang additive/terdokumentasi setelah cleanup disetujui. |
 
-## 3. Daftar Disposisi Awal — Belum Dieksekusi
+## 3. Daftar Disposisi Awal dan Implementasi
 
 Tidak ada file dalam daftar ini yang dihapus atau dipindahkan pada Tahap 0–1. “Hapus” berarti kandidat pembersihan aplikasi **setelah** persetujuan tertulis, branch baru, snapshot perubahan lokal, dan verifikasi bahwa tidak ada data produksi/credential di dalamnya.
 
@@ -76,7 +76,14 @@ Tidak ada file dalam daftar ini yang dihapus atau dipindahkan pada Tahap 0–1. 
 - Definisi legacy `definitions/agents/core/**` diekspor ke arsip definisi sebelum digantikan oleh tiga contract validation agent. Arsip tidak menjadi registry aktif.
 - Bukti UAT dan laporan audit lama disimpan sebagai evidence dengan tanggal, bukan diperlakukan sebagai spesifikasi current state.
 
-### Kandidat penghapusan aplikasi setelah persetujuan
+### Pembersihan aplikasi yang sudah dieksekusi setelah persetujuan
+
+- Route frontend legacy yang tidak mendukung vertical slice dihapus: `documents`, `executive`, `field`, `finance`, `governance`, `hr`, `legal`, `projects`, `property`, `risks`, `sales`, `system-health`, `uat`, `users`, `work-queue`, `workflows`, dan workspace division page.
+- `apps/web/src/lib/catalog.ts` beserta test catalog lama dihapus; navigasi kini hanya Home, Genesis, Agents, dan Approvals.
+- Halaman Genesis diganti menjadi draft-only. Ia hanya menyimpan conversation dan mengirim requirement; tidak ada lagi auto-review, auto-stage, auto-release, atau auto-activate dari frontend.
+- Tidak ada `.git`, `.env`, credential, backup, data production, atau migrasi historis yang dihapus.
+
+### Kandidat pembersihan lanjutan
 
 - Dashboard dan route operasional yang tidak mendukung vertical slice MVP: `apps/web/src/app/{executive,finance,hr,legal,property,sales,work-queue,workflows,field,documents,projects,risks,uat,users,system-health}/` beserta feature module khususnya setelah screen pengganti tersedia.
 - Workflow/domain implementation lama: `services/platform/src/alos/platform/{operations,dispatch,documents,readiness}/`, handler domain khusus di `services/platform/src/alos/agents/runtime/builtin_handlers.py`, dan module workflow/operasi khusus Finance, Sales, Property, HR, Legal, Executive.
@@ -243,7 +250,7 @@ MVP1 dinyatakan siap untuk controlled internal pilot jika seluruh syarat ini lul
 
 Sebelum setiap batch perubahan akan disampaikan: tujuan, file/folder, risiko, cara rollback, dan test. Urutannya:
 
-1. Buat branch `codex/genesis-mvp1-rebuild` dari state yang pengguna setujui; tidak ada `reset --hard` atau penghapusan data.
+1. Branch `develop` telah dibuat dari state yang pengguna setujui; tidak ada `reset --hard` atau penghapusan data.
 2. Snapshot/arsipkan definisi dan dokumentasi legacy, lalu sederhanakan UI/API ke vertical slice Genesis.
 3. Refactor contract/registry/lifecycle dan migrasi additive untuk activation, cost ledger, source/citation, test evidence, and rollback pointer.
 4. Implementasikan satu jalur end-to-end menggunakan synthetic data sampai bisa menjalankan satu agent.
@@ -254,3 +261,13 @@ Sebelum setiap batch perubahan akan disampaikan: tujuan, file/folder, risiko, ca
 - Render visual baseline DOCX tidak tersedia karena executable LibreOffice tidak ada di host ini. Seluruh 105 paragraf dan 27 tabel telah diekstrak/ditinjau secara struktural; tidak ada dokumen yang diedit.
 - Test PostgreSQL yang sengaja membutuhkan service integrasi masih `skip` pada audit lokal; fresh migration, backup/restore, dan smoke test database tetap merupakan gate implementasi.
 - Harga/infrastruktur pada baseline adalah planning estimate 2 September 2026. Ia tidak menjadi perubahan procurement atau konfigurasi production.
+
+## 14. Catatan Implementasi Saat Ini
+
+- Snapshot lokal pra-rebuild tersimpan pada commit `7fdfed1` di branch `develop`.
+- Agent Contract mendukung logical agent, division scope, policy reference, risk, input/output schema, serta status ACTIVE/SUSPENDED/ROLLED_BACK.
+- Genesis release sekarang mematerialisasi contract immutable ke shared Agent Registry. Runtime memilih versi ACTIVE bila caller tidak mem-pin versi.
+- Tiga validation agent dibuat melalui pipeline Genesis pada data sintetis: `DAILY_BRIEF`, `EVIDENCE_CHECKER`, dan `PERMIT_OVERDUE_MONITOR`.
+- Jalur test isolated membuktikan CREATE → two human reviews → stage → release → activate → run → tool denial → suspend → rollback.
+- Model Gateway memakai OpenAI primary, Claude fallback opsional, local hanya environment local/test, dan menghitung token/latency/estimated cost dalam metadata runtime.
+- Registry memvalidasi reference prompt, model policy, permission policy, dan effect tool terhadap artefak konfigurasi berversi sebelum logical contract dapat dirilis.

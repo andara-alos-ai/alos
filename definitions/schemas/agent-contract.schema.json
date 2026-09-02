@@ -3,7 +3,12 @@
   "$id": "https://schemas.alos.internal/agents/agent-contract-1.0.0.schema.json",
   "$defs": {
     "AgentKind": {
-      "enum": ["CORE", "SUB_AGENT", "SUB_SUB_AGENT"],
+      "enum": [
+        "CORE",
+        "SUB_AGENT",
+        "SUB_SUB_AGENT",
+        "LOGICAL"
+      ],
       "title": "AgentKind",
       "type": "string"
     },
@@ -22,7 +27,10 @@
           "type": "string"
         }
       },
-      "required": ["agent_id", "version"],
+      "required": [
+        "agent_id",
+        "version"
+      ],
       "title": "AgentReference",
       "type": "object"
     },
@@ -34,6 +42,9 @@
         "REVIEWED",
         "STAGED",
         "RELEASED",
+        "ACTIVE",
+        "SUSPENDED",
+        "ROLLED_BACK",
         "DEPRECATED",
         "RETIRED"
       ],
@@ -64,24 +75,38 @@
     },
     "parent_agent_id": {
       "anyOf": [
-        {"pattern": "^[A-Z][A-Z0-9_]{1,63}$", "type": "string"},
-        {"type": "null"}
+        {
+          "pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
       ],
       "default": null,
       "title": "Parent Agent Id"
     },
     "parent_agent_version": {
       "anyOf": [
-        {"pattern": "^\\d+\\.\\d+\\.\\d+$", "type": "string"},
-        {"type": "null"}
+        {
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
       ],
       "default": null,
       "title": "Parent Agent Version"
     },
     "extends": {
       "anyOf": [
-        {"$ref": "#/$defs/AgentReference"},
-        {"type": "null"}
+        {
+          "$ref": "#/$defs/AgentReference"
+        },
+        {
+          "type": "null"
+        }
       ],
       "default": null
     },
@@ -91,79 +116,211 @@
       "title": "Domain",
       "type": "string"
     },
-    "purpose": {"minLength": 20, "title": "Purpose", "type": "string"},
-    "human_owner": {"minLength": 3, "title": "Human Owner", "type": "string"},
+    "division_scope": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Division Scope",
+      "type": "array"
+    },
+    "purpose": {
+      "minLength": 20,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "human_owner": {
+      "minLength": 3,
+      "title": "Human Owner",
+      "type": "string"
+    },
     "triggers": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "title": "Triggers",
       "type": "array"
     },
     "inputs": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "title": "Inputs",
       "type": "array"
     },
     "source_of_truth": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "title": "Source Of Truth",
       "type": "array"
     },
     "capabilities": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "title": "Capabilities",
       "type": "array"
     },
     "outputs": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "title": "Outputs",
       "type": "array"
     },
     "tools_allowed": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "title": "Tools Allowed",
       "type": "array"
     },
     "approval_boundary": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "title": "Approval Boundary",
       "type": "array"
     },
     "evidence_requirement": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "title": "Evidence Requirement",
       "type": "array"
     },
     "forbidden_actions": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "title": "Forbidden Actions",
       "type": "array"
     },
     "metrics": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "title": "Metrics",
       "type": "array"
     },
     "escalation": {
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "title": "Escalation",
       "type": "array"
+    },
+    "prompt_ref": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 3,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prompt Ref"
+    },
+    "model_policy_ref": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 3,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Policy Ref"
+    },
+    "permission_policy_ref": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 3,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Permission Policy Ref"
+    },
+    "risk_level": {
+      "anyOf": [
+        {
+          "pattern": "^(LOW|MEDIUM|HIGH|CRITICAL)$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Risk Level"
+    },
+    "input_schema": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Input Schema"
+    },
+    "output_schema": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Output Schema"
+    },
+    "rollback_target": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "version": {
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
       "title": "Version",
       "type": "string"
     },
-    "status": {"$ref": "#/$defs/AgentStatus"}
+    "status": {
+      "$ref": "#/$defs/AgentStatus"
+    }
   },
   "required": [
     "contract_version",

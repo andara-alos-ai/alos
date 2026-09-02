@@ -14,7 +14,7 @@ from alos.llm.models import (
     LLMResult,
     LLMResultStatus,
 )
-from alos.llm.prompts import PromptRegistry
+from alos.llm.prompts import PromptDefinition, PromptRegistry
 from alos.llm.providers import LLMProviderAdapter
 from alos.validation import validate_json_schema
 
@@ -33,17 +33,23 @@ class LLMGateway:
         self,
         prompts: PromptRegistry,
         provider: LLMProviderAdapter,
+        fallback_provider: LLMProviderAdapter | None = None,
         *,
         max_classification: DataClassification = DataClassification.INTERNAL,
         daily_request_limit: int = 500,
         daily_output_token_limit: int = 500_000,
+        input_token_cost_usd: float = 0.0,
+        output_token_cost_usd: float = 0.0,
         max_attempts: int = 2,
     ) -> None:
         self._prompts = prompts
         self._provider = provider
+        self._fallback_provider = fallback_provider
         self._max_classification = max_classification
         self._daily_request_limit = daily_request_limit
         self._daily_output_token_limit = daily_output_token_limit
+        self._input_token_cost_usd = input_token_cost_usd
+        self._output_token_cost_usd = output_token_cost_usd
         self._max_attempts = max(1, min(max_attempts, 3))
         self._lock = threading.Lock()
         self._budget_date = date.today()
@@ -79,10 +85,66 @@ class LLMGateway:
             )
         redacted, redacted_fields = self._redact_mapping(request.input_data)
         safety_hash = hashlib.sha256(request.safety_identifier.encode("utf-8")).hexdigest()[:64]
+        result, last_error = self._invoke_provider(
+            self._provider, prompt, redacted, request, safety_hash, redacted_fields
+        )
+        if result is not None:
+            return result
+        if (
+            self._fallback_provider is not None
+            and self._fallback_provider.provider != LLMProvider.DISABLED
+        ):
+            fallback, fallback_error = self._invoke_provider(
+                self._fallback_provider,
+                prompt,
+                redacted,
+                request,
+                safety_hash,
+                redacted_fields,
+            )
+            if fallback is not None:
+                return fallback.model_copy(
+                    update={
+                        "warnings": (
+                            f"Primary provider {self._provider.provider.value} failed; "
+                            f"fallback {self._fallback_provider.provider.value} used.",
+                        )
+                    }
+                )
+            last_error = fallback_error or last_error
+        self._release_reservation(request.max_output_tokens)
+        failed_provider = (
+            self._fallback_provider
+            if self._fallback_provider is not None
+            and self._fallback_provider.provider != LLMProvider.DISABLED
+            else self._provider
+        )
+        return LLMResult(
+            status=LLMResultStatus.FAILED,
+            provider=failed_provider.provider,
+            prompt_id=prompt.prompt_id,
+            prompt_version=prompt.version,
+            prompt_digest=prompt.prompt_digest,
+            redacted_fields=redacted_fields,
+            warnings=(
+                "Panggilan LLM gagal aman setelah primary/fallback policy: "
+                f"{type(last_error or RuntimeError()).__name__}",
+            ),
+        )
+
+    def _invoke_provider(
+        self,
+        provider: LLMProviderAdapter,
+        prompt: PromptDefinition,
+        redacted: Mapping[str, Any],
+        request: LLMRequest,
+        safety_hash: str,
+        redacted_fields: tuple[str, ...],
+    ) -> tuple[LLMResult | None, Exception | None]:
         last_error: Exception | None = None
         for _attempt in range(1, self._max_attempts + 1):
             try:
-                provider_result = self._provider.generate(
+                provider_result = provider.generate(
                     prompt, redacted, request.max_output_tokens, safety_hash
                 )
                 validate_json_schema(provider_result.output, prompt.output_schema)
@@ -92,7 +154,7 @@ class LLMGateway:
                 return LLMResult(
                     status=LLMResultStatus.COMPLETED,
                     output=provider_result.output,
-                    provider=self._provider.provider,
+                    provider=provider.provider,
                     model=provider_result.model,
                     prompt_id=prompt.prompt_id,
                     prompt_version=prompt.version,
@@ -100,25 +162,15 @@ class LLMGateway:
                     provider_request_id=provider_result.request_id,
                     usage=provider_result.usage,
                     latency_ms=provider_result.latency_ms,
+                    estimated_cost_usd=(
+                        provider_result.usage.input_tokens * self._input_token_cost_usd
+                        + provider_result.usage.output_tokens * self._output_token_cost_usd
+                    ),
                     redacted_fields=redacted_fields,
-                )
+                ), None
             except (ValueError, RuntimeError, OSError, httpx.HTTPError) as exc:
                 last_error = exc
-        if last_error is None:
-            last_error = RuntimeError("LLM gagal tanpa detail error")
-        self._release_reservation(request.max_output_tokens)
-        return LLMResult(
-            status=LLMResultStatus.FAILED,
-            provider=self._provider.provider,
-            prompt_id=prompt.prompt_id,
-            prompt_version=prompt.version,
-            prompt_digest=prompt.prompt_digest,
-            redacted_fields=redacted_fields,
-            warnings=(
-                f"Panggilan LLM gagal aman setelah {self._max_attempts} percobaan: "
-                f"{type(last_error).__name__}",
-            ),
-        )
+        return None, last_error or RuntimeError("LLM gagal tanpa detail error")
 
     def _reserve_budget(self, requested_tokens: int) -> bool:
         with self._lock:
