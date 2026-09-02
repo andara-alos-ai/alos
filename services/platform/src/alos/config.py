@@ -14,11 +14,11 @@ def repository_root() -> Path:
 
 
 class Settings(BaseSettings):
-    """Configuration deliberately limited to the Genesis MVP1 boundary."""
+    """Configuration deliberately limited to the ALOS staging boundary."""
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="ALOS_", extra="ignore")
 
-    application_name: str = "ALOS Genesis MVP1"
+    application_name: str = "ALOS"
     environment: Environment = "local"
     log_level: str = "INFO"
     api_host: str = "0.0.0.0"
@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     llm_fallback_model: str = ""
     llm_fallback_base_url: str | None = None
     llm_timeout_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
+    llm_store_responses: bool = False
+    llm_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "medium"
+    llm_max_output_tokens: int = Field(default=3_000, ge=256, le=128_000)
     llm_max_data_classification: Literal[
         "PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"
     ] = "INTERNAL"
@@ -52,6 +55,7 @@ class Settings(BaseSettings):
     llm_daily_output_token_limit: int = Field(default=500_000, ge=1_000)
 
     repository_root: Path = Field(default_factory=repository_root)
+    migrations_path: Path | None = None
 
     @model_validator(mode="after")
     def validate_security_boundary(self) -> "Settings":
@@ -70,6 +74,10 @@ class Settings(BaseSettings):
             self.llm_api_key is None or not self.llm_api_key.get_secret_value().strip()
         ):
             raise ValueError("an enabled LLM provider requires an environment secret")
+        if self.llm_provider != "disabled" and not self.llm_model.strip():
+            raise ValueError("an enabled LLM provider requires a model policy")
+        if self.environment in {"staging", "production"} and self.llm_store_responses:
+            raise ValueError("staging/production must keep provider response storage disabled")
         return self
 
 

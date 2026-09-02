@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ALOS Genesis MVP1",
+  title: "ALOS",
   description: "Genesis AI Executive Operating Layer",
 };
 

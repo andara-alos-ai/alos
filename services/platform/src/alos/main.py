@@ -11,7 +11,7 @@ from alos.security.tokens import (
     issue_local_token,
 )
 
-app = FastAPI(title="ALOS Genesis MVP1", version="0.1.0")
+app = FastAPI(title="ALOS", version="0.1.0")
 
 
 @app.get("/health")
@@ -19,7 +19,7 @@ def health() -> dict[str, str]:
     settings = get_settings()
     return {
         "status": "ok",
-        "service": "alos-genesis-mvp1",
+        "service": "alos",
         "environment": settings.environment,
     }
 

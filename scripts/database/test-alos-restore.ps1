@@ -23,7 +23,7 @@ $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $composePath = if ($ComposeFile) {
     (Resolve-Path $ComposeFile).Path
 } else {
-    (Resolve-Path (Join-Path $repositoryRoot "infra\compose\compose.application.yaml")).Path
+    (Resolve-Path (Join-Path $repositoryRoot "infra\compose\compose.yaml")).Path
 }
 $resolvedBackup = (Resolve-Path $BackupFile).Path
 $manifestPath = "$resolvedBackup.manifest.json"

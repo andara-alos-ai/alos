@@ -8,7 +8,7 @@ from alos.main import app
 def test_health_returns_platform_identity() -> None:
     response = TestClient(app).get("/health")
     assert response.status_code == 200
-    assert response.json()["service"] == "alos-genesis-mvp1"
+    assert response.json()["service"] == "alos"
 
 
 def test_local_token_carries_human_scope() -> None:

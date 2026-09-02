@@ -1,4 +1,4 @@
-# ALOS — Genesis MVP1
+# ALOS — Andara Leaverage Operating Sistem
 
 ALOS adalah satu aplikasi internal dengan satu **Genesis** sebagai AI Executive
 Operating Layer dan satu shared Agent Runtime. Genesis membuat serta mengelola
@@ -24,5 +24,7 @@ atau role manusia.
    `python -m alos.persistence.migrations` dari `services/platform`.
 4. Jalankan API dengan `python -m uvicorn alos.main:app --app-dir src --port 8000`.
 
-Lihat `docs/implementation/GENESIS_MVP1_EXECUTION_PLAN.md` untuk target lima
-hari dan quality gate.
+Mulai dari [peta dokumentasi ALOS](docs/README.md). Target lima hari serta
+quality gate pembuktian ada di
+[delivery plan](docs/implementation/ALOS_MVP1_DELIVERY_PLAN.md); baseline H0
+tetap tercatat di `docs/implementation/GENESIS_MVP1_EXECUTION_PLAN.md`.

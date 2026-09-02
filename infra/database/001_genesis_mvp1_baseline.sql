@@ -1,4 +1,4 @@
--- ALOS Genesis MVP1 clean baseline. Apply only to a fresh local/staging database.
+-- ALOS clean baseline. Apply only to a fresh local/staging database.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE SCHEMA IF NOT EXISTS identity;

@@ -29,7 +29,7 @@ def discover_migrations(directory: Path) -> tuple[Migration, ...]:
     )
     versions = [migration.version for migration in migrations]
     if not migrations:
-        raise ValueError("at least one Genesis MVP1 migration is required")
+        raise ValueError("at least one ALOS migration is required")
     if len(versions) != len(set(versions)):
         raise ValueError("migration versions must be unique")
     return migrations
@@ -38,7 +38,7 @@ def discover_migrations(directory: Path) -> tuple[Migration, ...]:
 def apply_migrations(database_url: str, directory: Path) -> tuple[str, ...]:
     applied_now: list[str] = []
     with psycopg.connect(psycopg_url(database_url), autocommit=False) as connection:
-        connection.execute("SELECT pg_advisory_lock(hashtext('alos-genesis-migrations'))")
+        connection.execute("SELECT pg_advisory_lock(hashtext('alos-migrations'))")
         try:
             connection.execute("CREATE SCHEMA IF NOT EXISTS platform")
             connection.execute(
@@ -75,14 +75,16 @@ def apply_migrations(database_url: str, directory: Path) -> tuple[str, ...]:
             connection.rollback()
             raise
         finally:
-            connection.execute("SELECT pg_advisory_unlock(hashtext('alos-genesis-migrations'))")
+            connection.execute("SELECT pg_advisory_unlock(hashtext('alos-migrations'))")
             connection.commit()
     return tuple(applied_now)
 
 
 def main() -> None:
     settings = get_settings()
-    migration_directory = settings.repository_root / "infra" / "database"
+    migration_directory = settings.migrations_path or (
+        settings.repository_root / "infra" / "database"
+    )
     applied = apply_migrations(settings.database_url, migration_directory)
     print("Database is current" if not applied else f"Applied: {', '.join(applied)}")
 

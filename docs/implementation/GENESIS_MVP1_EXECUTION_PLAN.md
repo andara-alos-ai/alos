@@ -1,4 +1,4 @@
-# GENESIS MVP1 — Rencana Eksekusi Lima Hari
+# ALOS — Genesis MVP1 Build and Release Plan
 
 ## Product boundary
 
@@ -15,6 +15,41 @@ Legal, dan IT.
 MVP1 hanya menggunakan data sintetis dan staging. Tidak ada auto-approval,
 auto-activation berisiko, perubahan production, tool tanpa review, atau bypass
 permission/audit/rollback.
+
+Agent Registry mendukung tree generic dengan `parent_agent_id`: root/Core Agent
+dapat memiliki Sub-Agent dan Sub-Sub-Agent. Ini bukan taxonomy tetap, struktur
+organisasi, service, atau database baru. Child hanya boleh mempersempit policy
+parent; perluasan tool, permission, risk, atau budget harus menjadi proposal
+baru untuk human review.
+
+## Disiplin release
+
+VPS dan OpenAI adalah release environment, bukan tempat pertama untuk
+menemukan defect. Semua integrasi eksternal harus lulus versi lokalnya dengan
+data sintetis, configuration explicit, test otomatis, dan commit SHA yang
+immutable. Deployment tidak boleh berasal dari working tree yang belum bersih.
+
+OpenAI smoke test pertama hanya memakai prompt sintetis non-sensitif,
+server-side secret, `store=false`, low hard cost cap, timeout, correlation ID,
+dan tanpa side effect. Kegagalan gate berarti `HOLD`, bukan bypass control.
+
+## H0 — Build acceleration sebelum clock resmi lima hari
+
+1. Pastikan foundation modular-monolith, satu database, baseline migration,
+   health/readiness, auth/RBAC skeleton, dan frontend shell selalu lulus lokal.
+2. Pastikan Compose staging, container image, fresh migration, service
+   readiness, synthetic fixtures, placeholder-secret rejection, dan backup/
+   restore script dapat diverifikasi tanpa credential vendor.
+3. Definisikan test double Model Gateway serta contract untuk schema,
+   lifecycle, permission, tool denial, cost cap, audit, dan rollback sebelum
+   provider riil dipanggil.
+4. Jalankan lint, type-check, unit test, disposable PostgreSQL migration test,
+   container smoke test, secret scan, dan `git diff --check`; commit hanya
+   checkpoint yang sudah terverifikasi.
+
+**Exit gate H0:** kandidat dari commit bersih dapat berjalan dalam container
+lokal, memakai data sintetis dan LLM disabled. Tidak ada secret eksternal yang
+dibutuhkan untuk membuktikan foundation.
 
 ## Hari 1 — Foundation
 
@@ -64,3 +99,14 @@ atau `NO-GO`.
   arithmetic, audit) yang diserahkan kepada LLM.
 - Semua quality gate Hari 5 lulus atau keputusan `HOLD` memiliki evidence dan
   known limitation eksplisit.
+
+## Quality gate sebelum VPS/OpenAI
+
+| Failure class | Gate sebelum external release | Evidence |
+| --- | --- | --- |
+| Configuration/secret | Compose config dan preflight placeholder rejection | output preflight ter-redaksi |
+| Migration/data | fresh migration dan restore drill | migration/restore log |
+| Provider/API | fake-provider contract test lalu low-cap synthetic smoke | correlation ID, token, latency, cost |
+| Runtime safety | schema, permission, tool denial, idempotency, budget test | test report dan audit |
+| Deployment | immutable image, health/readiness, proxy smoke | image SHA dan health evidence |
+| Recovery | suspend, kill switch, release rollback, backup restore | UAT evidence |

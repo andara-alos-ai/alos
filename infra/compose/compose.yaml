@@ -1,4 +1,4 @@
-name: alos-genesis-mvp1
+name: alos
 
 services:
   postgres:

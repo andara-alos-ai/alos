@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "alos-platform"
 version = "0.1.0"
-description = "Genesis MVP1 control plane dan shared Agent Runtime ALOS"
+description = "ALOS control plane dan shared Agent Runtime"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "fastapi[standard]==0.141.1",

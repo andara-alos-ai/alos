@@ -1,1 +1,1 @@
-"""ALOS Genesis MVP1 platform."""
+"""ALOS — Andara Leaverage Operating Sistem platform."""
