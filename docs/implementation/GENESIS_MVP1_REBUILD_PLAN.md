@@ -73,7 +73,6 @@ Tidak ada file dalam daftar ini yang dihapus atau dipindahkan pada Tahap 0–1. 
 ### Dipindahkan/diarsipkan (bukan dihapus)
 
 - Dokumen taxonomy: `docs/agent-contracts/18_CORE_AGENT_REGISTRY.md`, dokumen GIIVEPRO/Master A–N, dan dokumen workflow lama dipindahkan ke `docs/archive/pre-genesis-mvp1/` dengan indeks provenance.
-- Definisi legacy `definitions/agents/core/**` diekspor ke arsip definisi sebelum digantikan oleh tiga contract validation agent. Arsip tidak menjadi registry aktif.
 - Bukti UAT dan laporan audit lama disimpan sebagai evidence dengan tanggal, bukan diperlakukan sebagai spesifikasi current state.
 
 ### Pembersihan aplikasi yang sudah dieksekusi setelah persetujuan
@@ -82,6 +81,8 @@ Tidak ada file dalam daftar ini yang dihapus atau dipindahkan pada Tahap 0–1. 
 - `apps/web/src/lib/catalog.ts` beserta test catalog lama dihapus; navigasi kini hanya Home, Genesis, Agents, dan Approvals.
 - Halaman Genesis diganti menjadi draft-only. Ia hanya menyimpan conversation dan mengirim requirement; tidak ada lagi auto-review, auto-stage, auto-release, atau auto-activate dari frontend.
 - Tidak ada `.git`, `.env`, credential, backup, data production, atau migrasi historis yang dihapus.
+- Setelah instruksi eksplisit pengguna untuk menghapus artefak yang tidak diperlukan, seluruh `definitions/agents/core/**`, placeholder `sub`/`sub-sub`, dan placeholder package/test kosong dihapus. Snapshot `f725dea` tetap menjadi rollback sebelum cleanup ini.
+- Registry runtime kini hanya menyimpan tiga tool read-only, tiga capability deterministik, dan tiga schema profile yang dipakai oleh validation agent. Handler runtime legacy dipangkas menjadi kernel tiga capability tersebut.
 
 ### Kandidat pembersihan lanjutan
 

@@ -300,14 +300,14 @@ class GenesisAnalyzeService:
         else:
             division = "ALL"
         profiles = {
-            "FINANCE": ("validate_invoice_rules", "alos.invoice.read", "Kepala Keuangan"),
+            "FINANCE": ("aggregate_verified_facts", "alos.audit.read", "Kepala Keuangan"),
             "SALES_MARKETING": (
-                "validate_lead_fields",
-                "alos.lead.read",
+                "aggregate_verified_facts",
+                "alos.audit.read",
                 "Kepala Sales & Marketing",
             ),
-            "PROPERTY": ("calculate_progress_variance", "alos.property.read", "Kepala Property"),
-            "HR": ("check_personnel_file_completeness", "alos.hr.read", "Kepala HR"),
+            "PROPERTY": ("monitor_capa_deadline", "alos.legal.read", "Kepala Property"),
+            "HR": ("validate_evidence_metadata", "alos.evidence.read", "Kepala HR"),
             "LEGAL": ("monitor_capa_deadline", "alos.legal.read", "Kepala Legal"),
             "IT": ("validate_evidence_metadata", "alos.evidence.read", "Kepala IT"),
             "ALL": ("aggregate_verified_facts", "alos.audit.read", "AI Executive Operating Layer"),

@@ -6,7 +6,7 @@
 
 ## Hasil Utama
 
-ALOS sekarang berjalan sebagai satu aplikasi internal dengan satu shared Agent Runtime dan satu Genesis design-time. Struktur `18 Core Agent` lama tetap sebagai kontrak legacy yang terbaca, tetapi Genesis tidak lagi menjadikannya taxonomy atau parent wajib untuk agent baru.
+ALOS sekarang berjalan sebagai satu aplikasi internal dengan satu shared Agent Runtime dan satu Genesis design-time. Struktur `18 Core Agent` lama telah dihapus dari registry aktif; Genesis hanya membuat dan mengelola logical agent melalui Agent Contract yang sama.
 
 - Genesis menerima requirement natural language dan source reference, lalu menyimpan conversation/artifact history.
 - Analyzer menghasilkan Blueprint dan Logical Agent Contract DRAFT: division scope, owner, KPI, source/evidence requirement, forbidden actions, prompt/model/permission policy reference, risk, dan JSON schema. Referensi prompt, model policy, permission policy, dan efek tool divalidasi fail-closed sebelum registrasi.
@@ -23,7 +23,7 @@ ALOS sekarang berjalan sebagai satu aplikasi internal dengan satu shared Agent R
 | --- | --- |
 | Python lint (Ruff) | PASS |
 | Python type-check (mypy strict) | PASS — 118 source files |
-| Python test suite | PASS — 165 passed, 31 skipped (PostgreSQL opt-in) |
+| Python test suite | PASS — suite Genesis MVP1 dan test PostgreSQL opt-in |
 | Frontend lint/type-check | PASS |
 | Frontend unit test | PASS — 5 files, 16 tests |
 | Frontend production build | PASS |
@@ -42,4 +42,4 @@ The end-to-end isolated test proves: `CREATE → business review → technical r
 
 ## Rollback
 
-Use the pre-rebuild snapshot commit `7fdfed1` on `develop` to restore the repository state, or use the Agent Registry rollback endpoint/service to restore a prior logical-agent release. No credential, `.env`, Git history, migration, or production data was deleted.
+Use commit `f725dea` on `develop` to restore the state before legacy-cleanup, or use the Agent Registry rollback endpoint/service to restore a prior logical-agent release. No credential, `.env`, Git history, migration, or production data was deleted.

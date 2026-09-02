@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from alos.agents.registry import AgentRegistry
-from alos.tools import ToolEffect, ToolKind, ToolRegistry
+from alos.tools import ToolEffect, ToolRegistry
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
@@ -16,14 +16,12 @@ def test_tool_registry_covers_every_agent_allow_list() -> None:
         for tool_id in agent.tools_allowed
     }
 
-    assert len(registered) == 38
+    assert len(registered) == 3
     assert referenced == registered
 
 
-def test_ai_tools_are_never_allowed_in_deterministic_steps() -> None:
+def test_validation_tools_are_read_only_and_deterministic_safe() -> None:
     tools = ToolRegistry(REPOSITORY_ROOT / "definitions").load_all()
-    ai_tools = [tool for tool in tools if tool.kind == ToolKind.AI_PROVIDER]
 
-    assert ai_tools
-    assert all(tool.effect == ToolEffect.AI_ASSISTED for tool in ai_tools)
-    assert all(not tool.allowed_in_deterministic_steps for tool in ai_tools)
+    assert all(tool.effect == ToolEffect.READ_ONLY for tool in tools)
+    assert all(tool.allowed_in_deterministic_steps for tool in tools)

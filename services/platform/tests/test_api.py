@@ -107,7 +107,7 @@ def test_pilot_authentication_endpoints_are_hidden_outside_local_environment() -
     assert login.status_code == 404
 
 
-def test_agents_endpoint_returns_legacy_and_generated_agents() -> None:
+def test_agents_endpoint_returns_released_logical_agents() -> None:
     token_response = client.post(
         "/api/v1/auth/local-token",
         json={
@@ -122,20 +122,18 @@ def test_agents_endpoint_returns_legacy_and_generated_agents() -> None:
     )
 
     assert response.status_code == 200
-    assert len(response.json()) >= 21
-    assert {"CORE", "LOGICAL"}.issubset(
-        {agent["agent_kind"] for agent in response.json()}
-    )
+    assert len(response.json()) == 3
+    assert {agent["agent_kind"] for agent in response.json()} == {"LOGICAL"}
     assert {agent["contract_version"] for agent in response.json()} == {"1.0.0"}
     assert all(agent["parent_agent_id"] is None for agent in response.json())
 
     exact_response = client.get(
-        "/api/v1/agents/BCA",
+        "/api/v1/agents/DAILY_BRIEF",
         headers={"Authorization": f"Bearer {token_response.json()['access_token']}"},
         params={"version": "0.1.0"},
     )
     assert exact_response.status_code == 200
-    assert exact_response.json()["agent_id"] == "BCA"
+    assert exact_response.json()["agent_id"] == "DAILY_BRIEF"
     assert exact_response.json()["version"] == "0.1.0"
 
 
@@ -248,11 +246,11 @@ def test_runtime_diagnostic_returns_versioned_contract_snapshot() -> None:
         "/api/v1/agent-runs/prepare",
         headers={"Authorization": f"Bearer {token_response.json()['access_token']}"},
         json={
-            "agent_id": "BCA",
+            "agent_id": "DAILY_BRIEF",
             "agent_version": "0.1.0",
-            "capability": "check_budget_deterministically",
-            "input_references": ["payment-request:runtime-contract-test"],
-            "requested_tools": ["deterministic.calculator"],
+            "capability": "aggregate_verified_facts",
+            "input_references": ["source:runtime-contract-test"],
+            "requested_tools": ["alos.audit.read"],
             "correlation_id": str(uuid4()),
             "idempotency_key": "runtime-contract-snapshot",
         },
@@ -260,9 +258,9 @@ def test_runtime_diagnostic_returns_versioned_contract_snapshot() -> None:
 
     assert response.status_code == 201
     assert response.json()["contract_version"] == "1.0.0"
-    assert response.json()["agent_kind"] == "CORE"
+    assert response.json()["agent_kind"] == "LOGICAL"
     assert len(response.json()["contract_digest"]) == 64
-    assert response.json()["contract_snapshot"]["agent_id"] == "BCA"
+    assert response.json()["contract_snapshot"]["agent_id"] == "DAILY_BRIEF"
 
 
 def test_it_admin_cannot_operate_sales_business_workflow() -> None:

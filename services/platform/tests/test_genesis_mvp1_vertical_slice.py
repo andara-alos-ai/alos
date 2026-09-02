@@ -285,7 +285,7 @@ def test_logical_agent_rejects_missing_or_overbroad_configuration_policy(tmp_pat
                 update={"model_policy_ref": "unknown-policy@0.1.0"}
             )
         )
-    with pytest.raises(RegistryError, match="Permission policy menolak"):
+    with pytest.raises(RegistryError, match="Referensi Tool Registry tidak valid"):
         registry.validate_candidate(
             _daily_brief_contract().model_copy(
                 update={"tools_allowed": ("alos.approval.create",)}
