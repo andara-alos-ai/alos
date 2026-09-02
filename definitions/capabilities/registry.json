@@ -1,8 +1,0 @@
-{
-  "schema_version": "1.0.0",
-  "capabilities": [
-    {"contract_version":"1.0.0","capability_id":"aggregate_verified_facts","name":"Agregasi Fakta Terverifikasi","purpose":"Mengagregasi fakta terverifikasi untuk ringkasan eksekutif.","execution_mode":"DETERMINISTIC","handler_id":"executive.aggregate.v1","input_schema":{"type":"object","additionalProperties":false},"output_schema":{"type":"object","additionalProperties":false},"evidence_policy":"REQUIRED","review_policy":"ALWAYS","timeout_seconds":10,"max_attempts":2,"version":"1.0.0","status":"STAGED"},
-    {"contract_version":"1.0.0","capability_id":"monitor_capa_deadline","name":"Monitoring Deadline CAPA","purpose":"Menghitung status tenggat CAPA dari waktu sistem.","execution_mode":"DETERMINISTIC","handler_id":"risk.deadline.v1","input_schema":{"type":"object","additionalProperties":false},"output_schema":{"type":"object","additionalProperties":false},"evidence_policy":"REQUIRED","review_policy":"ON_WARNING","timeout_seconds":10,"max_attempts":2,"version":"1.0.0","status":"STAGED"},
-    {"contract_version":"1.0.0","capability_id":"validate_evidence_metadata","name":"Validasi Metadata Bukti","purpose":"Memvalidasi identitas dan metadata bukti secara deterministik.","execution_mode":"DETERMINISTIC","handler_id":"evidence.metadata.v1","input_schema":{"type":"object","additionalProperties":false},"output_schema":{"type":"object","additionalProperties":false},"evidence_policy":"REQUIRED","review_policy":"ON_WARNING","timeout_seconds":10,"max_attempts":2,"version":"1.0.0","status":"STAGED"}
-  ]
-}

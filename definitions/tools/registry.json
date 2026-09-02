@@ -1,5 +1,0 @@
-[
-  {"contract_version":"1.0.0","tool_id":"alos.audit.read","name":"Baca Audit","purpose":"Membaca jejak audit yang dapat diakses oleh konteks eksekusi.","kind":"INTERNAL","effect":"READ_ONLY","credential_mode":"EXECUTION_CONTEXT","allowed_in_deterministic_steps":true,"timeout_seconds":10,"max_attempts":3,"version":"1.0.0","status":"STAGED"},
-  {"contract_version":"1.0.0","tool_id":"alos.evidence.read","name":"Baca Bukti","purpose":"Membaca bukti dan metadata terkait sesuai lingkup proses.","kind":"INTERNAL","effect":"READ_ONLY","credential_mode":"EXECUTION_CONTEXT","allowed_in_deterministic_steps":true,"timeout_seconds":10,"max_attempts":3,"version":"1.0.0","status":"STAGED"},
-  {"contract_version":"1.0.0","tool_id":"alos.legal.read","name":"Baca Data Legal","purpose":"Membaca izin, kontrak, dan kebijakan legal yang diotorisasi.","kind":"INTERNAL","effect":"READ_ONLY","credential_mode":"EXECUTION_CONTEXT","allowed_in_deterministic_steps":true,"timeout_seconds":10,"max_attempts":3,"version":"1.0.0","status":"STAGED"}
-]
