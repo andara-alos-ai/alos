@@ -1,4 +1,4 @@
-# Registry 18 Core Agent ALOS
+# Registry Baseline Agent ALOS (18 Legacy Pilot Agents)
 
 | Metadata | Nilai |
 |---|---|
@@ -9,13 +9,13 @@
 
 ## 1. Tujuan
 
-Registry menetapkan 18 identitas Core Agent yang digunakan pada pilot sekaligus menjadi sumber tunggal definisi Core, Sub-Agent, dan Sub-Sub-Agent. Registry menjelaskan tanggung jawab, pemilik manusia, masukan, keluaran, hierarchy, versi, dan batas agent. Seluruh konfigurasi berada di bawah `definitions/agents/` dan wajib mengikuti Agent Contract.
+Dokumen ini mencatat 18 identitas agent legacy yang digunakan pada workflow pilot. Sumber tunggal seluruh agent tetap berada pada Agent Registry di `definitions/agents/`; dokumen ini hanya baseline kompatibilitas dan bukan pembatas jumlah atau taxonomy agent.
 
-Registry membaca `definitions/agents/**/agent.json`, memvalidasi referensi silang, dan mengindeks kontrak berdasarkan kombinasi `agent_id` serta `version`. Tepat 18 hanya berlaku untuk identitas Core Agent; versi tambahan, Sub-Agent, dan Sub-Sub-Agent tidak dihitung sebagai Core baru.
+Registry membaca `definitions/agents/**/agent.json`, memvalidasi referensi silang, dan mengindeks kontrak berdasarkan kombinasi `agent_id` serta `version`. Agent top-level, Sub-Agent, dan Sub-Sub-Agent dapat ditambahkan melalui pipeline Genesis setelah seluruh gate dipenuhi.
 
 Pemanggilan tanpa versi menggunakan versi semantik terbaru. Runtime dapat meminta versi tertentu dan hanya menjalankan status yang diizinkan oleh release gate. Pada lingkungan pilot, `STAGED` dan `RELEASED` dapat dijalankan; production nantinya hanya menggunakan `RELEASED`.
 
-Agent Registry memvalidasi setiap `tools_allowed` terhadap Tool Registry. Penambahan agent oleh pipeline Genesis selalu berupa proposal DRAFT dan tidak mengubah 18 identitas Core.
+Agent Registry memvalidasi setiap `tools_allowed` terhadap Tool Registry. Penambahan agent oleh pipeline Genesis selalu berupa proposal DRAFT dan tidak mengubah struktur organisasi.
 
 ## 2. Pemetaan Kepemilikan
 

@@ -1,6 +1,8 @@
 # Dokumentasi ALOS
 
-Dokumentasi ini menjadi dasar implementasi ALOS Agent Pilot v0.1 dan pengembangan ALOS. Status seluruh dokumen saat ini adalah rancangan pilot, kecuali keputusan yang secara eksplisit dinyatakan diterima atau terkunci.
+- [Workflow transaksi tahap 3](workflows/TRANSACTION_WORKFLOWS_STAGE_3.md)
+
+Dokumentasi ini menjadi dasar implementasi pilot dan pengembangan ALOS. Status seluruh dokumen saat ini adalah rancangan pilot, kecuali keputusan yang secara eksplisit dinyatakan diterima atau terkunci.
 
 ## Urutan Baca
 
@@ -8,10 +10,10 @@ Dokumentasi ini menjadi dasar implementasi ALOS Agent Pilot v0.1 dan pengembanga
 2. [Sumber Kebenaran dan Tata Kelola Konfigurasi](architecture/SOURCE_OF_TRUTH_AND_CONFIGURATION.md)
 3. [Matriks Sinkronisasi Master dan Lampiran A–N](implementation/ALOS_MASTER_A_N_SYNCHRONIZATION_MATRIX.md)
 4. [Register Keputusan Terbuka A–N](governance/ALOS_MASTER_A_N_OPEN_DECISIONS.md)
-5. [Arsitektur ALOS v1](architecture/ALOS_V1_ARCHITECTURE.md)
+5. [Arsitektur ALOS](architecture/ALOS_V1_ARCHITECTURE.md)
 6. [Model Domain dan Database](domain-model/ALOS_DOMAIN_AND_DATABASE_MODEL.md)
 7. [Spesifikasi Agent Contract](agent-contracts/AGENT_CONTRACT_SPECIFICATION.md)
-8. [Registry 18 Core Agent](agent-contracts/18_CORE_AGENT_REGISTRY.md)
+8. [Registry Baseline Agent](agent-contracts/18_CORE_AGENT_REGISTRY.md)
 9. [Tool Registry dan Capability Invocation](agent-contracts/TOOL_REGISTRY_AND_CAPABILITY_INVOCATION.md)
 10. [Capability Runtime dan LLM Gateway](architecture/CAPABILITY_RUNTIME_AND_LLM_GATEWAY.md)
 11. [Pipeline Design-Time Genesis](architecture/GENESIS_DESIGN_TIME_INTERFACE.md)

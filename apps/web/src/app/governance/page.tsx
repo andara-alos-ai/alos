@@ -10,12 +10,11 @@ import type { ConfigurationMapping, ConfigurationRegister, SourcePack } from "@/
 
 type ViewFilter = "ALL" | "LOCKED" | "BLOCKED" | "EXTEND";
 
-const documentOrder = ["DECISION", "MASTER", ..."ABCDEFGHIJKLMN"];
-
-function documentLabel(key: string): string {
-  if (key === "DECISION") return "Struktur terkunci";
-  if (key === "MASTER") return "Dokumen utama";
-  return `Lampiran ${key}`;
+function sourceLabel(code: string): string {
+  if (code === "DECISION") return "Struktur terkunci";
+  if (code === "MASTER") return "Dokumen utama";
+  if (/^[A-Z]$/.test(code)) return `Lampiran ${code}`;
+  return humanizeCode(code);
 }
 
 function mappingVisible(mapping: ConfigurationMapping, filter: ViewFilter): boolean {
@@ -60,9 +59,7 @@ export default function GovernancePage() {
   const mappings = useMemo(() => (
     registers
       .flatMap((register) => register.mappings)
-      .sort((left, right) => (
-        documentOrder.indexOf(left.document_key) - documentOrder.indexOf(right.document_key)
-      ))
+      .sort((left, right) => left.source_code.localeCompare(right.source_code))
   ), [registers]);
   const visibleMappings = mappings.filter((mapping) => mappingVisible(mapping, filter));
   const sources = sourcePacks.flatMap((pack) => pack.sources);
@@ -82,7 +79,7 @@ export default function GovernancePage() {
         <div>
           <p className="eyebrow">Source governance · Genesis design-time</p>
           <h1>Blueprint & Keputusan</h1>
-          <p>Master dan Lampiran A–N ditampilkan sebagai working baseline. Hanya struktur organisasi yang berstatus disetujui; nilai bisnis lain tetap menunggu ratifikasi manusia.</p>
+          <p>Master dan seluruh sumber terdaftar ditampilkan sebagai working baseline. Hanya struktur organisasi yang berstatus disetujui; nilai bisnis lain tetap menunggu ratifikasi manusia.</p>
         </div>
         <button className="button secondary" onClick={() => void load()} type="button">Perbarui registry</button>
       </header>
@@ -96,7 +93,7 @@ export default function GovernancePage() {
       </section>
 
       <section className="metricGrid governanceMetrics" aria-label="Ringkasan governance">
-        <article className="metricCard"><div><small>Sumber terdaftar</small><strong>{sources.length}</strong><p>Master, keputusan, A–N, dan fixture sintetis</p></div></article>
+        <article className="metricCard"><div><small>Sumber terdaftar</small><strong>{sources.length}</strong><p>Register dinamis, termasuk master, keputusan, lampiran, dan fixture sintetis</p></div></article>
         <article className="metricCard"><div><small>Disetujui</small><strong>{approvedCount}</strong><p>Hanya boundary yang telah dikunci</p></div></article>
         <article className="metricCard"><div><small>Perlu diperluas</small><strong>{extendCount}</strong><p>Implementasi bertahap melalui registry</p></div></article>
         <article className="metricCard"><div><small>Keputusan terbuka</small><strong>{blockers.size}</strong><p>Belum boleh menjadi aturan aktif</p></div></article>
@@ -116,7 +113,7 @@ export default function GovernancePage() {
       <section className="governanceLayout">
         <div className="governanceMain">
           <div className="sectionHeading">
-            <div><p className="eyebrow">Canonical mapping</p><h2>Master dan Lampiran A–N</h2><p>Setiap kartu berasal dari configuration registry ALOS.</p></div>
+            <div><p className="eyebrow">Canonical mapping</p><h2>Sumber dan konfigurasi ALOS</h2><p>Setiap kartu berasal dari configuration registry dinamis ALOS.</p></div>
             <div className="filterChips" aria-label="Filter blueprint">
               {(["ALL", "LOCKED", "BLOCKED", "EXTEND"] as ViewFilter[]).map((item) => (
                 <button className={filter === item ? "active" : ""} key={item} onClick={() => setFilter(item)} type="button">{item === "ALL" ? "Semua" : humanizeCode(item)}</button>
@@ -129,8 +126,8 @@ export default function GovernancePage() {
               {visibleMappings.map((mapping) => (
                 <article className="mappingCard" key={mapping.mapping_id}>
                   <div className="mappingCardTop">
-                    <span className="documentKey">{mapping.document_key}</span>
-                    <div><small>{documentLabel(mapping.document_key)}</small><h3>{mapping.name}</h3></div>
+                    <span className="documentKey">{mapping.source_code}</span>
+                    <div><small>{sourceLabel(mapping.source_code)}</small><h3>{mapping.name}</h3></div>
                     <span className={`mappingStatus ${mapping.status.toLowerCase()}`}>{mapping.status}</span>
                   </div>
                   <dl className="mappingMeta"><div><dt>Owner</dt><dd>{humanizeCode(mapping.business_owner)}</dd></div><div><dt>Keputusan</dt><dd>{mapping.disposition}</dd></div><div><dt>Registry</dt><dd>{humanizeCode(mapping.target_registry)}</dd></div></dl>
@@ -158,7 +155,7 @@ export default function GovernancePage() {
             <div className="sourceIntegrityList">
               {sources.map((source) => (
                 <article key={source.source_id}>
-                  <span>{source.document_key}</span>
+                  <span>{source.source_code}</span>
                   <div><strong>{source.title}</strong><small>{source.authority === "LOCKED_ORGANIZATION" ? "Locked organization" : "Design baseline"}</small></div>
                   <code title={source.sha256 || "System baseline"}>{source.sha256 ? source.sha256.slice(0, 8) : "SYSTEM"}</code>
                 </article>

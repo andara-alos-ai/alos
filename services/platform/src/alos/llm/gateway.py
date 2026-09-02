@@ -16,6 +16,7 @@ from alos.llm.models import (
 )
 from alos.llm.prompts import PromptRegistry
 from alos.llm.providers import LLMProviderAdapter
+from alos.validation import validate_json_schema
 
 EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 PHONE_PATTERN = re.compile(r"(?<!\d)(?:\+?62|0)\d[\d -]{7,15}\d(?!\d)")
@@ -84,7 +85,7 @@ class LLMGateway:
                 provider_result = self._provider.generate(
                     prompt, redacted, request.max_output_tokens, safety_hash
                 )
-                self._validate_json_schema(provider_result.output, prompt.output_schema)
+                validate_json_schema(provider_result.output, prompt.output_schema)
                 self._record_usage(
                     request.max_output_tokens, provider_result.usage.output_tokens
                 )
@@ -199,48 +200,3 @@ class LLMGateway:
             prompt_digest=prompt_digest,
             warnings=(warning,),
         )
-
-    @classmethod
-    def _validate_json_schema(
-        cls, value: Any, schema: Mapping[str, Any], path: str = "$"
-    ) -> None:
-        expected = schema.get("type")
-        type_matches = {
-            "object": isinstance(value, dict),
-            "array": isinstance(value, list),
-            "string": isinstance(value, str),
-            "number": isinstance(value, int | float) and not isinstance(value, bool),
-            "integer": isinstance(value, int) and not isinstance(value, bool),
-            "boolean": isinstance(value, bool),
-            "null": value is None,
-        }
-        if isinstance(expected, str) and not type_matches.get(expected, False):
-            raise ValueError(f"Output LLM tidak sesuai schema pada {path}: {expected}")
-        if "enum" in schema and value not in schema["enum"]:
-            raise ValueError(f"Output LLM di luar enum pada {path}")
-        if expected == "object":
-            if not isinstance(value, dict):
-                raise ValueError(f"Output LLM bukan object pada {path}")
-            required = set(schema.get("required", []))
-            missing = required - set(value)
-            if missing:
-                raise ValueError(f"Output LLM kehilangan field pada {path}: {sorted(missing)}")
-            properties = schema.get("properties", {})
-            if schema.get("additionalProperties") is False:
-                unexpected = set(value) - set(properties)
-                if unexpected:
-                    raise ValueError(
-                        f"Output LLM memiliki field tidak diizinkan pada {path}: "
-                        f"{sorted(unexpected)}"
-                    )
-            for key, item in value.items():
-                child_schema = properties.get(key)
-                if isinstance(child_schema, Mapping):
-                    cls._validate_json_schema(item, child_schema, f"{path}.{key}")
-        elif expected == "array":
-            if not isinstance(value, list):
-                raise ValueError(f"Output LLM bukan array pada {path}")
-            item_schema = schema.get("items")
-            if isinstance(item_schema, Mapping):
-                for index, item in enumerate(value):
-                    cls._validate_json_schema(item, item_schema, f"{path}[{index}]")

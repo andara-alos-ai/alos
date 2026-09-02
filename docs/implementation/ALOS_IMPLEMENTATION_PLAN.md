@@ -16,7 +16,7 @@
 | Area | Status | Bukti minimum |
 |---|---|---|
 | Foundation platform | Selesai | identitas lokal, project, work queue, migrasi, dan audit |
-| Registry dan runtime | Selesai untuk technical pilot | 18 Core tetap utuh; Agent/Tool/Capability Registry, handler bersama, output/evidence/verification, dan standalone evaluation ter-audit |
+| Registry dan runtime | Selesai untuk technical pilot | Registry agent berversi, handler bersama, output/evidence/verification, dan standalone evaluation ter-audit; 18 definisi pilot dipertahankan sementara sebagai kompatibilitas |
 | Interface Genesis | Selesai untuk technical pilot | REUSE/EXTEND/CREATE, validate/test/diff, dua review, staging, dan release package immutable tanpa akses production |
 | Source Registry A–N | Selesai untuk working baseline | Master dan A–N terdaftar dengan hash dan status DRAFT; staging/release diblokir sampai ratifikasi |
 | Canonical Configuration Registry | Selesai untuk working baseline | Master dan A–N dipetakan ke 16 configuration mapping dengan owner, lineage, disposition, decision blocker, dan `production_effect=false` |
@@ -63,7 +63,7 @@ ALOS adalah satu platform operasi perusahaan yang menyediakan:
 - antrean kerja, penugasan, tenggat, pengingat, dan eskalasi;
 - dokumen, bukti, persetujuan, penyimpangan, CAPA, dan jejak audit;
 - KPI, dasbor, pelaporan, serta ringkasan AI Executive;
-- Agent Registry dan satu lingkungan eksekusi bersama untuk 18 Core Agent logis;
+- Agent Registry dan satu shared Agent Runtime untuk agent yang terdaftar;
 - alur kerja dan kontrol tata kelola deterministik;
 - alat dan integrasi eksternal yang dibatasi melalui kontrak;
 - observabilitas serta proses rilis Genesis pada tahap desain.
@@ -79,7 +79,7 @@ Pilot harus menyelesaikan pekerjaan internal yang nyata, bukan sekadar menampilk
 - enam ruang kerja divisi dan satu tampilan AI Executive;
 - konteks proyek dan kontrol akses berbasis peran;
 - pekerjaan, tenggat, pengingat, dokumen, bukti, persetujuan, penyimpangan, dan CAPA;
-- validasi Agent Contract serta pendaftaran seluruh 18 Core Agent;
+- validasi Agent Contract serta pendaftaran agent yang diperlukan oleh pilot;
 - lingkungan eksekusi agent bersama dengan masukan dan keluaran terstruktur;
 - enam alur kerja awal;
 - satu adaptor penyedia LLM yang tidak mengunci vendor;
@@ -101,7 +101,7 @@ Pilot harus menyelesaikan pekerjaan internal yang nyata, bukan sekadar menampilk
 2. Tenggat, izin, transisi status, routing persetujuan, perhitungan, dan audit ditegakkan secara deterministik.
 3. LLM hanya digunakan untuk ekstraksi, klasifikasi, ringkasan, perbandingan, rekomendasi, dan penyusunan bahasa.
 4. Keluaran AI harus memiliki sumber, versi, status verifikasi, dan jalur koreksi manusia.
-5. Delapan belas Core Agent adalah konfigurasi logis dalam satu lingkungan eksekusi bersama.
+5. Agent adalah konfigurasi logis dalam satu shared Agent Runtime; jumlah dan taxonomy agent dapat berkembang melalui Genesis.
 6. Pemilik bisnis tetap divisi terkait; IT bertindak sebagai pengelola teknis platform.
 7. Tidak adanya respons tidak pernah dianggap sebagai persetujuan.
 8. Tindakan yang berdampak ke produksi wajib melewati kebijakan dan persetujuan yang berlaku.
@@ -110,7 +110,7 @@ Pilot harus menyelesaikan pekerjaan internal yang nyata, bukan sekadar menampilk
 
 ## 5. Arsitektur Sasaran
 
-ALOS v1 menggunakan monorepo privat dan monolit modular. Backend dapat dijalankan sebagai proses API, worker, dan scheduler yang menggunakan kode domain serta satu PostgreSQL yang sama.
+ALOS menggunakan monorepo privat dan monolit modular. Backend dapat dijalankan sebagai proses API, worker, dan scheduler yang menggunakan kode domain serta satu PostgreSQL yang sama.
 
 ```mermaid
 flowchart TD
@@ -120,7 +120,7 @@ flowchart TD
     A --> G[Mesin Tata Kelola]
     A --> F[Mesin Alur Kerja]
     F --> R[Lingkungan Eksekusi Agent Bersama]
-    R --> AR[Registry 18 Core Agent]
+    R --> AR[Agent Registry berversi]
     R --> T[Lapisan Alat Terkendali]
     T --> I[Gerbang Integrasi]
     D --> P[(PostgreSQL)]
@@ -244,8 +244,8 @@ Pengujian minimum mencakup:
 Pilot dinyatakan selesai apabila:
 
 1. enam ruang kerja divisi dan tampilan AI Executive dapat diakses sesuai kewenangan;
-2. seluruh 18 Core Agent terdaftar dengan kontrak lengkap dan valid;
-3. setiap Core Agent menyelesaikan setidaknya satu kasus penggunaan pilot;
+2. seluruh agent yang digunakan pilot terdaftar dengan kontrak lengkap dan valid;
+3. setiap agent yang digunakan pilot menyelesaikan setidaknya satu kasus penggunaan;
 4. enam alur kerja mencapai status akhir menggunakan data sintetis/sanitasi;
 5. persetujuan, bukti, audit, penyimpangan, dan CAPA aktif;
 6. aturan deterministik tidak bergantung pada LLM;

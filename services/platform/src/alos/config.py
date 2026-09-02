@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     web_origin: str = "http://localhost:3000"
     database_url: str = "postgresql+psycopg://alos:change-me@localhost:5433/alos"
-    llm_provider: Literal["disabled", "openai", "anthropic"] = "disabled"
+    llm_provider: Literal["disabled", "openai", "anthropic", "local"] = "disabled"
     llm_api_key: SecretStr | None = None
     llm_model: str = Field(default="", max_length=120)
     llm_base_url: str | None = None
@@ -41,6 +41,11 @@ class Settings(BaseSettings):
         default=SecretStr("local-development-only-change-me"), min_length=32
     )
     auth_token_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
+    session_cookie_name: str = Field(default="alos_session", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    csrf_cookie_name: str = Field(default="alos_csrf", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    session_cookie_secure: bool | None = None
+    csrf_token_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
     oidc_provider: Literal["disabled", "google"] = "disabled"
     oidc_client_id: str | None = None
     oidc_client_secret: SecretStr | None = None
@@ -61,6 +66,8 @@ class Settings(BaseSettings):
     object_storage_max_upload_bytes: int = Field(
         default=25 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024
     )
+    api_rate_limit_per_minute: int = Field(default=600, ge=10, le=100_000)
+    auth_rate_limit_per_minute: int = Field(default=60, ge=5, le=10_000)
     document_scan_mode: Literal["disabled", "external"] = "disabled"
     worker_poll_seconds: int = Field(default=5, ge=1, le=300)
     worker_batch_size: int = Field(default=50, ge=1, le=500)
@@ -96,6 +103,10 @@ class Settings(BaseSettings):
         secret_key = self.object_storage_secret_key_value
         if bool(access_key) != bool(secret_key):
             raise ValueError("Access key dan secret key object storage harus diberikan bersama")
+        if self.environment in {"staging", "production"} and self.session_cookie_secure is False:
+            raise ValueError("Session cookie wajib Secure pada staging/production")
+        if self.session_cookie_samesite == "none" and not self.is_session_cookie_secure:
+            raise ValueError("SameSite=None hanya boleh digunakan bersama Secure cookie")
         self._validate_n8n_configuration()
         self._validate_llm_configuration()
         self._validate_oidc_configuration()
@@ -144,7 +155,9 @@ class Settings(BaseSettings):
     def _validate_llm_configuration(self) -> None:
         if self.llm_provider == "disabled":
             return
-        if self.llm_api_key is None or not self.llm_api_key.get_secret_value().strip():
+        if self.llm_provider in {"openai", "anthropic"} and (
+            self.llm_api_key is None or not self.llm_api_key.get_secret_value().strip()
+        ):
             raise ValueError("LLM provider aktif memerlukan ALOS_LLM_API_KEY")
         if not self.llm_model.strip():
             raise ValueError("LLM provider aktif memerlukan ALOS_LLM_MODEL")
@@ -216,6 +229,28 @@ class Settings(BaseSettings):
             return None
         value = self.oidc_client_secret.get_secret_value().strip()
         return value or None
+
+    @property
+    def effective_api_rate_limit_per_minute(self) -> int:
+        """Avoid cross-test throttling while preserving configured deployed limits."""
+
+        if self.environment in {"local", "test"}:
+            return max(self.api_rate_limit_per_minute, 100_000)
+        return self.api_rate_limit_per_minute
+
+    @property
+    def effective_auth_rate_limit_per_minute(self) -> int:
+        """Use a high local ceiling; staging and production remain explicitly limited."""
+
+        if self.environment in {"local", "test"}:
+            return max(self.auth_rate_limit_per_minute, 10_000)
+        return self.auth_rate_limit_per_minute
+
+    @property
+    def is_session_cookie_secure(self) -> bool:
+        if self.session_cookie_secure is not None:
+            return self.session_cookie_secure
+        return self.environment in {"staging", "production"}
 
     @property
     def max_request_body_bytes(self) -> int:

@@ -3,7 +3,7 @@ import json
 from datetime import date
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SourcePackStatus(StrEnum):
@@ -43,7 +43,11 @@ class SourceRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     source_id: str = Field(pattern=r"^ALOS-SRC-[A-Z0-9-]{3,80}$")
-    document_key: str = Field(pattern=r"^(MASTER|[A-N]|DECISION|SYNTHETIC)$")
+    source_code: str = Field(
+        pattern=r"^[A-Z][A-Z0-9_.:/-]{0,79}$",
+        validation_alias=AliasChoices("source_code", "document_key"),
+        serialization_alias="source_code",
+    )
     title: str = Field(min_length=5, max_length=200)
     source_type: SourceType
     version: str = Field(pattern=r"^\d+\.\d+(?:\.\d+)?$")
@@ -107,11 +111,11 @@ class SourcePack(BaseModel):
         if set(self.allowed_uses) & set(self.blocked_uses):
             raise ValueError("allowed_uses dan blocked_uses tidak boleh tumpang tindih")
         source_ids = [source.source_id for source in self.sources]
-        document_keys = [source.document_key for source in self.sources]
+        source_codes = [source.source_code for source in self.sources]
         if len(source_ids) != len(set(source_ids)):
             raise ValueError("source_id dalam source pack wajib unik")
-        if len(document_keys) != len(set(document_keys)):
-            raise ValueError("document_key dalam source pack wajib unik")
+        if len(source_codes) != len(set(source_codes)):
+            raise ValueError("source_code dalam source pack wajib unik")
         if SourceUse.PRODUCTION_ACTIVATION not in self.blocked_uses:
             raise ValueError("Source pack Genesis wajib memblokir aktivasi production langsung")
         if self.status == SourcePackStatus.DRAFT and not self.contains_unratified_values:

@@ -126,6 +126,16 @@ def test_registry_loads_valid_core_sub_and_sub_sub_hierarchy(tmp_path: Path) -> 
     assert len(registry.find(kind=AgentKind.SUB_SUB_AGENT)) == 1
 
 
+def test_registry_accepts_additional_top_level_agent_without_fixed_count(
+    tmp_path: Path,
+) -> None:
+    _write_definition(tmp_path, "generated/NEW_TOP_LEVEL", _definition("NEW_TOP_LEVEL", "CORE"))
+
+    registry = AgentRegistry(tmp_path)
+
+    assert [agent.agent_id for agent in registry.load_top_level()] == ["NEW_TOP_LEVEL"]
+
+
 def test_registry_resolves_exact_or_latest_semantic_version(tmp_path: Path) -> None:
     _write_definition(
         tmp_path,

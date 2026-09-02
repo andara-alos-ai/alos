@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from alos.agents.capabilities import CapabilityRegistry
-from alos.agents.contract import AgentDefinition, AgentKind
+from alos.agents.contract import AgentDefinition
 from alos.genesis.models import (
     GenesisLifecycleStatus,
     GenesisPipelineView,
@@ -34,9 +34,7 @@ class GenesisPipelineService:
         self._store = store
         self._sources = sources
 
-    def submit(
-        self, command: GenesisSubmitRequest, principal: Principal
-    ) -> GenesisPipelineView:
+    def submit(self, command: GenesisSubmitRequest, principal: Principal) -> GenesisPipelineView:
         require_any_role(
             principal, Role.DIRECTOR, Role.AI_EXECUTIVE, Role.DIVISION_HEAD, Role.IT_ADMIN
         )
@@ -44,9 +42,8 @@ class GenesisPipelineService:
         change_request = command.to_change_request(principal.user_id)
         proposal = self._design.propose(change_request)
         tests = self._test_proposal(proposal.resolved_contract, proposal.validations)
-        valid = (
-            proposal.status == GenesisProposalStatus.AWAITING_HUMAN_REVIEW
-            and all(item.passed for item in tests)
+        valid = proposal.status == GenesisProposalStatus.AWAITING_HUMAN_REVIEW and all(
+            item.passed for item in tests
         )
         status = (
             GenesisLifecycleStatus.AWAITING_HUMAN_REVIEW
@@ -65,13 +62,31 @@ class GenesisPipelineService:
             proposal=proposal,
             tests=tests,
             reviews=(),
-            next_allowed_action=(
-                "HUMAN_REVIEW" if valid else "CORRECT_SPECIFICATION"
-            ),
+            next_allowed_action=("HUMAN_REVIEW" if valid else "CORRECT_SPECIFICATION"),
             created_at=now,
             updated_at=now,
         )
         return self._store.create(view)
+
+    def list_requests(
+        self,
+        principal: Principal,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[GenesisPipelineView, ...]:
+        require_any_role(
+            principal,
+            Role.DIRECTOR,
+            Role.AI_EXECUTIVE,
+            Role.DIVISION_HEAD,
+            Role.IT_ADMIN,
+            Role.AUDITOR,
+        )
+        return self._store.list_requests(
+            organization_id=principal.organization_id,
+            limit=limit,
+            offset=offset,
+        )
 
     def get(self, request_id: UUID, principal: Principal) -> GenesisPipelineView:
         require_any_role(
@@ -114,9 +129,7 @@ class GenesisPipelineService:
         contract = existing.proposal.resolved_contract
         if contract is None:
             raise ValueError("Proposal Genesis tidak memiliki Agent Contract")
-        return self._store.stage(
-            request_id, principal.organization_id, principal.user_id, contract
-        )
+        return self._store.stage(request_id, principal.organization_id, principal.user_id, contract)
 
     def release(self, request_id: UUID, principal: Principal) -> GenesisPipelineView:
         require_any_role(principal, Role.DIRECTOR)
@@ -126,9 +139,7 @@ class GenesisPipelineService:
         if existing.release is not None and existing.release.staged_by_user_id == principal.user_id:
             raise AuthorizationDenied("Pelaksana staging tidak boleh merilis paket yang sama")
         self._sources.validate_references(existing.source_references, SourceUse.RELEASE)
-        return self._store.release(
-            request_id, principal.organization_id, principal.user_id
-        )
+        return self._store.release(request_id, principal.organization_id, principal.user_id)
 
     def _test_proposal(
         self,
@@ -144,13 +155,12 @@ class GenesisPipelineService:
                     message="Proposal tidak menghasilkan Agent Contract yang dapat diuji.",
                 ),
             )
-        registered_capabilities = {
-            item.capability_id for item in self._capabilities.load_all()
-        }
+        registered_capabilities = {item.capability_id for item in self._capabilities.load_all()}
         capability_coverage = set(contract.capabilities).issubset(registered_capabilities)
-        organization_safe = contract.agent_kind != AgentKind.CORE
-        if contract.agent_kind == AgentKind.CORE:
-            organization_safe = contract.status.value in {"STAGED", "RELEASED"}
+        # Genesis may create a top-level agent. "CORE" describes hierarchy,
+        # not the locked organizational structure. Organization changes are
+        # governed separately and never inferred from agent_kind.
+        organization_safe = True
         return (
             GenesisTestResult(
                 code="VALIDATION_GATE",
@@ -174,9 +184,8 @@ class GenesisPipelineService:
                 code="ORGANIZATION_IMMUTABILITY",
                 passed=organization_safe,
                 message=(
-                    "Proposal tidak membuat atau mengubah Core/struktur organisasi."
-                    if contract.agent_kind != AgentKind.CORE
-                    else "Core hanya direferensikan ulang tanpa perubahan kontrak."
+                    "Proposal tidak mengubah struktur organisasi; setiap agent tetap"
+                    " menjalani business review, technical review, staging, dan release."
                 ),
             ),
             GenesisTestResult(

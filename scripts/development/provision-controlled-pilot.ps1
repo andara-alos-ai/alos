@@ -267,6 +267,8 @@ if (-not $SkipScenarioData) {
             budget_id = $budget.budget_id
             document_version_id = $financeDocument.document_version_id
             payee_name = "Vendor Sintetis ALOS"
+            vendor_reference = $fixture.scenarios.finance.vendor_reference
+            category_code = $fixture.scenarios.finance.category_code
             purpose = "Permintaan pembayaran sintetis $($fixture.scenarios.finance.request_code)"
             amount = $fixture.scenarios.finance.amount
             currency = $fixture.scenarios.finance.currency

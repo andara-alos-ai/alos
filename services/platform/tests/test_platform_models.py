@@ -1,10 +1,15 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
-from alos.platform import LeadIntake, PaymentRecordCreate, SalesInteraction
+from alos.platform import (
+    LeadIntake,
+    PaymentRecordCreate,
+    PaymentRequestCreate,
+    SalesInteraction,
+)
 from alos.platform.operations import CapaTransition, WorkItemDeadlineUpdate
 from alos.security import Role, UserCreate
 
@@ -38,6 +43,63 @@ def test_reserved_interaction_requires_document_evidence() -> None:
         )
 
 
+def test_qualified_interaction_requires_a_consistent_result() -> None:
+    with pytest.raises(ValidationError, match="Hasil qualification wajib"):
+        SalesInteraction(
+            outcome="qualified",
+            channel="phone",
+            notes="Lead telah melalui pemeriksaan kualifikasi.",
+        )
+
+    with pytest.raises(ValidationError, match="hanya boleh"):
+        SalesInteraction(
+            outcome="follow_up",
+            channel="phone",
+            notes="Lead meminta tindak lanjut.",
+            qualification_result="HOT",
+        )
+
+
+def test_reservation_date_cannot_be_in_the_future() -> None:
+    with pytest.raises(ValidationError, match="Tanggal reservasi"):
+        SalesInteraction(
+            outcome="reserved",
+            channel="site-visit",
+            notes="Reservasi sintetis",
+            reservation_reference="RSV-FUTURE",
+            evidence_document_version_id=uuid4(),
+            reservation_date=datetime.now(UTC).date() + timedelta(days=1),
+        )
+
+
+def test_payment_request_rejects_unregistered_category() -> None:
+    with pytest.raises(ValidationError, match="category_code"):
+        PaymentRequestCreate(
+            project_id=uuid4(),
+            budget_id=uuid4(),
+            document_version_id=uuid4(),
+            payee_name="Vendor Sintetis",
+            category_code="TAX_WITHOUT_EVIDENCE",
+            purpose="Menguji kategori yang tidak terdaftar",
+            amount="100000.00",
+            requested_payment_date=datetime.now(UTC).date(),
+        )
+
+
+def test_payment_request_limits_supporting_documents() -> None:
+    with pytest.raises(ValidationError, match="supporting_document_version_ids"):
+        PaymentRequestCreate(
+            project_id=uuid4(),
+            budget_id=uuid4(),
+            document_version_id=uuid4(),
+            supporting_document_version_ids=tuple(uuid4() for _ in range(21)),
+            payee_name="Vendor Sintetis",
+            purpose="Menguji batas paket evidence",
+            amount="100000.00",
+            requested_payment_date=datetime.now(UTC).date(),
+        )
+
+
 def test_lead_contact_is_normalized_before_deduplication() -> None:
     command = LeadIntake(
         project_id=uuid4(),
@@ -60,6 +122,16 @@ def test_payment_timestamp_requires_timezone() -> None:
             payment_reference="TRX-NO-TIMEZONE",
             amount="100000.00",
             paid_at=datetime(2026, 8, 30, 9, 0),
+            evidence_document_version_id=uuid4(),
+        )
+
+
+def test_payment_timestamp_cannot_be_in_the_future() -> None:
+    with pytest.raises(ValidationError, match="masa depan"):
+        PaymentRecordCreate(
+            payment_reference="TRX-FUTURE",
+            amount="100000.00",
+            paid_at=datetime.now(UTC) + timedelta(hours=1),
             evidence_document_version_id=uuid4(),
         )
 

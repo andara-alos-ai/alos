@@ -70,10 +70,10 @@ class PilotReadinessService:
             self._count_check(
                 "PILOT-AGENT-REGISTRY",
                 "RUNTIME",
-                "18 Core Agent tervalidasi",
-                len(self._agents.load_core()),
-                self._profile.expected_core_agents,
-                "Shared Agent Runtime memiliki 18 Core Agent.",
+                "Agent Registry tervalidasi",
+                len(self._agents.load_all()),
+                self._profile.minimum_registered_agents,
+                "Agent Contract dan seluruh agent yang terdaftar dapat dimuat.",
                 "Perbaiki Agent Contract atau registry sebelum membuka pilot.",
             )
         )

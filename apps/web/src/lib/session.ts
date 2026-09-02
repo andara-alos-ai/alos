@@ -1,18 +1,16 @@
 import type { Principal } from "./types";
 
-const tokenStorageKey = "alos.pilot.access-token";
+/**
+ * Marker kept in React state so existing pages can keep their loading guards.
+ * It is deliberately not a credential. Browser requests using this marker
+ * authenticate through the HttpOnly cookie instead of an Authorization header.
+ */
+export const COOKIE_SESSION_MARKER = "__alos_cookie_session__";
 
-export function readSessionToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.sessionStorage.getItem(tokenStorageKey);
-}
-
-export function storeSessionToken(token: string): void {
-  window.sessionStorage.setItem(tokenStorageKey, token);
-}
-
-export function clearSessionToken(): void {
-  window.sessionStorage.removeItem(tokenStorageKey);
+export function readCsrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(/(?:^|;\s*)alos_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
 export function sessionInitials(principal: Principal): string {

@@ -13,7 +13,8 @@ from alos.entrypoints.operations_api import router as operations_router
 from alos.entrypoints.query_api import router as query_router
 from alos.entrypoints.system_api import router as system_router
 from alos.entrypoints.uat_api import router as uat_router
-from alos.security.request_limits import RequestBodyLimitMiddleware
+from alos.security.request_limits import RateLimitMiddleware, RequestBodyLimitMiddleware
+from alos.security.response_headers import SecurityHeadersMiddleware
 
 settings = get_settings()
 
@@ -27,12 +28,21 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.web_origin],
+    allow_origins=list(dict.fromkeys([settings.web_origin, "http://localhost:3000", "http://127.0.0.1:3000"])),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Correlation-ID"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
 )
 app.add_middleware(RequestBodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
+app.add_middleware(
+    RateLimitMiddleware,
+    requests_per_minute=settings.effective_api_rate_limit_per_minute,
+    auth_requests_per_minute=settings.effective_auth_rate_limit_per_minute,
+)
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    hsts_enabled=settings.environment in {"staging", "production"},
+)
 app.include_router(router, prefix=settings.api_prefix)
 app.include_router(oidc_router, prefix=settings.api_prefix)
 app.include_router(document_router, prefix=settings.api_prefix)

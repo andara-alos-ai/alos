@@ -4,7 +4,7 @@
 |---|---|
 | Status | Diterapkan untuk Controlled Pilot |
 | Versi | 0.1.0 |
-| Cakupan | ALOS Agent Pilot v0.1 |
+| Cakupan | Pilot ALOS |
 | Pembaruan terakhir | 31 Agustus 2026 |
 
 ## 1. Tujuan
@@ -146,7 +146,7 @@ Definisi Selesai pilot mengikuti sepuluh kriteria pada rencana implementasi. Tam
 
 - tidak ada cacat kritis atau tinggi terbuka;
 - enam skenario UAT utama diterima;
-- seluruh 18 agent lolos validasi dan kasus penggunaan pilot;
+- seluruh agent yang digunakan pilot lolos validasi dan kasus penggunaan;
 - backup/restore, kill switch, dan pemulihan worker telah diuji;
 - daftar risiko, batas, dan keputusan `TBD` disetujui untuk pilot.
 

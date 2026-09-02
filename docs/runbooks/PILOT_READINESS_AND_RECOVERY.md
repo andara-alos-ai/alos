@@ -11,7 +11,7 @@ Pilih proyek pada ALOS, lalu buka **Kesehatan Sistem**. Pemeriksaan membaca prof
 - proyek aktif dan enam divisi tersedia;
 - Direktur Utama, AI Executive, technical custodian, serta operator domain aktif;
 - separation of duties untuk Keuangan, Property, HR, dan Legal;
-- 18 Core Agent dan enam workflow tersedia pada registry;
+- agent yang diperlukan dan enam workflow tersedia pada registry;
 - dokumen uji aman, dead-letter, dan heartbeat worker;
 - OIDC, object storage, malware scan, serta bukti recovery sesuai environment.
 

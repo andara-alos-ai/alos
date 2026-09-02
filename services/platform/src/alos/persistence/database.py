@@ -1,14 +1,20 @@
 import hashlib
 import json
 from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, create_engine, text
 
 from alos.agents.runtime import AgentExecutionPlan
+from alos.audit import compute_audit_entry_hash
+from alos.config import default_repository_root
+from alos.governance.approval_policy import (
+    PaymentApprovalPolicy,
+    PaymentApprovalPolicyRegistry,
+)
 from alos.platform.models import (
     ApprovalDecisionCreate,
     ApprovalRequestCreate,
@@ -33,10 +39,12 @@ from alos.platform.models import (
     LegalReviewCreate,
     LegalSubmissionCreate,
     LegalWorkflowResult,
+    PaymentCancelCreate,
     PaymentDecisionCreate,
     PaymentRecordCreate,
     PaymentRequestCreate,
     PaymentRequestView,
+    PaymentRevisionCreate,
     ProjectCreate,
     ProjectStatusUpdate,
     ProjectView,
@@ -73,8 +81,102 @@ class Database:
 
 
 class PostgresOperationalStore:
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self,
+        database: Database,
+        payment_approval_policy: PaymentApprovalPolicy | None = None,
+    ) -> None:
         self._engine = database.engine
+        self._payment_approval_policy = payment_approval_policy or PaymentApprovalPolicyRegistry(
+            default_repository_root() / "definitions"
+        ).load()
+
+    @staticmethod
+    def _request_hash(payload: Mapping[str, Any]) -> str:
+        canonical = json.dumps(
+            payload,
+            default=str,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _load_command_receipt(
+        cls,
+        connection: Any,
+        principal: Principal,
+        operation: str,
+        idempotency_key: str,
+        request_payload: Mapping[str, Any],
+    ) -> Mapping[str, Any] | None:
+        # Serialize commands that use the same organization/operation/key tuple.
+        # Without this transaction-scoped lock, two concurrent first requests can
+        # both miss the receipt and one of them would fail on the unique constraint
+        # after performing the business mutation.
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+            {
+                "lock_key": (
+                    f"{principal.organization_id}:{operation}:{idempotency_key}"
+                )
+            },
+        )
+        row = (
+            connection.execute(
+                text("""
+                    SELECT request_hash, response_payload
+                    FROM platform.command_receipts
+                    WHERE organization_id = :organization_id
+                      AND operation = :operation
+                      AND idempotency_key = :idempotency_key
+                """),
+                {
+                    "organization_id": principal.organization_id,
+                    "operation": operation,
+                    "idempotency_key": idempotency_key,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            return None
+        if row["request_hash"] != cls._request_hash(request_payload):
+            raise ValueError("Idempotency-Key telah digunakan dengan payload berbeda")
+        return cast(Mapping[str, Any], row["response_payload"])
+
+    @classmethod
+    def _save_command_receipt(
+        cls,
+        connection: Any,
+        principal: Principal,
+        operation: str,
+        idempotency_key: str,
+        request_payload: Mapping[str, Any],
+        entity_type: str,
+        entity_id: UUID,
+        response_payload: Mapping[str, Any],
+    ) -> None:
+        connection.execute(
+            text("""
+                INSERT INTO platform.command_receipts
+                    (organization_id, operation, idempotency_key, request_hash,
+                     entity_type, entity_id, response_payload)
+                VALUES (:organization_id, :operation, :idempotency_key, :request_hash,
+                        :entity_type, :entity_id, CAST(:response_payload AS jsonb))
+            """),
+            {
+                "organization_id": principal.organization_id,
+                "operation": operation,
+                "idempotency_key": idempotency_key,
+                "request_hash": cls._request_hash(request_payload),
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "response_payload": json.dumps(response_payload, default=str),
+            },
+        )
 
     def create_user(self, command: UserCreate, principal: Principal) -> UserView:
         user_id = uuid4()
@@ -476,7 +578,7 @@ class PostgresOperationalStore:
                 WHERE approval_request_id = :approval_id
             """),
                 {
-                    "status": command.decision.replace("REVISION_REQUESTED", "REVISION_REQUESTED"),
+                    "status": command.decision,
                     "now": now,
                     "approval_id": approval_request_id,
                 },
@@ -658,6 +760,128 @@ class PostgresOperationalStore:
             **command.model_dump(),
         )
 
+    def prepare_payment_request(
+        self, command: PaymentRequestCreate, principal: Principal
+    ) -> dict[str, object]:
+        document_ids = {command.document_version_id, *command.supporting_document_version_ids}
+        with self._engine.connect() as connection:
+            self._assert_project(connection, command.project_id, principal)
+            budget = (
+                connection.execute(
+                    text("""
+                        SELECT currency, allocated_amount, committed_amount, spent_amount
+                        FROM finance.budgets
+                        WHERE budget_id = :budget_id AND project_id = :project_id
+                          AND organization_id = :organization_id AND status = 'ACTIVE'
+                    """),
+                    {
+                        "budget_id": command.budget_id,
+                        "project_id": command.project_id,
+                        "organization_id": principal.organization_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if budget is None:
+                raise KeyError("Budget aktif tidak ditemukan")
+            if budget["currency"] != command.currency:
+                raise ValueError("Mata uang payment request berbeda dengan budget")
+            found_documents = connection.execute(
+                text("""
+                    SELECT dv.document_version_id
+                    FROM platform.document_versions dv
+                    JOIN platform.documents d ON d.document_id = dv.document_id
+                    WHERE dv.document_version_id = ANY(CAST(:version_ids AS uuid[]))
+                      AND d.organization_id = :organization_id
+                      AND (d.project_id IS NULL OR d.project_id = :project_id)
+                      AND (
+                          d.division_id IS NULL
+                          OR d.division_id = (
+                              SELECT division_id FROM identity.divisions
+                              WHERE organization_id = :organization_id AND code = 'FINANCE'
+                          )
+                      )
+                      AND dv.verification_status <> 'REJECTED'
+                      AND dv.scan_status IN ('NOT_CONFIGURED', 'CLEAN')
+                """),
+                {
+                    "version_ids": list(document_ids),
+                    "organization_id": principal.organization_id,
+                    "project_id": command.project_id,
+                },
+            ).scalars()
+            found_ids = set(found_documents)
+            if found_ids != document_ids:
+                raise KeyError("Dokumen payment request tidak lengkap atau di luar project")
+            available = (
+                budget["allocated_amount"]
+                - budget["committed_amount"]
+                - budget["spent_amount"]
+            )
+        required_items = ["PRIMARY_DOCUMENT"]
+        if command.category_code in {"TAX", "CONTRACTOR"}:
+            required_items.append("SUPPORTING_DOCUMENT")
+        provided_items = ["PRIMARY_DOCUMENT"]
+        if command.supporting_document_version_ids:
+            provided_items.append("SUPPORTING_DOCUMENT")
+        return {
+            "available_amount": str(available),
+            "document_metadata_valid": True,
+            "document_version_count": len(found_ids),
+            "required_items": required_items,
+            "provided_items": provided_items,
+            "evidence_complete": set(required_items).issubset(provided_items),
+        }
+
+    def document_execution_context(
+        self,
+        document_version_id: UUID,
+        project_id: UUID,
+        principal: Principal,
+    ) -> dict[str, object]:
+        """Load trusted document metadata before dispatching an agent capability."""
+
+        with self._engine.connect() as connection:
+            self._assert_project(connection, project_id, principal)
+            row = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT dv.sha256, dv.scan_status, dv.verification_status
+                        FROM platform.document_versions dv
+                        JOIN platform.documents d ON d.document_id = dv.document_id
+                        WHERE dv.document_version_id = :document_version_id
+                          AND d.organization_id = :organization_id
+                          AND (d.project_id IS NULL OR d.project_id = :project_id)
+                        """
+                    ),
+                    {
+                        "document_version_id": document_version_id,
+                        "organization_id": principal.organization_id,
+                        "project_id": project_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            raise KeyError("Versi dokumen tidak ditemukan pada project dan organisasi")
+        scan_status = str(row["scan_status"])
+        if scan_status not in {"NOT_CONFIGURED", "CLEAN"}:
+            raise ValueError("Dokumen belum lulus pemeriksaan keamanan")
+        sha256 = str(row["sha256"]).lower()
+        checksum_valid = len(sha256) == 64 and all(
+            character in "0123456789abcdef" for character in sha256
+        )
+        if not checksum_valid:
+            raise ValueError("Checksum dokumen tidak valid")
+        return {
+            "checksum_valid": True,
+            "scan_status": scan_status,
+            "document_verification_status": str(row["verification_status"]),
+        }
+
     def create_payment_request(
         self,
         command: PaymentRequestCreate,
@@ -668,11 +892,18 @@ class PostgresOperationalStore:
         idempotency_key: str,
     ) -> PaymentRequestView:
         payment_request_id, work_item_id, workflow_run_id = uuid4(), uuid4(), uuid4()
-        evidence_id, now = uuid4(), datetime.now(UTC)
+        now = datetime.now(UTC)
         approval_id: UUID | None = None
         machine = StateMachine(definition)
+        operation = "finance.payment_request.create"
+        request_payload = command.model_dump(mode="json")
         with self._engine.begin() as connection:
             self._assert_project(connection, command.project_id, principal)
+            receipt = self._load_command_receipt(
+                connection, principal, operation, idempotency_key, request_payload
+            )
+            if receipt is not None:
+                return PaymentRequestView.model_validate(receipt)
             actor_exists = connection.execute(
                 text("""
                     SELECT 1 FROM identity.users
@@ -703,28 +934,50 @@ class PostgresOperationalStore:
             )
             if budget is None:
                 raise KeyError("Budget aktif tidak ditemukan")
-            document = connection.execute(
+            document_ids = {
+                command.document_version_id,
+                *command.supporting_document_version_ids,
+            }
+            found_documents = set(
+                connection.execute(
                 text("""
-                SELECT d.document_id FROM platform.document_versions dv
+                SELECT dv.document_version_id FROM platform.document_versions dv
                 JOIN platform.documents d ON d.document_id = dv.document_id
-                WHERE dv.document_version_id = :version_id
+                WHERE dv.document_version_id = ANY(CAST(:version_ids AS uuid[]))
                   AND d.organization_id = :organization_id
                   AND (d.project_id IS NULL OR d.project_id = :project_id)
+                  AND (
+                      d.division_id IS NULL
+                      OR d.division_id = (
+                          SELECT division_id FROM identity.divisions
+                          WHERE organization_id = :organization_id AND code = 'FINANCE'
+                      )
+                  )
+                  AND dv.verification_status <> 'REJECTED'
+                  AND dv.scan_status IN ('NOT_CONFIGURED', 'CLEAN')
             """),
                 {
-                    "version_id": command.document_version_id,
+                    "version_ids": list(document_ids),
                     "organization_id": principal.organization_id,
                     "project_id": command.project_id,
                 },
-            ).first()
-            if document is None:
-                raise KeyError("Dokumen payment request tidak ditemukan")
+                ).scalars()
+            )
+            if found_documents != document_ids:
+                raise KeyError("Dokumen payment request tidak lengkap atau di luar project")
             if budget["currency"] != command.currency:
                 raise ValueError("Mata uang payment request berbeda dengan budget")
             available_amount = (
                 budget["allocated_amount"] - budget["committed_amount"] - budget["spent_amount"]
             )
             budget_available = available_amount >= command.amount
+            evidence_complete = (
+                command.category_code not in {"TAX", "CONTRACTOR"}
+                or bool(command.supporting_document_version_ids)
+            )
+            approval_route, required_role, approval_sla_hours = self._payment_approval_route(
+                command.amount
+            )
             division_id = connection.execute(
                 text("""
                 SELECT division_id FROM identity.divisions
@@ -748,7 +1001,11 @@ class PostgresOperationalStore:
                     "project_id": command.project_id,
                     "division_id": division_id,
                     "title": f"Pembayaran: {command.payee_name}",
-                    "status": "PENDING_APPROVAL" if budget_available else "BLOCKED",
+                    "status": (
+                        "PENDING_APPROVAL"
+                        if budget_available and evidence_complete
+                        else "BLOCKED"
+                    ),
                     "correlation_id": correlation_id,
                     "now": now,
                     "actor": principal.user_id,
@@ -782,12 +1039,14 @@ class PostgresOperationalStore:
                 INSERT INTO finance.payment_requests
                     (payment_request_id, organization_id, project_id, budget_id,
                      work_item_id, workflow_run_id, document_version_id, requester_user_id,
-                     payee_name, purpose, amount, currency, requested_payment_date,
-                     status, budget_available, material_fingerprint, created_at, updated_at)
+                     payee_name, vendor_reference, category_code, purpose, amount, currency,
+                     requested_payment_date, status, budget_available, evidence_complete,
+                     approval_route, material_fingerprint, created_at, updated_at)
                 VALUES (:payment_request_id, :organization_id, :project_id, :budget_id,
                         :work_item_id, :workflow_run_id, :document_version_id, :requester,
-                        :payee_name, :purpose, :amount, :currency, :payment_date,
-                        :status, :available, :fingerprint, :now, :now)
+                        :payee_name, :vendor_reference, :category_code, :purpose, :amount,
+                        :currency, :payment_date, :status, :available, :evidence_complete,
+                        :approval_route, :fingerprint, :now, :now)
             """),
                 {
                     "payment_request_id": payment_request_id,
@@ -799,59 +1058,88 @@ class PostgresOperationalStore:
                     "document_version_id": command.document_version_id,
                     "requester": principal.user_id,
                     "payee_name": command.payee_name,
+                    "vendor_reference": command.vendor_reference,
+                    "category_code": command.category_code,
                     "purpose": command.purpose,
                     "amount": command.amount,
                     "currency": command.currency,
                     "payment_date": command.requested_payment_date,
-                    "status": "PENDING_APPROVAL" if budget_available else "EXCEPTION",
+                    "status": (
+                        "PENDING_APPROVAL"
+                        if budget_available and evidence_complete
+                        else "EXCEPTION"
+                    ),
                     "available": budget_available,
+                    "evidence_complete": evidence_complete,
+                    "approval_route": approval_route,
                     "fingerprint": fingerprint,
                     "now": now,
                 },
             )
-            connection.execute(
-                text("""
-                INSERT INTO platform.evidence
-                    (evidence_id, work_item_id, document_version_id, claim_type,
-                     status, created_at, created_by)
-                VALUES (:evidence_id, :work_item_id, :version_id, 'PAYMENT_SUPPORT',
-                        'SUBMITTED', :now, :actor)
-            """),
-                {
-                    "evidence_id": evidence_id,
-                    "work_item_id": work_item_id,
-                    "version_id": command.document_version_id,
-                    "now": now,
-                    "actor": principal.user_id,
-                },
-            )
+            for version_id in document_ids:
+                connection.execute(
+                    text("""
+                    INSERT INTO platform.evidence
+                        (evidence_id, work_item_id, document_version_id, claim_type,
+                         status, created_at, created_by)
+                    VALUES (:evidence_id, :work_item_id, :version_id, :claim_type,
+                            'SUBMITTED', :now, :actor)
+                """),
+                    {
+                        "evidence_id": uuid4(),
+                        "work_item_id": work_item_id,
+                        "version_id": version_id,
+                        "claim_type": (
+                            "PAYMENT_PRIMARY_DOCUMENT"
+                            if version_id == command.document_version_id
+                            else "PAYMENT_SUPPORTING_DOCUMENT"
+                        ),
+                        "now": now,
+                        "actor": principal.user_id,
+                    },
+                )
             transitions = [
                 machine.transition("request-submitted", "submitted"),
                 machine.transition("document-extraction", "extracted"),
-                machine.transition("evidence-check", "complete"),
                 machine.transition(
-                    "budget-check", "available" if budget_available else "unavailable"
+                    "evidence-check", "complete" if evidence_complete else "incomplete"
                 ),
             ]
             current_step = transitions[-1].current_step
-            if budget_available:
+            if evidence_complete:
+                budget_transition = machine.transition(
+                    "budget-check", "available" if budget_available else "unavailable"
+                )
+                transitions.append(budget_transition)
+                current_step = budget_transition.current_step
+            if evidence_complete and budget_available:
                 approval_id = uuid4()
                 routed = machine.transition("approval-routing", "routed")
                 transitions.append(routed)
                 current_step = routed.current_step
+                approval_due_at = now + timedelta(hours=approval_sla_hours)
                 connection.execute(
                     text("""
                     INSERT INTO governance.approval_requests
                         (approval_request_id, work_item_id, requester_user_id, policy_code,
-                         policy_version, status, material_fingerprint, created_at)
+                         policy_version, status, material_fingerprint, due_at,
+                         required_role_code, required_division_code, routing_rule,
+                         created_at)
                     VALUES (:approval_id, :work_item_id, :requester, 'FINANCE_PAYMENT',
-                            '0.1.0', 'PENDING', :fingerprint, :now)
+                            '1.0.0', 'PENDING', :fingerprint, :due_at, :required_role,
+                            :required_division, :routing_rule, :now)
                 """),
                     {
                         "approval_id": approval_id,
                         "work_item_id": work_item_id,
                         "requester": principal.user_id,
                         "fingerprint": fingerprint,
+                        "due_at": approval_due_at,
+                        "required_role": required_role,
+                        "required_division": (
+                            None if required_role == "DIRECTOR" else "FINANCE"
+                        ),
+                        "routing_rule": approval_route,
                         "now": now,
                     },
                 )
@@ -869,42 +1157,108 @@ class PostgresOperationalStore:
                 """),
                     {"amount": command.amount, "now": now, "budget_id": command.budget_id},
                 )
+                connection.execute(
+                    text("""
+                    UPDATE platform.work_items SET due_at = :due_at, updated_at = :now
+                    WHERE work_item_id = :work_item_id
+                """),
+                    {"due_at": approval_due_at, "now": now, "work_item_id": work_item_id},
+                )
             else:
                 approval_id = None
+                exception_due_at = now + timedelta(hours=24)
+                exception_category = (
+                    "EVIDENCE_INCOMPLETE"
+                    if not evidence_complete
+                    else "BUDGET_INSUFFICIENT"
+                )
                 connection.execute(
                     text("""
                     INSERT INTO governance.exceptions
                         (organization_id, work_item_id, category, severity, status,
-                         owner_user_id, created_at)
-                    VALUES (:organization_id, :work_item_id, 'BUDGET_INSUFFICIENT',
-                            'HIGH', 'OPEN', :owner, :now)
+                         owner_user_id, due_at, created_at)
+                        VALUES (:organization_id, :work_item_id, :category,
+                            'HIGH', 'OPEN', :owner, :due_at, :now)
                 """),
                     {
                         "organization_id": principal.organization_id,
                         "work_item_id": work_item_id,
+                        "category": exception_category,
                         "owner": principal.user_id,
+                        "due_at": exception_due_at,
                         "now": now,
                     },
                 )
-            agent_transitions = {
-                "DIA": transitions[1],
-                "CEA": transitions[2],
-                "BCA": transitions[3],
-            }
-            if budget_available:
+                connection.execute(
+                    text("""
+                        UPDATE platform.work_items
+                        SET due_at = :due_at, owner_user_id = :owner, updated_at = :now
+                        WHERE work_item_id = :work_item_id
+                    """),
+                    {
+                        "due_at": exception_due_at,
+                        "owner": principal.user_id,
+                        "now": now,
+                        "work_item_id": work_item_id,
+                    },
+                )
+            agent_transitions = {"DIA": transitions[1], "CEA": transitions[2]}
+            if evidence_complete:
+                agent_transitions["BCA"] = transitions[3]
+            if evidence_complete and budget_available:
                 agent_transitions["ARA"] = transitions[4]
             for plan in plans:
                 transition = agent_transitions.get(plan.agent_id)
-                if transition is None:
-                    continue
-                self._record_agent_run(
+                agent_run_id = self._record_agent_run(
                     connection,
                     plan,
                     workflow_run_id,
                     correlation_id,
-                    {"step": transition.current_step, "budget_available": budget_available},
+                    {
+                        "step": transition.current_step if transition else "NOT_REACHED",
+                        "budget_available": budget_available,
+                        "evidence_complete": evidence_complete,
+                        "approval_route": approval_route,
+                    },
                     now,
                 )
+                check_type = {
+                    "DIA": "DOCUMENT",
+                    "CEA": "EVIDENCE",
+                    "BCA": "BUDGET",
+                    "ARA": "APPROVAL_ROUTE",
+                }.get(plan.agent_id)
+                if check_type is not None:
+                    passed = {
+                        "DOCUMENT": True,
+                        "EVIDENCE": evidence_complete,
+                        "BUDGET": budget_available,
+                        "APPROVAL_ROUTE": evidence_complete and budget_available,
+                    }[check_type]
+                    connection.execute(
+                        text("""
+                        INSERT INTO finance.payment_checks
+                            (payment_request_id, revision_number, check_type, agent_id,
+                             agent_run_id, status, details, checked_at)
+                        VALUES (:payment_request_id, 0, :check_type, :agent_id,
+                                :agent_run_id, :status, CAST(:details AS jsonb), :now)
+                    """),
+                        {
+                            "payment_request_id": payment_request_id,
+                            "check_type": check_type,
+                            "agent_id": plan.agent_id,
+                            "agent_run_id": agent_run_id,
+                            "status": "PASSED" if passed else "FAILED",
+                            "details": json.dumps(
+                                {
+                                    "budget_available": budget_available,
+                                    "evidence_complete": evidence_complete,
+                                    "approval_route": approval_route,
+                                }
+                            ),
+                            "now": now,
+                        },
+                    )
             self._record_transition(
                 connection,
                 workflow_run_id,
@@ -945,26 +1299,47 @@ class PostgresOperationalStore:
                     "amount": str(command.amount),
                     "current_step": current_step,
                     "budget_available": budget_available,
+                    "evidence_complete": evidence_complete,
+                    "approval_route": approval_route,
                 },
             )
-        return PaymentRequestView(
-            payment_request_id=payment_request_id,
-            work_item_id=work_item_id,
-            workflow_run_id=workflow_run_id,
-            approval_request_id=approval_id,
-            project_id=command.project_id,
-            budget_id=command.budget_id,
-            payee_name=command.payee_name,
-            purpose=command.purpose,
-            amount=command.amount,
-            currency=command.currency,
-            requested_payment_date=command.requested_payment_date,
-            status="PENDING_APPROVAL" if budget_available else "EXCEPTION",
-            current_step=current_step,
-            budget_available=budget_available,
-            correlation_id=correlation_id,
-            created_at=now,
-        )
+            result = PaymentRequestView(
+                payment_request_id=payment_request_id,
+                work_item_id=work_item_id,
+                workflow_run_id=workflow_run_id,
+                approval_request_id=approval_id,
+                project_id=command.project_id,
+                budget_id=command.budget_id,
+                payee_name=command.payee_name,
+                vendor_reference=command.vendor_reference,
+                category_code=command.category_code,
+                purpose=command.purpose,
+                amount=command.amount,
+                currency=command.currency,
+                requested_payment_date=command.requested_payment_date,
+                status=(
+                    "PENDING_APPROVAL"
+                    if budget_available and evidence_complete
+                    else "EXCEPTION"
+                ),
+                current_step=current_step,
+                budget_available=budget_available,
+                evidence_complete=evidence_complete,
+                approval_route=approval_route,
+                correlation_id=correlation_id,
+                created_at=now,
+            )
+            self._save_command_receipt(
+                connection,
+                principal,
+                operation,
+                idempotency_key,
+                request_payload,
+                "payment_request",
+                payment_request_id,
+                result.model_dump(mode="json"),
+            )
+        return result
 
     def decide_payment(
         self,
@@ -972,14 +1347,23 @@ class PostgresOperationalStore:
         command: PaymentDecisionCreate,
         principal: Principal,
         definition: WorkflowDefinition,
+        idempotency_key: str,
     ) -> FinanceWorkflowResult:
         now, machine = datetime.now(UTC), StateMachine(definition)
+        operation = f"finance.payment_request.decision:{payment_request_id}"
+        request_payload = command.model_dump(mode="json")
         with self._engine.begin() as connection:
             context = self._load_payment(connection, payment_request_id, principal)
-            if context["current_step"] != "finance-approval":
-                raise ValueError("Payment request tidak menunggu approval Finance")
             if context["requester_user_id"] == principal.user_id:
                 raise AuthorizationDenied("Pemohon tidak dapat menyetujui pembayarannya sendiri")
+            self._assert_payment_approver(context, principal)
+            receipt = self._load_command_receipt(
+                connection, principal, operation, idempotency_key, request_payload
+            )
+            if receipt is not None:
+                return FinanceWorkflowResult.model_validate(receipt)
+            if context["current_step"] != "finance-approval":
+                raise ValueError("Payment request tidak menunggu approval Finance")
             outcome = {
                 "APPROVED": "approved",
                 "REJECTED": "rejected",
@@ -1012,7 +1396,11 @@ class PostgresOperationalStore:
                     "approval_id": context["approval_request_id"],
                 },
             )
-            work_status = "IN_PROGRESS" if command.decision == "APPROVED" else "BLOCKED"
+            work_status = {
+                "APPROVED": "IN_PROGRESS",
+                "REJECTED": "BLOCKED",
+                "REVISION_REQUESTED": "NEEDS_REVIEW",
+            }[command.decision]
             if command.decision != "APPROVED":
                 connection.execute(
                     text("""
@@ -1021,19 +1409,83 @@ class PostgresOperationalStore:
                 """),
                     {"amount": context["amount"], "now": now, "budget_id": context["budget_id"]},
                 )
+                if command.decision == "REJECTED":
+                    exception_due_at = now + timedelta(hours=24)
+                    connection.execute(
+                        text("""
+                        INSERT INTO governance.exceptions
+                            (organization_id, work_item_id, category, severity, status,
+                             owner_user_id, due_at, created_at)
+                        VALUES (:organization_id, :work_item_id, 'PAYMENT_REJECTED',
+                                'MEDIUM', 'OPEN', :owner, :due_at, :now)
+                    """),
+                        {
+                            "work_item_id": context["work_item_id"],
+                            "organization_id": principal.organization_id,
+                            "owner": context["requester_user_id"],
+                            "due_at": exception_due_at,
+                            "now": now,
+                        },
+                    )
+                    connection.execute(
+                        text("""
+                            UPDATE platform.work_items
+                            SET owner_user_id = :owner, due_at = :due_at, updated_at = :now
+                            WHERE work_item_id = :work_item_id
+                        """),
+                        {
+                            "owner": context["requester_user_id"],
+                            "due_at": exception_due_at,
+                            "now": now,
+                            "work_item_id": context["work_item_id"],
+                        },
+                    )
+                else:
+                    revision_due_at = now + timedelta(hours=48)
+                    connection.execute(
+                        text("""
+                        UPDATE platform.work_items
+                        SET owner_user_id = :owner, due_at = :due_at, updated_at = :now
+                        WHERE work_item_id = :work_item_id
+                    """),
+                        {
+                            "owner": context["requester_user_id"],
+                            "due_at": revision_due_at,
+                            "now": now,
+                            "work_item_id": context["work_item_id"],
+                        },
+                    )
+                    connection.execute(
+                        text("""
+                        INSERT INTO platform.reminders
+                            (organization_id, work_item_id, recipient_user_id,
+                             reminder_type, status, scheduled_for, created_at)
+                        VALUES (:organization_id, :work_item_id, :recipient,
+                                'DUE_SOON', 'PENDING', :scheduled_for, :now)
+                        ON CONFLICT DO NOTHING
+                    """),
+                        {
+                            "organization_id": principal.organization_id,
+                            "work_item_id": context["work_item_id"],
+                            "recipient": context["requester_user_id"],
+                            "scheduled_for": revision_due_at,
+                            "now": now,
+                        },
+                    )
+            else:
+                payment_action_due_at = datetime.combine(
+                    context["requested_payment_date"], time.max, tzinfo=UTC
+                )
                 connection.execute(
                     text("""
-                    INSERT INTO governance.exceptions
-                        (organization_id, work_item_id, category, severity, status,
-                         owner_user_id, created_at)
-                    VALUES (:organization_id, :work_item_id, 'PAYMENT_NOT_APPROVED',
-                            'MEDIUM', 'OPEN', :owner, :now)
-                """),
+                        UPDATE platform.work_items
+                        SET due_at = :due_at, updated_at = :now
+                        WHERE work_item_id = :work_item_id
+                    """),
                     {
-                        "work_item_id": context["work_item_id"],
-                        "organization_id": principal.organization_id,
-                        "owner": context["requester_user_id"],
+                        "due_at": payment_action_due_at,
                         "now": now,
+                        "work_item_id": context["work_item_id"],
                     },
                 )
             self._update_payment_state(
@@ -1058,9 +1510,20 @@ class PostgresOperationalStore:
                 None,
                 command.model_dump(),
             )
-            return self._finance_result(
+            result = self._finance_result(
                 context, transition.current_step, command.decision, work_status, terminal
             )
+            self._save_command_receipt(
+                connection,
+                principal,
+                operation,
+                idempotency_key,
+                request_payload,
+                "payment_request",
+                payment_request_id,
+                result.model_dump(mode="json"),
+            )
+            return result
 
     def record_payment(
         self,
@@ -1068,10 +1531,18 @@ class PostgresOperationalStore:
         command: PaymentRecordCreate,
         principal: Principal,
         definition: WorkflowDefinition,
+        idempotency_key: str,
     ) -> FinanceWorkflowResult:
         now, machine = datetime.now(UTC), StateMachine(definition)
+        operation = f"finance.payment_request.payment:{payment_request_id}"
+        request_payload = command.model_dump(mode="json")
         with self._engine.begin() as connection:
             context = self._load_payment(connection, payment_request_id, principal)
+            receipt = self._load_command_receipt(
+                connection, principal, operation, idempotency_key, request_payload
+            )
+            if receipt is not None:
+                return FinanceWorkflowResult.model_validate(receipt)
             if context["current_step"] != "payment-action" or context["status"] != "APPROVED":
                 raise ValueError("Payment request belum disetujui")
             if command.amount != context["amount"]:
@@ -1085,6 +1556,15 @@ class PostgresOperationalStore:
                 WHERE dv.document_version_id = :version_id
                   AND d.organization_id = :organization_id
                   AND (d.project_id IS NULL OR d.project_id = :project_id)
+                  AND (
+                      d.division_id IS NULL
+                      OR d.division_id = (
+                          SELECT division_id FROM identity.divisions
+                          WHERE organization_id = :organization_id AND code = 'FINANCE'
+                      )
+                  )
+                  AND dv.verification_status <> 'REJECTED'
+                  AND dv.scan_status IN ('NOT_CONFIGURED', 'CLEAN')
             """),
                 {
                     "version_id": command.evidence_document_version_id,
@@ -1098,12 +1578,15 @@ class PostgresOperationalStore:
             connection.execute(
                 text("""
                 INSERT INTO finance.payment_records
-                    (payment_request_id, payment_reference, amount, currency, paid_at,
-                     evidence_document_version_id, recorded_by_user_id, created_at)
-                VALUES (:payment_request_id, :reference, :amount, :currency, :paid_at,
-                        :evidence, :actor, :now)
+                    (organization_id, payment_request_id, payment_reference, amount,
+                     currency, paid_at,
+                     evidence_document_version_id, recorded_by_user_id, idempotency_key,
+                     created_at)
+                VALUES (:organization_id, :payment_request_id, :reference, :amount,
+                        :currency, :paid_at, :evidence, :actor, :idempotency_key, :now)
             """),
                 {
+                    "organization_id": principal.organization_id,
                     "payment_request_id": payment_request_id,
                     "reference": command.payment_reference,
                     "amount": command.amount,
@@ -1111,11 +1594,40 @@ class PostgresOperationalStore:
                     "paid_at": command.paid_at,
                     "evidence": command.evidence_document_version_id,
                     "actor": principal.user_id,
+                    "idempotency_key": idempotency_key,
                     "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO platform.evidence
+                    (evidence_id, work_item_id, document_version_id, claim_type,
+                     status, created_at, created_by)
+                VALUES (:evidence_id, :work_item_id, :document_version_id,
+                        'PAYMENT_PROOF', 'SUBMITTED', :now, :actor)
+            """),
+                {
+                    "evidence_id": uuid4(),
+                    "work_item_id": context["work_item_id"],
+                    "document_version_id": command.evidence_document_version_id,
+                    "now": now,
+                    "actor": principal.user_id,
                 },
             )
             self._update_payment_state(
                 connection, context, transition.current_step, "PAID", "IN_PROGRESS", False, now
+            )
+            connection.execute(
+                text("""
+                    UPDATE platform.work_items
+                    SET due_at = :due_at, updated_at = :now
+                    WHERE work_item_id = :work_item_id
+                """),
+                {
+                    "due_at": now + timedelta(hours=24),
+                    "now": now,
+                    "work_item_id": context["work_item_id"],
+                },
             )
             self._record_transition(
                 connection, context["workflow_run_id"], transition, "HUMAN", principal.user_id, now
@@ -1130,9 +1642,562 @@ class PostgresOperationalStore:
                 None,
                 command.model_dump(mode="json"),
             )
-            return self._finance_result(
+            result = self._finance_result(
                 context, transition.current_step, "PAID", "IN_PROGRESS", False
             )
+            self._save_command_receipt(
+                connection,
+                principal,
+                operation,
+                idempotency_key,
+                request_payload,
+                "payment_request",
+                payment_request_id,
+                result.model_dump(mode="json"),
+            )
+            return result
+
+    def cancel_payment(
+        self,
+        payment_request_id: UUID,
+        command: PaymentCancelCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        idempotency_key: str,
+    ) -> FinanceWorkflowResult:
+        now, machine = datetime.now(UTC), StateMachine(definition)
+        operation = f"finance.payment_request.cancel:{payment_request_id}"
+        request_payload = command.model_dump(mode="json")
+        with self._engine.begin() as connection:
+            context = self._load_payment(connection, payment_request_id, principal)
+            if context["requester_user_id"] != principal.user_id and not (
+                principal.has_any_role(Role.DIRECTOR)
+                or (
+                    principal.has_any_role(Role.DIVISION_HEAD)
+                    and "FINANCE" in principal.division_codes
+                )
+            ):
+                raise AuthorizationDenied(
+                    "Pembatalan hanya dapat dilakukan pemohon, Kepala Finance, atau Direktur"
+                )
+            receipt = self._load_command_receipt(
+                connection, principal, operation, idempotency_key, request_payload
+            )
+            if receipt is not None:
+                return FinanceWorkflowResult.model_validate(receipt)
+            if context["current_step"] not in {
+                "finance-approval",
+                "revision-required",
+                "payment-action",
+            }:
+                raise ValueError("Payment request tidak dapat dibatalkan pada status ini")
+            transition = machine.transition(context["current_step"], "cancelled")
+            if context["status"] in {"PENDING_APPROVAL", "APPROVED"}:
+                connection.execute(
+                    text("""
+                    UPDATE finance.budgets
+                    SET committed_amount = committed_amount - :amount,
+                        updated_at = :now, version = version + 1
+                    WHERE budget_id = :budget_id
+                """),
+                    {
+                        "amount": context["amount"],
+                        "now": now,
+                        "budget_id": context["budget_id"],
+                    },
+                )
+            connection.execute(
+                text("""
+                UPDATE governance.approval_requests
+                SET status = 'CANCELLED', decided_at = :now
+                WHERE approval_request_id = :approval_id AND status = 'PENDING'
+            """),
+                {"approval_id": context["approval_request_id"], "now": now},
+            )
+            connection.execute(
+                text("""
+                UPDATE finance.payment_requests
+                SET status = 'CANCELLED', cancelled_by_user_id = :actor,
+                    cancelled_at = :now, cancellation_reason = :reason,
+                    updated_at = :now, version = version + 1
+                WHERE payment_request_id = :payment_request_id
+            """),
+                {
+                    "actor": principal.user_id,
+                    "now": now,
+                    "reason": command.reason,
+                    "payment_request_id": payment_request_id,
+                },
+            )
+            connection.execute(
+                text("""
+                UPDATE platform.work_items
+                SET status = 'CANCELLED', completed_at = :now, due_at = NULL,
+                    updated_at = :now, version = version + 1
+                WHERE work_item_id = :work_item_id
+            """),
+                {"now": now, "work_item_id": context["work_item_id"]},
+            )
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs
+                SET current_step = :step, status = 'COMPLETED', completed_at = :now,
+                    version = version + 1
+                WHERE workflow_run_id = :workflow_run_id
+            """),
+                {
+                    "step": transition.current_step,
+                    "now": now,
+                    "workflow_run_id": context["workflow_run_id"],
+                },
+            )
+            connection.execute(
+                text("""
+                UPDATE platform.reminders SET status = 'CANCELLED'
+                WHERE work_item_id = :work_item_id AND status = 'PENDING'
+            """),
+                {"work_item_id": context["work_item_id"]},
+            )
+            self._record_transition(
+                connection,
+                context["workflow_run_id"],
+                transition,
+                "HUMAN",
+                principal.user_id,
+                now,
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "finance.payment_cancelled",
+                "payment_request",
+                payment_request_id,
+                context["correlation_id"],
+                {"status": context["status"]},
+                {"status": "CANCELLED"},
+                command.reason,
+            )
+            result = self._finance_result(
+                context,
+                transition.current_step,
+                "CANCELLED",
+                "CANCELLED",
+                True,
+            )
+            self._save_command_receipt(
+                connection,
+                principal,
+                operation,
+                idempotency_key,
+                request_payload,
+                "payment_request",
+                payment_request_id,
+                result.model_dump(mode="json"),
+            )
+            return result
+
+    def revise_payment(
+        self,
+        payment_request_id: UUID,
+        command: PaymentRevisionCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        plans: tuple[AgentExecutionPlan, ...],
+        idempotency_key: str,
+    ) -> FinanceWorkflowResult:
+        now, machine = datetime.now(UTC), StateMachine(definition)
+        operation = f"finance.payment_request.revise:{payment_request_id}"
+        request_payload = command.model_dump(mode="json")
+        with self._engine.begin() as connection:
+            context = self._load_payment(connection, payment_request_id, principal)
+            if context["requester_user_id"] != principal.user_id:
+                raise AuthorizationDenied("Revisi hanya dapat diajukan pemohon semula")
+            if command.project_id != context["project_id"]:
+                raise ValueError("Project payment request tidak dapat diubah saat revisi")
+            receipt = self._load_command_receipt(
+                connection, principal, operation, idempotency_key, request_payload
+            )
+            if receipt is not None:
+                return FinanceWorkflowResult.model_validate(receipt)
+            if context["current_step"] != "revision-required":
+                raise ValueError("Payment request tidak menunggu revisi")
+            budget = (
+                connection.execute(
+                    text("""
+                    SELECT budget_id, currency, allocated_amount, committed_amount, spent_amount
+                    FROM finance.budgets
+                    WHERE budget_id = :budget_id AND project_id = :project_id
+                      AND organization_id = :organization_id AND status = 'ACTIVE'
+                    FOR UPDATE
+                """),
+                    {
+                        "budget_id": command.budget_id,
+                        "project_id": command.project_id,
+                        "organization_id": principal.organization_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if budget is None:
+                raise KeyError("Budget aktif tidak ditemukan")
+            if budget["currency"] != command.currency:
+                raise ValueError("Mata uang payment request berbeda dengan budget")
+            document_ids = {
+                command.document_version_id,
+                *command.supporting_document_version_ids,
+            }
+            found_documents = set(
+                connection.execute(
+                    text("""
+                    SELECT dv.document_version_id
+                    FROM platform.document_versions dv
+                    JOIN platform.documents d ON d.document_id = dv.document_id
+                    WHERE dv.document_version_id = ANY(CAST(:version_ids AS uuid[]))
+                      AND d.organization_id = :organization_id
+                      AND (d.project_id IS NULL OR d.project_id = :project_id)
+                      AND (
+                          d.division_id IS NULL
+                          OR d.division_id = (
+                              SELECT division_id FROM identity.divisions
+                              WHERE organization_id = :organization_id AND code = 'FINANCE'
+                          )
+                      )
+                      AND dv.verification_status <> 'REJECTED'
+                      AND dv.scan_status IN ('NOT_CONFIGURED', 'CLEAN')
+                """),
+                    {
+                        "version_ids": list(document_ids),
+                        "organization_id": principal.organization_id,
+                        "project_id": command.project_id,
+                    },
+                ).scalars()
+            )
+            if found_documents != document_ids:
+                raise KeyError("Dokumen revisi tidak lengkap atau di luar project")
+            available_amount = (
+                budget["allocated_amount"] - budget["committed_amount"] - budget["spent_amount"]
+            )
+            budget_available = available_amount >= command.amount
+            evidence_complete = (
+                command.category_code not in {"TAX", "CONTRACTOR"}
+                or bool(command.supporting_document_version_ids)
+            )
+            approval_route, required_role, approval_sla_hours = self._payment_approval_route(
+                command.amount
+            )
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    command.model_dump(mode="json"),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            revision_number = context["revision_number"] + 1
+            transitions = [
+                machine.transition("revision-required", "resubmitted"),
+                machine.transition("document-extraction", "extracted"),
+                machine.transition(
+                    "evidence-check", "complete" if evidence_complete else "incomplete"
+                ),
+            ]
+            current_step = transitions[-1].current_step
+            if evidence_complete:
+                checked = machine.transition(
+                    "budget-check", "available" if budget_available else "unavailable"
+                )
+                transitions.append(checked)
+                current_step = checked.current_step
+            approval_id: UUID | None = None
+            if evidence_complete and budget_available:
+                routed = machine.transition("approval-routing", "routed")
+                transitions.append(routed)
+                current_step = routed.current_step
+                approval_id = uuid4()
+                approval_due_at = now + timedelta(hours=approval_sla_hours)
+                connection.execute(
+                    text("""
+                    INSERT INTO governance.approval_requests
+                        (approval_request_id, work_item_id, requester_user_id, policy_code,
+                         policy_version, status, material_fingerprint, due_at,
+                         required_role_code, required_division_code, routing_rule, created_at)
+                    VALUES (:approval_id, :work_item_id, :requester, 'FINANCE_PAYMENT',
+                            '1.0.0', 'PENDING', :fingerprint, :due_at, :required_role,
+                            :required_division, :routing_rule, :now)
+                """),
+                    {
+                        "approval_id": approval_id,
+                        "work_item_id": context["work_item_id"],
+                        "requester": principal.user_id,
+                        "fingerprint": fingerprint,
+                        "due_at": approval_due_at,
+                        "required_role": required_role,
+                        "required_division": (
+                            None if required_role == "DIRECTOR" else "FINANCE"
+                        ),
+                        "routing_rule": approval_route,
+                        "now": now,
+                    },
+                )
+                connection.execute(
+                    text("""
+                    UPDATE finance.budgets
+                    SET committed_amount = committed_amount + :amount,
+                        updated_at = :now, version = version + 1
+                    WHERE budget_id = :budget_id
+                """),
+                    {"amount": command.amount, "now": now, "budget_id": command.budget_id},
+                )
+            for version_id in document_ids:
+                connection.execute(
+                    text("""
+                    INSERT INTO platform.evidence
+                        (evidence_id, work_item_id, document_version_id, claim_type,
+                         status, created_at, created_by)
+                    VALUES (:evidence_id, :work_item_id, :version_id,
+                            'PAYMENT_REVISION_DOCUMENT', 'SUBMITTED', :now, :actor)
+                """),
+                    {
+                        "evidence_id": uuid4(),
+                        "work_item_id": context["work_item_id"],
+                        "version_id": version_id,
+                        "now": now,
+                        "actor": principal.user_id,
+                    },
+                )
+            status = (
+                "PENDING_APPROVAL"
+                if evidence_complete and budget_available
+                else "EXCEPTION"
+            )
+            connection.execute(
+                text("""
+                UPDATE finance.payment_requests
+                SET budget_id = :budget_id, approval_request_id = :approval_id,
+                    document_version_id = :document_version_id, payee_name = :payee_name,
+                    vendor_reference = :vendor_reference, category_code = :category_code,
+                    purpose = :purpose, amount = :amount, currency = :currency,
+                    requested_payment_date = :payment_date, status = :status,
+                    budget_available = :budget_available,
+                    evidence_complete = :evidence_complete,
+                    approval_route = :approval_route,
+                    material_fingerprint = :fingerprint,
+                    revision_number = :revision_number,
+                    updated_at = :now, version = version + 1
+                WHERE payment_request_id = :payment_request_id
+            """),
+                {
+                    "budget_id": command.budget_id,
+                    "approval_id": approval_id,
+                    "document_version_id": command.document_version_id,
+                    "payee_name": command.payee_name,
+                    "vendor_reference": command.vendor_reference,
+                    "category_code": command.category_code,
+                    "purpose": command.purpose,
+                    "amount": command.amount,
+                    "currency": command.currency,
+                    "payment_date": command.requested_payment_date,
+                    "status": status,
+                    "budget_available": budget_available,
+                    "evidence_complete": evidence_complete,
+                    "approval_route": approval_route,
+                    "fingerprint": fingerprint,
+                    "revision_number": revision_number,
+                    "now": now,
+                    "payment_request_id": payment_request_id,
+                },
+            )
+            terminal = current_step == "exception-open"
+            connection.execute(
+                text("""
+                UPDATE workflow.workflow_runs
+                SET current_step = :step, status = :status,
+                    completed_at = :completed_at, version = version + 1
+                WHERE workflow_run_id = :workflow_run_id
+            """),
+                {
+                    "step": current_step,
+                    "status": "COMPLETED" if terminal else "ACTIVE",
+                    "completed_at": now if terminal else None,
+                    "workflow_run_id": context["workflow_run_id"],
+                },
+            )
+            connection.execute(
+                text("""
+                UPDATE platform.work_items
+                SET owner_user_id = NULL, status = :status, due_at = :due_at,
+                    updated_at = :now, version = version + 1
+                WHERE work_item_id = :work_item_id
+            """),
+                {
+                    "status": "PENDING_APPROVAL" if not terminal else "BLOCKED",
+                    "due_at": (
+                        now + timedelta(hours=approval_sla_hours)
+                        if not terminal
+                        else now + timedelta(hours=24)
+                    ),
+                    "now": now,
+                    "work_item_id": context["work_item_id"],
+                },
+            )
+            agent_transitions = {"DIA": transitions[1], "CEA": transitions[2]}
+            if evidence_complete:
+                agent_transitions["BCA"] = transitions[3]
+            if evidence_complete and budget_available:
+                agent_transitions["ARA"] = transitions[4]
+            for plan in plans:
+                transition = agent_transitions.get(plan.agent_id)
+                agent_run_id = self._record_agent_run(
+                    connection,
+                    plan,
+                    context["workflow_run_id"],
+                    context["correlation_id"],
+                    {
+                        "step": transition.current_step if transition else "NOT_REACHED",
+                        "revision_number": revision_number,
+                        "budget_available": budget_available,
+                        "evidence_complete": evidence_complete,
+                        "approval_route": approval_route,
+                    },
+                    now,
+                )
+                check_type = {
+                    "DIA": "DOCUMENT",
+                    "CEA": "EVIDENCE",
+                    "BCA": "BUDGET",
+                    "ARA": "APPROVAL_ROUTE",
+                }.get(plan.agent_id)
+                if check_type is not None:
+                    passed = {
+                        "DOCUMENT": True,
+                        "EVIDENCE": evidence_complete,
+                        "BUDGET": budget_available,
+                        "APPROVAL_ROUTE": evidence_complete and budget_available,
+                    }[check_type]
+                    connection.execute(
+                        text("""
+                        INSERT INTO finance.payment_checks
+                            (payment_request_id, revision_number, check_type, agent_id,
+                             agent_run_id, status, details, checked_at)
+                        VALUES (:payment_request_id, :revision_number, :check_type,
+                                :agent_id, :agent_run_id, :status,
+                                CAST(:details AS jsonb), :now)
+                    """),
+                        {
+                            "payment_request_id": payment_request_id,
+                            "revision_number": revision_number,
+                            "check_type": check_type,
+                            "agent_id": plan.agent_id,
+                            "agent_run_id": agent_run_id,
+                            "status": "PASSED" if passed else "FAILED",
+                            "details": json.dumps({"approval_route": approval_route}),
+                            "now": now,
+                        },
+                    )
+            for transition, actor_id in zip(
+                transitions,
+                (str(principal.user_id), "DIA", "CEA", "BCA", "ARA"),
+                strict=False,
+            ):
+                self._record_transition(
+                    connection,
+                    context["workflow_run_id"],
+                    transition,
+                    "HUMAN" if actor_id == str(principal.user_id) else "AGENT",
+                    actor_id,
+                    now,
+                )
+            if terminal:
+                connection.execute(
+                    text("""
+                    INSERT INTO governance.exceptions
+                        (organization_id, work_item_id, category, severity, status,
+                         owner_user_id, due_at, created_at)
+                    VALUES (:organization_id, :work_item_id, :category,
+                            'HIGH', 'OPEN', :owner, :due_at, :now)
+                """),
+                    {
+                        "organization_id": principal.organization_id,
+                        "work_item_id": context["work_item_id"],
+                        "category": (
+                            "EVIDENCE_INCOMPLETE"
+                            if not evidence_complete
+                            else "BUDGET_INSUFFICIENT"
+                        ),
+                        "owner": principal.user_id,
+                        "due_at": now + timedelta(hours=24),
+                        "now": now,
+                    },
+                )
+            connection.execute(
+                text("""
+                UPDATE platform.reminders SET status = 'CANCELLED'
+                WHERE work_item_id = :work_item_id AND status = 'PENDING'
+            """),
+                {"work_item_id": context["work_item_id"]},
+            )
+            self._append_audit(
+                connection,
+                principal,
+                "finance.payment_revised",
+                "payment_request",
+                payment_request_id,
+                context["correlation_id"],
+                {"revision_number": context["revision_number"]},
+                {
+                    "revision_number": revision_number,
+                    "status": status,
+                    "approval_route": approval_route,
+                },
+                command.reason,
+            )
+            revised_context = dict(context)
+            revised_context["approval_request_id"] = approval_id
+            result = self._finance_result(
+                revised_context,
+                current_step,
+                status,
+                "BLOCKED" if terminal else "PENDING_APPROVAL",
+                terminal,
+            )
+            self._save_command_receipt(
+                connection,
+                principal,
+                operation,
+                idempotency_key,
+                request_payload,
+                "payment_request",
+                payment_request_id,
+                result.model_dump(mode="json"),
+            )
+            return result
+
+    def payment_reconciliation_context(
+        self, payment_request_id: UUID, principal: Principal
+    ) -> dict[str, object]:
+        with self._engine.connect() as connection:
+            context = self._load_payment(connection, payment_request_id, principal)
+            record = (
+                connection.execute(
+                    text("""
+                    SELECT payment_reference, amount, currency
+                    FROM finance.payment_records
+                    WHERE payment_request_id = :payment_request_id
+                """),
+                    {"payment_request_id": payment_request_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if record is None:
+                raise ValueError("Catatan pembayaran belum tersedia")
+            if context["status"] not in {"PAID", "RECONCILED", "EXCEPTION"}:
+                raise ValueError("Payment request belum siap direkonsiliasi")
+            return {
+                "payment_reference": record["payment_reference"],
+                "payment_amount": str(record["amount"]),
+                "payment_currency": record["currency"],
+            }
 
     def reconcile_payment(
         self,
@@ -1141,10 +2206,18 @@ class PostgresOperationalStore:
         principal: Principal,
         definition: WorkflowDefinition,
         plan: AgentExecutionPlan,
+        idempotency_key: str,
     ) -> FinanceWorkflowResult:
         now, machine = datetime.now(UTC), StateMachine(definition)
+        operation = f"finance.payment_request.reconcile:{payment_request_id}"
+        request_payload = command.model_dump(mode="json")
         with self._engine.begin() as connection:
             context = self._load_payment(connection, payment_request_id, principal)
+            receipt = self._load_command_receipt(
+                connection, principal, operation, idempotency_key, request_payload
+            )
+            if receipt is not None:
+                return FinanceWorkflowResult.model_validate(receipt)
             if context["current_step"] != "reconciliation" or context["status"] != "PAID":
                 raise ValueError("Payment request belum siap direkonsiliasi")
             record = (
@@ -1177,13 +2250,16 @@ class PostgresOperationalStore:
             connection.execute(
                 text("""
                 INSERT INTO finance.reconciliations
-                    (payment_request_id, payment_record_id, transaction_reference,
+                    (organization_id, payment_request_id, payment_record_id,
+                     transaction_reference,
                      transaction_amount, currency, status, difference_amount,
-                     created_by_agent_run_id, created_at)
-                VALUES (:payment_request_id, :payment_record_id, :reference, :amount,
-                        :currency, :status, :difference, :agent_run_id, :now)
+                     created_by_agent_run_id, idempotency_key, created_at)
+                VALUES (:organization_id, :payment_request_id, :payment_record_id,
+                        :reference, :amount, :currency, :status, :difference, :agent_run_id,
+                        :idempotency_key, :now)
             """),
                 {
+                    "organization_id": principal.organization_id,
                     "payment_request_id": payment_request_id,
                     "payment_record_id": record["payment_record_id"],
                     "reference": command.transaction_reference,
@@ -1192,6 +2268,7 @@ class PostgresOperationalStore:
                     "status": "MATCHED" if matched else "MISMATCH",
                     "difference": difference,
                     "agent_run_id": agent_run_id,
+                    "idempotency_key": idempotency_key,
                     "now": now,
                 },
             )
@@ -1212,19 +2289,33 @@ class PostgresOperationalStore:
                     text("""
                     INSERT INTO governance.exceptions
                         (organization_id, work_item_id, category, severity, status,
-                         owner_user_id, created_at)
+                         owner_user_id, due_at, created_at)
                     VALUES (:organization_id, :work_item_id, 'RECONCILIATION_MISMATCH',
-                            'HIGH', 'CAPA_REQUIRED', :owner, :now)
+                            'HIGH', 'CAPA_REQUIRED', :owner, :due_at, :now)
                 """),
                     {
                         "work_item_id": context["work_item_id"],
                         "organization_id": principal.organization_id,
                         "owner": principal.user_id,
+                        "due_at": now + timedelta(hours=24),
                         "now": now,
                     },
                 )
             self._update_payment_state(
                 connection, context, transition.current_step, status, work_status, True, now
+            )
+            connection.execute(
+                text("""
+                    UPDATE platform.work_items
+                    SET owner_user_id = :owner, due_at = :due_at, updated_at = :now
+                    WHERE work_item_id = :work_item_id
+                """),
+                {
+                    "owner": None if matched else principal.user_id,
+                    "due_at": None if matched else now + timedelta(hours=24),
+                    "now": now,
+                    "work_item_id": context["work_item_id"],
+                },
             )
             self._record_transition(
                 connection, context["workflow_run_id"], transition, "AGENT", "FRA", now
@@ -1239,7 +2330,7 @@ class PostgresOperationalStore:
                 None,
                 {"matched": matched, "difference": str(difference)},
             )
-            return self._finance_result(
+            result = self._finance_result(
                 context,
                 transition.current_step,
                 status,
@@ -1248,6 +2339,17 @@ class PostgresOperationalStore:
                 reconciliation_status="MATCHED" if matched else "MISMATCH",
                 difference_amount=difference,
             )
+            self._save_command_receipt(
+                connection,
+                principal,
+                operation,
+                idempotency_key,
+                request_payload,
+                "payment_request",
+                payment_request_id,
+                result.model_dump(mode="json"),
+            )
+            return result
 
     def submit_site_evidence(
         self,
@@ -1444,6 +2546,23 @@ class PostgresOperationalStore:
             terminal=False,
             correlation_id=correlation_id,
         )
+
+    def site_evidence_review_context(
+        self, site_evidence_id: UUID, principal: Principal
+    ) -> dict[str, object]:
+        """Authorize the reviewer before any runtime work is dispatched."""
+
+        with self._engine.connect() as connection:
+            context = self._load_site_evidence(connection, site_evidence_id, principal)
+        if context["current_step"] != "human-review" or context["status"] != "PENDING_REVIEW":
+            raise ValueError("Bukti lapangan tidak menunggu review Property")
+        if context["submitted_by_user_id"] == principal.user_id:
+            raise AuthorizationDenied("Pengunggah tidak dapat mereview buktinya sendiri")
+        return {
+            "claimed_progress": str(context["claimed_progress"]),
+            "measured_progress": str(context["measured_progress"]),
+            "variance": str(context["variance"]),
+        }
 
     def review_site_evidence(
         self,
@@ -1658,7 +2777,7 @@ class PostgresOperationalStore:
             raise KeyError("Bukti lapangan tidak ditemukan")
         if not principal.can_access_project(row["project_id"]):
             raise AuthorizationDenied("Pengguna tidak memiliki akses ke project Property")
-        return row
+        return cast(Mapping[str, Any], row)
 
     def submit_legal_document(
         self,
@@ -2027,7 +3146,7 @@ class PostgresOperationalStore:
             raise KeyError("Kasus Legal tidak ditemukan")
         if not principal.can_access_project(row["project_id"]):
             raise AuthorizationDenied("Pengguna tidak memiliki akses ke project Legal")
-        return row
+        return cast(Mapping[str, Any], row)
 
     def submit_recruitment_request(
         self,
@@ -2394,6 +3513,24 @@ class PostgresOperationalStore:
                 correlation_id=context["correlation_id"],
             )
 
+    def recruitment_decision_context(
+        self, recruitment_request_id: UUID, principal: Principal
+    ) -> dict[str, object]:
+        """Authorize an HR decision before preparing an optional HPA run."""
+
+        with self._engine.connect() as connection:
+            context = self._load_recruitment(
+                connection, recruitment_request_id, principal
+            )
+        if context["current_step"] != "hr-review" or context["status"] != "PENDING_HR_REVIEW":
+            raise ValueError("Permintaan rekrutmen tidak menunggu keputusan HR")
+        if context["submitted_by_user_id"] == principal.user_id:
+            raise AuthorizationDenied("Pengaju tidak dapat memutus rekrutmennya sendiri")
+        return {
+            "screening_status": str(context["screening_status"]),
+            "missing_criteria": list(context["missing_criteria"]),
+        }
+
     @staticmethod
     def _load_recruitment(
         connection: Any, recruitment_request_id: UUID, principal: Principal
@@ -2425,7 +3562,79 @@ class PostgresOperationalStore:
             raise KeyError("Permintaan rekrutmen tidak ditemukan")
         if not principal.can_access_project(row["project_id"]):
             raise AuthorizationDenied("Pengguna tidak memiliki akses ke project rekrutmen")
-        return row
+        return cast(Mapping[str, Any], row)
+
+    def prepare_executive_brief(
+        self, command: ExecutiveBriefCreate, principal: Principal
+    ) -> dict[str, object]:
+        """Build agent inputs from persisted facts before creating the snapshot."""
+
+        parameters = {
+            "organization_id": principal.organization_id,
+            "project_id": command.project_id,
+            "period_start": command.period_start,
+            "period_end": command.period_end,
+        }
+        with self._engine.connect() as connection:
+            if command.project_id is not None:
+                self._assert_project(connection, command.project_id, principal)
+            facts = self._executive_counts(connection, principal, command)
+            capa_due_dates = list(
+                connection.execute(
+                    text(
+                        """
+                        SELECT c.due_at
+                        FROM governance.capas c
+                        JOIN governance.exceptions e ON e.exception_id = c.exception_id
+                        LEFT JOIN platform.work_items wi ON wi.work_item_id = e.work_item_id
+                        WHERE e.organization_id = :organization_id
+                          AND c.status <> 'CLOSED'
+                          AND c.due_at IS NOT NULL
+                          AND (CAST(:project_id AS uuid) IS NULL
+                               OR wi.project_id = CAST(:project_id AS uuid))
+                          AND c.created_at >= CAST(:period_start AS date)
+                          AND c.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                        ORDER BY c.due_at
+                        """
+                    ),
+                    parameters,
+                ).scalars()
+            )
+            approval_due_dates = list(
+                connection.execute(
+                    text(
+                        """
+                        SELECT r.scheduled_for
+                        FROM platform.reminders r
+                        JOIN governance.approval_requests ar
+                          ON ar.approval_request_id = r.approval_request_id
+                        JOIN platform.work_items wi ON wi.work_item_id = ar.work_item_id
+                        WHERE wi.organization_id = :organization_id
+                          AND ar.status = 'PENDING'
+                          AND r.status = 'PENDING'
+                          AND (CAST(:project_id AS uuid) IS NULL
+                               OR wi.project_id = CAST(:project_id AS uuid))
+                          AND ar.created_at >= CAST(:period_start AS date)
+                          AND ar.created_at < CAST(:period_end AS date) + INTERVAL '1 day'
+                        ORDER BY r.scheduled_for
+                        """
+                    ),
+                    parameters,
+                ).scalars()
+            )
+        period = f"{command.period_start}:{command.period_end}"
+        return {
+            "facts": facts,
+            "source_references": [
+                f"system-fact:{period}:{name}" for name in sorted(facts)
+            ],
+            "capa_due_dates": [
+                value.isoformat() for value in capa_due_dates if value is not None
+            ],
+            "approval_due_dates": [
+                value.isoformat() for value in approval_due_dates if value is not None
+            ],
+        }
 
     def generate_executive_brief(
         self,
@@ -2922,7 +4131,7 @@ class PostgresOperationalStore:
             raise KeyError("Executive Brief tidak ditemukan")
         if row["project_id"] is not None and not principal.can_access_project(row["project_id"]):
             raise AuthorizationDenied("Pengguna tidak memiliki akses ke scope Executive Brief")
-        return row
+        return cast(Mapping[str, Any], row)
 
     def create_project(self, command: ProjectCreate, principal: Principal) -> ProjectView:
         project_id = uuid4()
@@ -3066,22 +4275,29 @@ class PostgresOperationalStore:
         workflow_run_id = uuid4()
         now = datetime.now(UTC)
         due_at = now + timedelta(minutes=15)
+        machine = StateMachine(definition)
+        lead_valid = bool(
+            agent_plan.execution is not None
+            and agent_plan.execution.output_reference.get("valid") is True
+        )
+        current_step = "sales-assignment" if lead_valid else "exception-open"
+        work_item_status = (
+            WorkItemStatus.NEEDS_REVIEW if lead_valid else WorkItemStatus.BLOCKED
+        )
+        lead_status = "VALIDATED" if lead_valid else "EXCEPTION"
+        pipeline_stage = "QUALIFICATION" if lead_valid else "EXCEPTION"
+        workflow_status = "ACTIVE" if lead_valid else "COMPLETED"
+        if not lead_valid:
+            due_at = now + timedelta(hours=24)
+        operation = "sales.lead.create"
+        request_payload = command.model_dump(mode="json")
         with self._engine.begin() as connection:
-            project = connection.execute(
-                text(
-                    """
-                    SELECT project_id FROM platform.projects
-                    WHERE project_id = :project_id AND organization_id = :organization_id
-                    """
-                ),
-                {
-                    "project_id": command.project_id,
-                    "organization_id": principal.organization_id,
-                },
-            ).first()
-            if project is None:
-                raise KeyError("Proyek tidak ditemukan pada organisasi pengguna")
-
+            self._assert_project(connection, command.project_id, principal)
+            receipt = self._load_command_receipt(
+                connection, principal, operation, idempotency_key, request_payload
+            )
+            if receipt is not None:
+                return LeadIntakeResult.model_validate(receipt)
             duplicate_lead = connection.execute(
                 text(
                     """
@@ -3127,7 +4343,7 @@ class PostgresOperationalStore:
                          updated_at)
                     VALUES
                         (:work_item_id, :organization_id, :project_id, :division_id, :title,
-                         'LEAD_INTAKE', :priority, 'NEEDS_REVIEW', :due_at, :correlation_id,
+                         'LEAD_INTAKE', :priority, :status, :due_at, :correlation_id,
                          :now, :now)
                     """
                 ),
@@ -3138,6 +4354,7 @@ class PostgresOperationalStore:
                     "division_id": division_id,
                     "title": f"Tindak lanjut lead: {command.full_name}",
                     "priority": command.priority.value,
+                    "status": work_item_status.value,
                     "due_at": due_at,
                     "correlation_id": correlation_id,
                     "now": now,
@@ -3148,10 +4365,12 @@ class PostgresOperationalStore:
                     """
                     INSERT INTO sales.leads
                         (lead_id, organization_id, project_id, work_item_id, full_name,
-                         phone, email, source, consent_recorded, status, created_at)
+                         phone, email, source, consent_recorded, status, pipeline_stage,
+                         created_at)
                     VALUES
                         (:lead_id, :organization_id, :project_id, :work_item_id, :full_name,
-                         :phone, :email, :source, :consent_recorded, 'VALIDATED', :now)
+                         :phone, :email, :source, :consent_recorded, :status,
+                          :pipeline_stage, :now)
                     """
                 ),
                 {
@@ -3164,6 +4383,8 @@ class PostgresOperationalStore:
                     "email": command.email,
                     "source": command.source,
                     "consent_recorded": command.consent_recorded,
+                    "status": lead_status,
+                    "pipeline_stage": pipeline_stage,
                     "now": now,
                 },
             )
@@ -3173,19 +4394,22 @@ class PostgresOperationalStore:
                     """
                     INSERT INTO workflow.workflow_runs
                         (workflow_run_id, workflow_release_id, work_item_id, current_step,
-                         status, correlation_id, idempotency_key, started_at)
+                         status, correlation_id, idempotency_key, started_at, completed_at)
                     VALUES
-                        (:run_id, :release_id, :work_item_id, 'sales-assignment', 'ACTIVE',
-                         :correlation_id, :idempotency_key, :now)
+                        (:run_id, :release_id, :work_item_id, :current_step, :status,
+                         :correlation_id, :idempotency_key, :now, :completed_at)
                     """
                 ),
                 {
                     "run_id": workflow_run_id,
                     "release_id": workflow_release_id,
                     "work_item_id": work_item_id,
+                    "current_step": current_step,
+                    "status": workflow_status,
                     "correlation_id": correlation_id,
                     "idempotency_key": idempotency_key,
                     "now": now,
+                    "completed_at": None if lead_valid else now,
                 },
             )
             self._record_agent_run(
@@ -3193,13 +4417,48 @@ class PostgresOperationalStore:
                 agent_plan,
                 workflow_run_id,
                 correlation_id,
-                {"result": "VALIDATED", "next_step": "sales-assignment"},
+                {
+                    "result": "VALIDATED" if lead_valid else "INVALID",
+                    "next_step": current_step,
+                },
                 now,
             )
+            received = machine.transition("lead-received", "submitted")
+            validation = machine.transition(
+                received.current_step, "valid" if lead_valid else "invalid"
+            )
+            self._record_transition(
+                connection,
+                workflow_run_id,
+                received,
+                "HUMAN",
+                principal.user_id,
+                now,
+            )
+            self._record_transition(
+                connection, workflow_run_id, validation, "AGENT", "SLA", now
+            )
+            if not lead_valid:
+                connection.execute(
+                    text("""
+                        INSERT INTO governance.exceptions
+                            (organization_id, work_item_id, category, severity, status,
+                             owner_user_id, due_at, created_at)
+                        VALUES (:organization_id, :work_item_id, 'LEAD_VALIDATION_FAILED',
+                                'MEDIUM', 'OPEN', :owner, :due_at, :now)
+                    """),
+                    {
+                        "organization_id": principal.organization_id,
+                        "work_item_id": work_item_id,
+                        "owner": principal.user_id,
+                        "due_at": due_at,
+                        "now": now,
+                    },
+                )
             self._append_audit(
                 connection,
                 principal,
-                "lead.intake_validated",
+                "lead.intake_validated" if lead_valid else "lead.intake_exception_opened",
                 "lead",
                 lead_id,
                 correlation_id,
@@ -3207,18 +4466,30 @@ class PostgresOperationalStore:
                 {
                     "work_item_id": str(work_item_id),
                     "workflow_run_id": str(workflow_run_id),
-                    "current_step": "sales-assignment",
+                    "current_step": current_step,
+                    "valid": lead_valid,
                 },
             )
-        return LeadIntakeResult(
-            lead_id=lead_id,
-            work_item_id=work_item_id,
-            workflow_run_id=workflow_run_id,
-            current_step="sales-assignment",
-            work_item_status=WorkItemStatus.NEEDS_REVIEW,
-            due_at=due_at,
-            correlation_id=correlation_id,
-        )
+            result = LeadIntakeResult(
+                lead_id=lead_id,
+                work_item_id=work_item_id,
+                workflow_run_id=workflow_run_id,
+                current_step=current_step,
+                work_item_status=work_item_status,
+                due_at=due_at,
+                correlation_id=correlation_id,
+            )
+            self._save_command_receipt(
+                connection,
+                principal,
+                operation,
+                idempotency_key,
+                request_payload,
+                "lead",
+                lead_id,
+                result.model_dump(mode="json"),
+            )
+        return result
 
     def list_work_items(
         self, principal: Principal, project_id: UUID | None
@@ -3226,11 +4497,14 @@ class PostgresOperationalStore:
         organization_wide = principal.has_any_role(*self._business_wide_roles())
         if not organization_wide and not principal.division_codes:
             return ()
+        if not organization_wide and project_id is None and not principal.project_ids:
+            return ()
         parameters: dict[str, Any] = {
             "organization_id": principal.organization_id,
             "project_id": project_id,
             "organization_wide": organization_wide,
             "division_codes": list(principal.division_codes),
+            "project_ids": [str(value) for value in principal.project_ids],
         }
         query = text("""
             SELECT wi.work_item_id, wi.organization_id, wi.project_id, d.code AS division_code,
@@ -3242,6 +4516,11 @@ class PostgresOperationalStore:
               AND (CAST(:project_id AS uuid) IS NULL OR wi.project_id = :project_id)
               AND (CAST(:organization_wide AS boolean)
                    OR d.code = ANY(CAST(:division_codes AS text[])))
+              AND (
+                  CAST(:project_id AS uuid) IS NOT NULL
+                  OR CAST(:organization_wide AS boolean)
+                  OR wi.project_id = ANY(CAST(:project_ids AS uuid[]))
+              )
             ORDER BY wi.due_at NULLS LAST, wi.created_at
         """)
         with self._engine.connect() as connection:
@@ -3255,12 +4534,30 @@ class PostgresOperationalStore:
         principal: Principal,
         definition: WorkflowDefinition,
         agent_plan: AgentExecutionPlan,
+        idempotency_key: str,
     ) -> WorkflowActionResult:
         machine = StateMachine(definition)
         now = datetime.now(UTC)
-        due_at = now + timedelta(hours=24)
+        due_at = command.first_follow_up_at or now + timedelta(hours=24)
+        if due_at <= now:
+            raise ValueError("Jadwal follow-up harus berada di masa depan")
+        operation = f"sales.lead.assign:{workflow_run_id}"
+        request_payload = command.model_dump(mode="json")
         with self._engine.begin() as connection:
             context = self._load_sales_run(connection, workflow_run_id, principal)
+            if (
+                command.sales_pic_user_id != principal.user_id
+                and not principal.has_any_role(Role.DIVISION_HEAD)
+            ):
+                raise AuthorizationDenied(
+                    "Sales hanya dapat menerima assignment untuk dirinya sendiri; "
+                    "penugasan PIC lain memerlukan Kepala Sales"
+                )
+            receipt = self._load_command_receipt(
+                connection, principal, operation, idempotency_key, request_payload
+            )
+            if receipt is not None:
+                return WorkflowActionResult.model_validate(receipt)
             if context["current_step"] != "sales-assignment":
                 raise ValueError("Workflow tidak berada pada langkah sales-assignment")
             eligible = connection.execute(
@@ -3271,17 +4568,26 @@ class PostgresOperationalStore:
                     JOIN identity.role_assignments ra ON ra.user_id = u.user_id
                     JOIN identity.divisions d ON d.division_id = ra.division_id
                     WHERE u.user_id = :user_id
+                      AND u.organization_id = :organization_id
                       AND u.status = 'ACTIVE'
                       AND d.organization_id = :organization_id
                       AND d.code = 'SALES_MARKETING'
                       AND ra.role_code IN ('SALES', 'DIVISION_HEAD')
                       AND ra.valid_from <= :now
                       AND (ra.valid_until IS NULL OR ra.valid_until > :now)
+                      AND EXISTS (
+                          SELECT 1 FROM identity.project_assignments pa
+                          WHERE pa.user_id = u.user_id
+                            AND pa.project_id = :project_id
+                            AND pa.valid_from <= :now
+                            AND (pa.valid_until IS NULL OR pa.valid_until > :now)
+                      )
                     """
                 ),
                 {
                     "user_id": command.sales_pic_user_id,
                     "organization_id": principal.organization_id,
+                    "project_id": context["project_id"],
                     "now": now,
                 },
             ).first()
@@ -3294,7 +4600,8 @@ class PostgresOperationalStore:
                 text(
                     """
                     UPDATE sales.leads
-                    SET assigned_user_id = :owner, status = 'FOLLOW_UP', updated_at = :now
+                    SET assigned_user_id = :owner, status = 'FOLLOW_UP',
+                        pipeline_stage = 'FOLLOW_UP', updated_at = :now
                     WHERE lead_id = :lead_id
                     """
                 ),
@@ -3337,15 +4644,33 @@ class PostgresOperationalStore:
                 },
                 now,
             )
+            reminder_id = connection.execute(
+                text("""
+                INSERT INTO platform.reminders
+                    (organization_id, work_item_id, recipient_user_id, reminder_type,
+                     status, scheduled_for, created_at)
+                VALUES (:organization_id, :work_item_id, :recipient, 'FOLLOW_UP',
+                        'PENDING', :scheduled_for, :now)
+                RETURNING reminder_id
+            """),
+                {
+                    "organization_id": principal.organization_id,
+                    "work_item_id": context["work_item_id"],
+                    "recipient": command.sales_pic_user_id,
+                    "scheduled_for": due_at,
+                    "now": now,
+                },
+            ).scalar_one()
             connection.execute(
                 text(
                     """
                     INSERT INTO sales.follow_up_tasks
                         (lead_id, workflow_run_id, assigned_user_id, due_at, status,
-                         sequence_number, created_by_agent_run_id, created_at)
+                         sequence_number, created_by_agent_run_id, reminder_id,
+                         objective, idempotency_key, created_at)
                     VALUES
                         (:lead_id, :workflow_run_id, :assigned_user_id, :due_at, 'OPEN',
-                         1, :agent_run_id, :now)
+                         1, :agent_run_id, :reminder_id, :objective, :idempotency_key, :now)
                     """
                 ),
                 {
@@ -3354,6 +4679,26 @@ class PostgresOperationalStore:
                     "assigned_user_id": command.sales_pic_user_id,
                     "due_at": due_at,
                     "agent_run_id": agent_run_id,
+                    "reminder_id": reminder_id,
+                    "objective": command.objective,
+                    "idempotency_key": idempotency_key,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text("""
+                INSERT INTO platform.work_item_assignments
+                    (organization_id, work_item_id, from_user_id, to_user_id,
+                     action, reason, assigned_by_user_id, assigned_at)
+                VALUES (:organization_id, :work_item_id, NULL, :to_user_id,
+                        'ASSIGN', :reason, :assigned_by, :now)
+            """),
+                {
+                    "organization_id": principal.organization_id,
+                    "work_item_id": context["work_item_id"],
+                    "to_user_id": command.sales_pic_user_id,
+                    "reason": command.objective,
+                    "assigned_by": principal.user_id,
                     "now": now,
                 },
             )
@@ -3377,7 +4722,7 @@ class PostgresOperationalStore:
                     "follow_up_due_at": due_at.isoformat(),
                 },
             )
-            return self._workflow_result(
+            result = self._workflow_result(
                 context,
                 second.current_step,
                 "ACTIVE",
@@ -3386,6 +4731,118 @@ class PostgresOperationalStore:
                 due_at,
                 second.terminal,
             )
+            self._save_command_receipt(
+                connection,
+                principal,
+                operation,
+                idempotency_key,
+                request_payload,
+                "lead",
+                context["lead_id"],
+                result.model_dump(mode="json"),
+            )
+            return result
+
+    def prepare_sales_assignment(
+        self,
+        workflow_run_id: UUID,
+        command: SalesAssignment,
+        principal: Principal,
+        idempotency_key: str,
+    ) -> dict[str, object]:
+        """Authorize and validate a Sales assignment before dispatching CFA."""
+
+        now = datetime.now(UTC)
+        if command.first_follow_up_at is not None and command.first_follow_up_at <= now:
+            raise ValueError("Jadwal follow-up harus berada di masa depan")
+        with self._engine.connect() as connection:
+            context = self._load_sales_run(connection, workflow_run_id, principal)
+            if (
+                command.sales_pic_user_id != principal.user_id
+                and not principal.has_any_role(Role.DIVISION_HEAD)
+            ):
+                raise AuthorizationDenied(
+                    "Sales hanya dapat menerima assignment untuk dirinya sendiri; "
+                    "penugasan PIC lain memerlukan Kepala Sales"
+                )
+            receipt = self._load_command_receipt(
+                connection,
+                principal,
+                f"sales.lead.assign:{workflow_run_id}",
+                idempotency_key,
+                command.model_dump(mode="json"),
+            )
+            if receipt is not None:
+                return {"idempotent_replay": True}
+            if context["current_step"] != "sales-assignment":
+                raise ValueError("Workflow tidak berada pada langkah sales-assignment")
+            eligible = connection.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM identity.users u
+                    JOIN identity.role_assignments ra ON ra.user_id = u.user_id
+                    JOIN identity.divisions d ON d.division_id = ra.division_id
+                    WHERE u.user_id = :user_id
+                      AND u.organization_id = :organization_id
+                      AND u.status = 'ACTIVE'
+                      AND d.organization_id = :organization_id
+                      AND d.code = 'SALES_MARKETING'
+                      AND ra.role_code IN ('SALES', 'DIVISION_HEAD')
+                      AND ra.valid_from <= :now
+                      AND (ra.valid_until IS NULL OR ra.valid_until > :now)
+                      AND EXISTS (
+                          SELECT 1 FROM identity.project_assignments pa
+                          WHERE pa.user_id = u.user_id
+                            AND pa.project_id = :project_id
+                            AND pa.valid_from <= :now
+                            AND (pa.valid_until IS NULL OR pa.valid_until > :now)
+                      )
+                    """
+                ),
+                {
+                    "user_id": command.sales_pic_user_id,
+                    "organization_id": principal.organization_id,
+                    "project_id": context["project_id"],
+                    "now": now,
+                },
+            ).first()
+        if eligible is None:
+            raise ValueError("Sales PIC tidak aktif atau tidak memiliki role Sales")
+        return {"project_id": str(context["project_id"])}
+
+    def prepare_sales_interaction(
+        self,
+        workflow_run_id: UUID,
+        command: SalesInteraction,
+        principal: Principal,
+        idempotency_key: str,
+    ) -> dict[str, object]:
+        """Authorize a Sales interaction before an optional CFA run is created."""
+
+        with self._engine.connect() as connection:
+            context = self._load_sales_run(connection, workflow_run_id, principal)
+            if context["owner_user_id"] != principal.user_id and not principal.has_any_role(
+                Role.DIVISION_HEAD
+            ):
+                raise AuthorizationDenied(
+                    "Interaksi hanya dapat dicatat Sales PIC yang ditugaskan"
+                )
+            receipt = self._load_command_receipt(
+                connection,
+                principal,
+                f"sales.lead.interaction:{workflow_run_id}",
+                idempotency_key,
+                command.model_dump(mode="json"),
+            )
+            if receipt is not None:
+                return {"idempotent_replay": True}
+            if context["current_step"] != "interaction-review":
+                raise ValueError("Workflow tidak berada pada langkah interaction-review")
+        return {
+            "owner_user_id": str(context["owner_user_id"]),
+            "project_id": str(context["project_id"]),
+        }
 
     def record_sales_interaction(
         self,
@@ -3394,17 +4851,25 @@ class PostgresOperationalStore:
         principal: Principal,
         definition: WorkflowDefinition,
         agent_plan: AgentExecutionPlan | None,
+        idempotency_key: str,
     ) -> WorkflowActionResult:
         machine = StateMachine(definition)
         now = datetime.now(UTC)
+        operation = f"sales.lead.interaction:{workflow_run_id}"
+        request_payload = command.model_dump(mode="json")
         with self._engine.begin() as connection:
             context = self._load_sales_run(connection, workflow_run_id, principal)
-            if context["current_step"] != "interaction-review":
-                raise ValueError("Workflow tidak berada pada langkah interaction-review")
             if context["owner_user_id"] != principal.user_id and not principal.has_any_role(
-                Role.DIVISION_HEAD, Role.IT_ADMIN
+                Role.DIVISION_HEAD
             ):
                 raise AuthorizationDenied("Interaksi hanya dapat dicatat Sales PIC yang ditugaskan")
+            receipt = self._load_command_receipt(
+                connection, principal, operation, idempotency_key, request_payload
+            )
+            if receipt is not None:
+                return WorkflowActionResult.model_validate(receipt)
+            if context["current_step"] != "interaction-review":
+                raise ValueError("Workflow tidak berada pada langkah interaction-review")
 
             if command.evidence_document_version_id is not None:
                 evidence_document = connection.execute(
@@ -3416,6 +4881,16 @@ class PostgresOperationalStore:
                         WHERE dv.document_version_id = :version_id
                           AND d.organization_id = :organization_id
                           AND (d.project_id IS NULL OR d.project_id = :project_id)
+                          AND (
+                              d.division_id IS NULL
+                              OR d.division_id = (
+                                  SELECT division_id FROM identity.divisions
+                                  WHERE organization_id = :organization_id
+                                    AND code = 'SALES_MARKETING'
+                              )
+                          )
+                          AND dv.verification_status <> 'REJECTED'
+                          AND dv.scan_status IN ('NOT_CONFIGURED', 'CLEAN')
                         """
                     ),
                     {
@@ -3434,11 +4909,13 @@ class PostgresOperationalStore:
                     INSERT INTO sales.interactions
                         (interaction_id, lead_id, workflow_run_id, actor_user_id, channel,
                          outcome, notes, evidence_reference, evidence_document_version_id,
-                         occurred_at)
+                         qualification_result, lost_reason, next_follow_up_at,
+                         idempotency_key, occurred_at)
                     VALUES
                         (:interaction_id, :lead_id, :workflow_run_id, :actor_user_id,
                          :channel, :outcome, :notes, :evidence_reference,
-                         :evidence_document_version_id, :now)
+                         :evidence_document_version_id, :qualification_result,
+                         :lost_reason, :next_follow_up_at, :idempotency_key, :now)
                     """
                 ),
                 {
@@ -3451,6 +4928,14 @@ class PostgresOperationalStore:
                     "notes": command.notes,
                     "evidence_reference": command.evidence_reference,
                     "evidence_document_version_id": command.evidence_document_version_id,
+                    "qualification_result": (
+                        command.qualification_result.value
+                        if command.qualification_result is not None
+                        else ("WARM" if command.outcome == InteractionOutcome.QUALIFIED else None)
+                    ),
+                    "lost_reason": command.lost_reason,
+                    "next_follow_up_at": command.next_follow_up_at,
+                    "idempotency_key": idempotency_key,
                     "now": now,
                 },
             )
@@ -3464,6 +4949,14 @@ class PostgresOperationalStore:
                 ),
                 {"now": now, "workflow_run_id": workflow_run_id},
             )
+            connection.execute(
+                text("""
+                UPDATE platform.reminders SET status = 'CANCELLED'
+                WHERE work_item_id = :work_item_id
+                  AND reminder_type = 'FOLLOW_UP' AND status = 'PENDING'
+            """),
+                {"work_item_id": context["work_item_id"]},
+            )
             first = machine.transition("interaction-review", command.outcome.value)
             current_step = first.current_step
             terminal = first.terminal
@@ -3475,16 +4968,25 @@ class PostgresOperationalStore:
                 connection, workflow_run_id, first, "HUMAN", principal.user_id, now
             )
 
-            if command.outcome == InteractionOutcome.FOLLOW_UP:
+            if command.outcome in {
+                InteractionOutcome.FOLLOW_UP,
+                InteractionOutcome.QUALIFIED,
+            }:
                 if agent_plan is None:
                     raise ValueError("CFA execution plan wajib untuk follow-up")
                 second = machine.transition(first.current_step, "ready")
                 current_step = second.current_step
                 terminal = second.terminal
-                due_at = now + timedelta(hours=24)
+                due_at = command.next_follow_up_at or now + timedelta(hours=24)
+                if due_at <= now:
+                    raise ValueError("Jadwal follow-up harus berada di masa depan")
                 work_status = WorkItemStatus.NEEDS_REVIEW
                 workflow_status = "ACTIVE"
-                lead_status = "FOLLOW_UP"
+                lead_status = (
+                    "QUALIFIED"
+                    if command.outcome == InteractionOutcome.QUALIFIED
+                    else "FOLLOW_UP"
+                )
                 sequence_number = connection.execute(
                     text(
                         """
@@ -3502,15 +5004,34 @@ class PostgresOperationalStore:
                     {"follow_up_due_at": due_at.isoformat(), "sequence": sequence_number},
                     now,
                 )
+                reminder_id = connection.execute(
+                    text("""
+                    INSERT INTO platform.reminders
+                        (organization_id, work_item_id, recipient_user_id, reminder_type,
+                         status, scheduled_for, created_at)
+                    VALUES (:organization_id, :work_item_id, :recipient, 'FOLLOW_UP',
+                            'PENDING', :scheduled_for, :now)
+                    RETURNING reminder_id
+                """),
+                    {
+                        "organization_id": principal.organization_id,
+                        "work_item_id": context["work_item_id"],
+                        "recipient": context["owner_user_id"],
+                        "scheduled_for": due_at,
+                        "now": now,
+                    },
+                ).scalar_one()
                 connection.execute(
                     text(
                         """
                         INSERT INTO sales.follow_up_tasks
                             (lead_id, workflow_run_id, assigned_user_id, due_at, status,
-                             sequence_number, created_by_agent_run_id, created_at)
+                             sequence_number, created_by_agent_run_id, reminder_id,
+                             objective, idempotency_key, created_at)
                         VALUES
                             (:lead_id, :workflow_run_id, :assigned_user_id, :due_at, 'OPEN',
-                             :sequence_number, :agent_run_id, :now)
+                             :sequence_number, :agent_run_id, :reminder_id,
+                             :objective, :idempotency_key, :now)
                         """
                     ),
                     {
@@ -3520,6 +5041,9 @@ class PostgresOperationalStore:
                         "due_at": due_at,
                         "sequence_number": sequence_number,
                         "agent_run_id": agent_run_id,
+                        "reminder_id": reminder_id,
+                        "objective": command.notes,
+                        "idempotency_key": idempotency_key,
                         "now": now,
                     },
                 )
@@ -3531,20 +5055,25 @@ class PostgresOperationalStore:
                     text(
                         """
                         INSERT INTO sales.reservations
-                            (lead_id, workflow_run_id, reservation_reference,
+                            (organization_id, lead_id, workflow_run_id, reservation_reference,
                              recorded_by_user_id, status, evidence_document_version_id,
-                             recorded_at)
+                             reservation_date, notes, idempotency_key, recorded_at)
                         VALUES
-                            (:lead_id, :workflow_run_id, :reference, :actor, 'RECORDED',
-                             :evidence_document_version_id, :now)
+                            (:organization_id, :lead_id, :workflow_run_id, :reference,
+                             :actor, 'RECORDED', :evidence_document_version_id,
+                             :reservation_date, :notes, :idempotency_key, :now)
                         """
                     ),
                     {
+                        "organization_id": principal.organization_id,
                         "lead_id": context["lead_id"],
                         "workflow_run_id": workflow_run_id,
                         "reference": command.reservation_reference,
                         "actor": principal.user_id,
                         "evidence_document_version_id": command.evidence_document_version_id,
+                        "reservation_date": command.reservation_date or now.date(),
+                        "notes": command.notes,
+                        "idempotency_key": idempotency_key,
                         "now": now,
                     },
                 )
@@ -3569,34 +5098,66 @@ class PostgresOperationalStore:
                 )
             elif command.outcome == InteractionOutcome.EXCEPTION:
                 work_status = WorkItemStatus.BLOCKED
+                due_at = now + timedelta(hours=24)
                 connection.execute(
                     text(
                         """
                         INSERT INTO governance.exceptions
                             (organization_id, work_item_id, category, severity, status,
-                             owner_user_id, created_at)
+                             owner_user_id, due_at, created_at)
                         VALUES
                             (:organization_id, :work_item_id, 'SALES_INTERACTION',
-                             'MEDIUM', 'OPEN', :owner, :now)
+                             'MEDIUM', 'OPEN', :owner, :due_at, :now)
                         """
                     ),
                     {
                         "work_item_id": context["work_item_id"],
                         "organization_id": principal.organization_id,
                         "owner": context["owner_user_id"],
+                        "due_at": due_at,
                         "now": now,
                     },
                 )
 
+            pipeline_stage = {
+                InteractionOutcome.FOLLOW_UP: "FOLLOW_UP",
+                InteractionOutcome.QUALIFIED: "QUALIFIED",
+                InteractionOutcome.RESERVED: "CONVERTED",
+                InteractionOutcome.LOST: "LOST",
+                InteractionOutcome.EXCEPTION: "EXCEPTION",
+            }[command.outcome]
             connection.execute(
                 text(
                     """
                     UPDATE sales.leads
-                    SET status = :lead_status, updated_at = :now
+                    SET status = :lead_status, pipeline_stage = :pipeline_stage,
+                        qualification_result = COALESCE(:qualification_result,
+                                                       qualification_result),
+                        qualification_notes = CASE
+                            WHEN :is_qualification THEN :notes ELSE qualification_notes END,
+                        lost_reason = :lost_reason,
+                        converted_at = CASE WHEN :is_reserved THEN :now ELSE converted_at END,
+                        lost_at = CASE WHEN :is_lost THEN :now ELSE lost_at END,
+                        updated_at = :now
                     WHERE lead_id = :lead_id
                     """
                 ),
-                {"lead_status": lead_status, "now": now, "lead_id": context["lead_id"]},
+                {
+                    "lead_status": lead_status,
+                    "pipeline_stage": pipeline_stage,
+                    "qualification_result": (
+                        command.qualification_result.value
+                        if command.qualification_result is not None
+                        else ("WARM" if command.outcome == InteractionOutcome.QUALIFIED else None)
+                    ),
+                    "is_qualification": command.outcome == InteractionOutcome.QUALIFIED,
+                    "notes": command.notes,
+                    "lost_reason": command.lost_reason,
+                    "is_reserved": command.outcome == InteractionOutcome.RESERVED,
+                    "is_lost": command.outcome == InteractionOutcome.LOST,
+                    "now": now,
+                    "lead_id": context["lead_id"],
+                },
             )
             connection.execute(
                 text(
@@ -3644,7 +5205,7 @@ class PostgresOperationalStore:
                     "current_step": current_step,
                 },
             )
-            return self._workflow_result(
+            result = self._workflow_result(
                 context,
                 current_step,
                 workflow_status,
@@ -3653,6 +5214,17 @@ class PostgresOperationalStore:
                 due_at,
                 terminal,
             )
+            self._save_command_receipt(
+                connection,
+                principal,
+                operation,
+                idempotency_key,
+                request_payload,
+                "lead",
+                context["lead_id"],
+                result.model_dump(mode="json"),
+            )
+            return result
 
     @staticmethod
     def _load_sales_run(
@@ -3685,7 +5257,7 @@ class PostgresOperationalStore:
             raise KeyError("Workflow Sales tidak ditemukan")
         if not principal.can_access_project(row["project_id"]):
             raise AuthorizationDenied("Pengguna tidak memiliki akses ke proyek workflow")
-        return row
+        return cast(Mapping[str, Any], row)
 
     def _record_agent_run(
         self,
@@ -3815,6 +5387,31 @@ class PostgresOperationalStore:
             correlation_id=context["correlation_id"],
         )
 
+    def _payment_approval_route(self, amount: Decimal) -> tuple[str, str, int]:
+        tier = self._payment_approval_policy.route_for(amount)
+        return tier.route, tier.required_role, tier.sla_hours
+
+    @staticmethod
+    def _assert_payment_approver(
+        context: Mapping[str, Any], principal: Principal
+    ) -> None:
+        assigned = context.get("assigned_approver_user_id")
+        if assigned is not None and assigned != principal.user_id:
+            raise AuthorizationDenied("Approval telah ditugaskan kepada approver lain")
+        required_role = context.get("required_role_code")
+        finance_scope = "FINANCE" in principal.division_codes
+        allowed = False
+        if required_role == "FINANCE":
+            allowed = finance_scope and principal.has_any_role(Role.FINANCE, Role.DIVISION_HEAD)
+        elif required_role == "DIVISION_HEAD":
+            allowed = finance_scope and principal.has_any_role(Role.DIVISION_HEAD)
+        elif required_role == "DIRECTOR":
+            allowed = principal.has_any_role(Role.DIRECTOR)
+        if not allowed:
+            raise AuthorizationDenied(
+                f"Jalur approval memerlukan peran {required_role or 'yang ditetapkan'}"
+            )
+
     @staticmethod
     def _load_payment(
         connection: Any, payment_request_id: UUID, principal: Principal
@@ -3824,10 +5421,14 @@ class PostgresOperationalStore:
                 text("""
             SELECT pr.payment_request_id, pr.work_item_id, pr.workflow_run_id,
                    pr.approval_request_id, pr.requester_user_id, pr.project_id,
-                   pr.budget_id, pr.amount, pr.currency, pr.status,
-                   wr.current_step, wr.correlation_id
+                   pr.budget_id, pr.amount, pr.currency, pr.requested_payment_date, pr.status,
+                   pr.revision_number, wr.current_step, wr.correlation_id,
+                   ar.required_role_code, ar.required_division_code,
+                   ar.assigned_approver_user_id
             FROM finance.payment_requests pr
             JOIN workflow.workflow_runs wr ON wr.workflow_run_id = pr.workflow_run_id
+            LEFT JOIN governance.approval_requests ar
+              ON ar.approval_request_id = pr.approval_request_id
             WHERE pr.payment_request_id = :payment_request_id
               AND pr.organization_id = :organization_id
             FOR UPDATE OF pr, wr
@@ -3844,7 +5445,7 @@ class PostgresOperationalStore:
             raise KeyError("Payment request tidak ditemukan")
         if not principal.can_access_project(row["project_id"]):
             raise AuthorizationDenied("Pengguna tidak memiliki akses ke payment request")
-        return row
+        return cast(Mapping[str, Any], row)
 
     @staticmethod
     def _update_payment_state(
@@ -3953,7 +5554,7 @@ class PostgresOperationalStore:
             and row["division_code"] not in principal.division_codes
         ):
             raise AuthorizationDenied("Pengguna tidak memiliki akses ke divisi work item")
-        return row
+        return cast(Mapping[str, Any], row)
 
     @staticmethod
     def _organization_wide_roles() -> tuple[Any, ...]:
@@ -3997,7 +5598,7 @@ class PostgresOperationalStore:
             },
         ).scalar_one_or_none()
         if release_id is not None:
-            return release_id
+            return cast(UUID, release_id)
 
         existing = (
             connection.execute(
@@ -4033,7 +5634,7 @@ class PostgresOperationalStore:
                     "status": definition.status,
                 },
             )
-            return existing["workflow_release_id"]
+            return cast(UUID, existing["workflow_release_id"])
 
         if "definition_digest" not in existing_definition:
             upgraded_release_id = connection.execute(
@@ -4053,7 +5654,7 @@ class PostgresOperationalStore:
                 },
             ).scalar_one_or_none()
             if upgraded_release_id is not None:
-                return upgraded_release_id
+                return cast(UUID, upgraded_release_id)
 
         raise WorkflowReleaseConflictError(
             f"Workflow release immutable berbeda untuk "
@@ -4089,7 +5690,7 @@ class PostgresOperationalStore:
             },
         ).scalar_one_or_none()
         if release_id is not None:
-            return release_id
+            return cast(UUID, release_id)
 
         existing = (
             connection.execute(
@@ -4125,7 +5726,7 @@ class PostgresOperationalStore:
                     "status": plan.contract_snapshot.status.value,
                 },
             )
-            return existing["agent_release_id"]
+            return cast(UUID, existing["agent_release_id"])
 
         if "contract_digest" not in existing_definition:
             upgraded_release_id = connection.execute(
@@ -4145,7 +5746,7 @@ class PostgresOperationalStore:
                 },
             ).scalar_one_or_none()
             if upgraded_release_id is not None:
-                return upgraded_release_id
+                return cast(UUID, upgraded_release_id)
 
         raise AgentReleaseConflictError(
             f"Agent release immutable berbeda untuk {plan.agent_id}@{plan.agent_version}"
@@ -4170,34 +5771,36 @@ class PostgresOperationalStore:
         previous_hash = connection.execute(
             text(
                 """
-                SELECT entry_hash FROM audit.entries
-                WHERE organization_id = :organization_id
-                ORDER BY occurred_at DESC, audit_entry_id DESC LIMIT 1
-                FOR UPDATE
+                SELECT candidate.entry_hash
+                FROM audit.entries AS candidate
+                WHERE candidate.organization_id = :organization_id
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM audit.entries AS child
+                      WHERE child.organization_id = candidate.organization_id
+                        AND child.previous_hash = candidate.entry_hash
+                  )
+                ORDER BY candidate.occurred_at DESC, candidate.audit_entry_id DESC
+                LIMIT 1
+                FOR UPDATE OF candidate
                 """
             ),
             {"organization_id": principal.organization_id},
         ).scalar_one_or_none()
         occurred_at = datetime.now(UTC)
-        canonical = json.dumps(
-            {
-                "organization_id": str(principal.organization_id),
-                "actor_id": str(principal.user_id),
-                "action": action,
-                "entity_type": entity_type,
-                "entity_id": str(entity_id),
-                "correlation_id": str(correlation_id),
-                "reason": reason,
-                "before": before,
-                "after": after,
-                "occurred_at": occurred_at.isoformat(),
-                "previous_hash": previous_hash,
-            },
-            default=str,
-            separators=(",", ":"),
-            sort_keys=True,
+        entry_hash = compute_audit_entry_hash(
+            organization_id=principal.organization_id,
+            actor_id=str(principal.user_id),
+            action=action,
+            entity_type=entity_type,
+            entity_id=str(entity_id),
+            correlation_id=correlation_id,
+            reason=reason,
+            before=before,
+            after=after,
+            occurred_at=occurred_at,
+            previous_hash=previous_hash,
         )
-        entry_hash = hashlib.sha256(canonical.encode()).hexdigest()
         connection.execute(
             text(
                 """

@@ -208,14 +208,19 @@ def test_runtime_dispatches_by_capability_without_agent_specific_branch() -> Non
         "finance.budget-check.v1",
         lambda prepared, payload: CapabilityHandlerOutput(
             output_reference={
-                "available": payload["available"],
-                "run_id": str(prepared.run_id),
+                "amount": str(payload["amount"]),
+                "available_amount": str(payload["available_amount"]),
+                "available": True,
             },
             evidence_references=("budget-release:synthetic",),
         ),
     )
 
-    result = shared_runtime.dispatch(plan, {"available": True}, handlers)
+    result = shared_runtime.dispatch(
+        plan,
+        {"amount": 1_000_000, "available_amount": 2_000_000},
+        handlers,
+    )
 
     assert result.status == "COMPLETED"
     assert result.handler_id == "finance.budget-check.v1"
@@ -234,7 +239,11 @@ def test_runtime_rejects_dispatch_without_registered_capability_handler() -> Non
     )
 
     with pytest.raises(CapabilityHandlerError, match="belum terdaftar"):
-        runtime().dispatch(plan, {}, CapabilityHandlerRegistry())
+        runtime().dispatch(
+            plan,
+            {"amount": 1_000_000, "available_amount": 2_000_000},
+            CapabilityHandlerRegistry(),
+        )
 
 
 def test_runtime_rejects_duplicate_tool_request() -> None:

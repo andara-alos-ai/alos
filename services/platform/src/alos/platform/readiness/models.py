@@ -41,7 +41,7 @@ class PilotReadinessProfile(BaseModel):
     data_policy: str = Field(pattern=r"^SYNTHETIC_OR_SANITIZED$")
     required_divisions: frozenset[str] = Field(min_length=1)
     role_requirements: tuple[PilotRoleRequirement, ...] = Field(min_length=1)
-    expected_core_agents: int = Field(ge=1, le=100)
+    minimum_registered_agents: int = Field(ge=1, le=100)
     expected_workflows: int = Field(ge=1, le=100)
     minimum_safe_documents: int = Field(ge=1, le=1000)
     worker_max_age_minutes: int = Field(ge=1, le=60)

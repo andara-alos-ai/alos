@@ -55,7 +55,8 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
         select_sql="""
             l.lead_id, l.project_id, l.work_item_id, wr.workflow_run_id,
             l.full_name, l.phone, l.email, l.source, l.consent_recorded,
-            l.status, l.assigned_user_id, wr.current_step,
+            l.status, l.pipeline_stage, l.qualification_result,
+            l.qualification_notes, l.lost_reason, l.assigned_user_id, wr.current_step,
             wr.status AS workflow_status, l.created_at, l.updated_at
         """,
         from_sql="""
@@ -79,7 +80,8 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
         select_sql="""
             i.interaction_id, i.lead_id, i.workflow_run_id, i.actor_user_id,
             i.channel, i.outcome, i.notes, i.evidence_reference,
-            i.evidence_document_version_id, i.occurred_at
+            i.evidence_document_version_id, i.qualification_result, i.lost_reason,
+            i.next_follow_up_at, i.occurred_at
         """,
         from_sql="""
             sales.interactions i
@@ -118,8 +120,10 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
         select_sql="""
             pr.payment_request_id, pr.project_id, pr.budget_id, pr.work_item_id,
             pr.workflow_run_id, pr.approval_request_id, pr.document_version_id,
-            pr.requester_user_id, pr.payee_name, pr.purpose, pr.amount, pr.currency,
-            pr.requested_payment_date, pr.status, pr.budget_available,
+            pr.requester_user_id, pr.payee_name, pr.vendor_reference, pr.category_code,
+            pr.purpose, pr.amount, pr.currency, pr.requested_payment_date, pr.status,
+            pr.budget_available, pr.evidence_complete, pr.approval_route,
+            pr.revision_number,
             wr.current_step, wr.status AS workflow_status, pr.created_at, pr.updated_at
         """,
         from_sql="""
@@ -131,7 +135,10 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
         project_expression="pr.project_id",
         division_expression=None,
         status_expression="pr.status",
-        search_expression="concat_ws(' ', pr.payee_name, pr.purpose)",
+        search_expression=(
+            "concat_ws(' ', pr.payee_name, pr.vendor_reference, "
+            "pr.category_code, pr.purpose)"
+        ),
         sort_columns={
             "created_at": "pr.created_at",
             "updated_at": "pr.updated_at",

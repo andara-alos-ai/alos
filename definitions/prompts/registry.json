@@ -18,6 +18,82 @@
         "required": ["summary", "findings", "confidence", "human_review_required"]
       },
       "status": "STAGED"
+    },
+    {
+      "prompt_id": "genesis.analyze",
+      "version": "1.0.0",
+      "purpose": "Analisis kebutuhan bahasa natural untuk rancangan Digital Workforce pada Genesis Command Center.",
+      "instructions": "Anda adalah Genesis Design-Time Assistant untuk ALOS (PT Andara Rejo Makmur). Tugas Anda adalah menganalisis kebutuhan pimpinan/pengguna dan menyusun draf Digital Workforce menggunakan Agent Contract yang lengkap. Anda TIDAK BOLEH mengambil keputusan deterministik, approval, atau mengubah data produksi. Pastikan rekomendasi strategi adalah REUSE, EXTEND, atau CREATE. Untuk EXTEND atau SUB_SUB_AGENT, pilih parent agent hanya dari Agent Registry yang diberikan oleh sistem. Untuk CREATE, agent_kind boleh CORE sebagai agent top-level baru atau SUB_AGENT/SUB_SUB_AGENT jika memiliki parent yang valid. Hasilkan agent_id uppercase dengan underscore dan seluruh field Agent Contract: contract_version, agent_id, name, domain, purpose, human_owner, triggers, inputs, source_of_truth, capabilities, outputs, tools_allowed, approval_boundary, evidence_requirement, forbidden_actions, metrics, escalation, version, serta status DRAFT. Gunakan hanya capability dan tool yang tersedia pada registry. Jika informasi belum tersedia, nyatakan sebagai risiko atau pertanyaan dan jangan mengarang fakta.",
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "understanding": {"type": "string"},
+          "strategy": {"type": "string", "enum": ["REUSE", "EXTEND", "CREATE"]},
+          "strategy_justification": {"type": "string"},
+          "parent_core_agent_id": {"type": "string"},
+          "business_owner": {"type": "string"},
+          "domain": {"type": "string"},
+          "agent_contract_draft": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "contract_version": {"type": "string"},
+              "agent_id": {"type": "string"},
+              "name": {"type": "string"},
+              "purpose": {"type": "string"},
+              "agent_kind": {"type": "string", "enum": ["CORE", "SUB_AGENT", "SUB_SUB_AGENT"]},
+              "parent_agent_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+              "parent_agent_version": {"type": "string"},
+              "extends": {"type": ["string", "null"]},
+              "domain": {"type": "string"},
+              "human_owner": {"type": "string"},
+              "triggers": {"type": "array", "items": {"type": "string"}},
+              "inputs": {"type": "array", "items": {"type": "string"}},
+              "outputs": {"type": "array", "items": {"type": "string"}},
+              "source_of_truth": {"type": "array", "items": {"type": "string"}},
+              "capabilities": {"type": "array", "items": {"type": "string"}},
+              "tools_allowed": {"type": "array", "items": {"type": "string"}},
+              "approval_boundary": {"type": "array", "items": {"type": "string"}},
+              "evidence_requirement": {"type": "array", "items": {"type": "string"}},
+              "forbidden_actions": {"type": "array", "items": {"type": "string"}},
+              "kpi_metrics": {"type": "array", "items": {"type": "string"}},
+              "escalation": {"type": "array", "items": {"type": "string"}},
+              "version": {"type": "string"},
+              "status": {"type": "string", "enum": ["DRAFT"]}
+            },
+            "required": ["contract_version", "agent_id", "name", "purpose", "agent_kind", "parent_agent_id", "parent_agent_version", "domain", "human_owner", "triggers", "inputs", "source_of_truth", "outputs", "capabilities", "tools_allowed", "approval_boundary", "evidence_requirement", "forbidden_actions", "kpi_metrics", "escalation", "version", "status"]
+          },
+          "workflow_proposal": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "workflow_name": {"type": "string"},
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "step_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "actor": {"type": "string"},
+                    "description": {"type": "string"}
+                  },
+                  "required": ["step_id", "name", "actor", "description"]
+                }
+              }
+            },
+            "required": ["workflow_name", "steps"]
+          },
+          "risks_and_blockers": {"type": "array", "items": {"type": "string"}},
+          "unanswered_questions": {"type": "array", "items": {"type": "string"}},
+          "governance_notes": {"type": "string"},
+          "production_effect": {"type": "boolean"}
+        },
+        "required": ["understanding", "strategy", "strategy_justification", "parent_core_agent_id", "business_owner", "domain", "agent_contract_draft", "workflow_proposal", "risks_and_blockers", "unanswered_questions", "governance_notes", "production_effect"]
+      },
+      "status": "STAGED"
     }
   ]
 }

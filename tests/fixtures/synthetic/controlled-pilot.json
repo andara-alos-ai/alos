@@ -31,7 +31,7 @@
   ],
   "scenarios": {
     "sales": {"lead_alias": "LEAD-SYN-001", "phone": "080000000001", "source": "SYNTHETIC_CAMPAIGN", "consent_recorded": true},
-    "finance": {"request_code": "PAY-SYN-001", "amount": "1250000.00", "currency": "IDR", "budget_available": true},
+    "finance": {"request_code": "PAY-SYN-001", "vendor_reference": "VENDOR-SYN-001", "category_code": "OPERATIONS", "amount": "1250000.00", "currency": "IDR", "budget_available": true},
     "property": {"work_package_code": "WP-SYN-001", "claimed_progress": "42.50", "measured_progress": "39.00"},
     "legal": {"permit_reference": "PERMIT-SYN-001", "contract_reference": "CONTRACT-SYN-001"},
     "hr": {"candidate_alias": "CAND-SYN-001", "position_title": "Staf Operasional Sintetis", "required_criteria": ["DOC_COMPLETE", "MINIMUM_EXPERIENCE"]},

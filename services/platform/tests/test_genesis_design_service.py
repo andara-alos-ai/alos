@@ -96,25 +96,29 @@ def test_create_accepts_new_draft_sub_agent_without_extends() -> None:
     assert proposal.production_effect is False
 
 
-def test_genesis_rejects_core_agent_creation() -> None:
+def test_genesis_allows_core_agent_creation_through_governance_gates() -> None:
     core = AgentRegistry(REPOSITORY_ROOT / "definitions").get("BCA").model_copy(
-        update={"status": AgentStatus.DRAFT}
+        update={
+            "agent_id": "NEW_FINANCE_CORE",
+            "name": "New Finance Core Agent",
+            "status": AgentStatus.DRAFT,
+        }
     )
     proposal = service().propose(
         GenesisChangeRequest(
             strategy=GenesisStrategy.CREATE,
             requested_by="IT Platform",
-            justification="Pengujian larangan perubahan struktur Core oleh Genesis.",
-            source_references=("specification:invalid-core",),
+            justification="Pengujian pembuatan top-level agent melalui Genesis.",
+            source_references=("specification:new-core",),
             candidate=core,
         )
     )
 
-    assert proposal.status == GenesisProposalStatus.INVALID
+    assert proposal.status == GenesisProposalStatus.AWAITING_HUMAN_REVIEW
     organization_check = next(
         item for item in proposal.validations if item.code == "ORGANIZATION_LOCK"
     )
-    assert organization_check.passed is False
+    assert organization_check.passed is True
 
 
 def test_design_service_has_no_release_or_deploy_operation() -> None:

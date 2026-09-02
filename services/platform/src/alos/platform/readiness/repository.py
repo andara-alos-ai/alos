@@ -100,7 +100,7 @@ class PostgresPilotReadinessRepository:
                         WHERE d.organization_id = :organization_id
                           AND d.project_id = :project_id
                           AND dv.verification_status <> 'REJECTED'
-                          AND dv.scan_status <> 'INFECTED'
+                          AND dv.scan_status IN ('NOT_CONFIGURED', 'CLEAN')
                         """
                     ),
                     {"organization_id": organization_id, "project_id": project_id},

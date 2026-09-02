@@ -13,6 +13,45 @@ from alos.tools import ToolEffect, ToolRegistry
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
+CORE_SYNTHETIC_INPUTS: dict[str, dict[str, object]] = {
+    "ARA": {"amount": 1_000_000},
+    "BCA": {"amount": 1_000_000, "available_amount": 2_000_000},
+    "CEA": {"checksum_valid": True, "scan_status": "CLEAN"},
+    "CFA": {"content": "Riwayat follow-up sintetis."},
+    "CLA": {"content": "Kontrak sintetis untuk validasi runtime."},
+    "CRA": {"impact_score": 2, "probability_score": 2},
+    "DIA": {"content": "Dokumen sintetis untuk klasifikasi."},
+    "FRA": {
+        "payment_amount": 100,
+        "transaction_amount": 100,
+        "payment_reference": "PAY-001",
+        "transaction_reference": "PAY-001",
+        "payment_currency": "IDR",
+        "currency": "IDR",
+    },
+    "HPA": {"required_documents": ["KTP"], "provided_documents": ["KTP"]},
+    "HRA": {"content": "Profil kandidat sintetis."},
+    "KDA": {"numerator": 9, "denominator": 10, "target": 0.8},
+    "LPA": {"content": "Dokumen izin sintetis."},
+    "MCA": {
+        "verified_facts": [{"status": "VERIFIED"}],
+        "source_references": ["synthetic:fact"],
+    },
+    "MCA_MKT": {"content": "Brief konten marketing sintetis."},
+    "SEA": {
+        "released_versions": [
+            {"sop_id": "SOP-001", "version": "1.0.0", "status": "RELEASED"}
+        ]
+    },
+    "SLA": {"phone": "081234567890", "consent_recorded": True},
+    "TIA": {"content": "Invoice sintetis."},
+    "TPA": {
+        "required_evidence": ["PHOTO"],
+        "provided_evidence": ["PHOTO"],
+        "all_verified": True,
+    },
+}
+
 
 def test_all_agent_capabilities_have_versioned_contracts_and_handlers() -> None:
     definitions = REPOSITORY_ROOT / "definitions"
@@ -24,9 +63,11 @@ def test_all_agent_capabilities_have_versioned_contracts_and_handlers() -> None:
         for capability in agent.capabilities
     }
 
-    assert len(contracts) == 61
+    assert len(contracts) == 62
     assert referenced == {item.capability_id for item in contracts}
     assert all(item.contract_digest for item in contracts)
+    assert all(item.input_schema["properties"] for item in contracts)
+    assert all(item.output_schema["properties"] for item in contracts)
 
 
 def test_each_of_18_core_agents_executes_through_shared_runtime() -> None:
@@ -56,7 +97,13 @@ def test_each_of_18_core_agents_executes_through_shared_runtime() -> None:
                 idempotency_key=f"synthetic-{agent.agent_id.lower()}-001",
             )
         )
-        executed = runtime.execute(plan, {"data_classification": "INTERNAL"})
+        payload = {
+            **CORE_SYNTHETIC_INPUTS[agent.agent_id],
+            "data_classification": "INTERNAL",
+        }
+        if capability.execution_mode == "AI_ASSISTED":
+            payload["source_reference"] = f"synthetic:{agent.agent_id.lower()}"
+        executed = runtime.execute(plan, payload)
 
         assert executed.execution is not None
         assert executed.execution.handler_id == capability.handler_id

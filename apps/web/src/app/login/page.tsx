@@ -91,7 +91,7 @@ export default function LoginPage() {
     if (!callback.code) return;
     exchangeOidcCode(callback.code)
       .then(async (token) => {
-        await authenticate(token.access_token);
+        await authenticate(token.access_token, true);
         router.replace("/");
       })
       .catch((loginError: unknown) => {
@@ -99,8 +99,8 @@ export default function LoginPage() {
       });
   }, [authenticate, router]);
 
-  async function completeAuthentication(token: string) {
-    await authenticate(token);
+  async function completeAuthentication(token: string, useCookieSession: boolean) {
+    await authenticate(token, useCookieSession);
     router.replace("/");
   }
 
@@ -109,7 +109,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const token = await loginPilotProfile(userId);
-      await completeAuthentication(token.access_token);
+      await completeAuthentication(token.access_token, true);
     } catch (loginError) {
       setError(errorMessage(loginError));
     } finally {
@@ -126,7 +126,7 @@ export default function LoginPage() {
     }
     setSubmitting(true);
     try {
-      await completeAuthentication(accessToken.trim());
+      await completeAuthentication(accessToken.trim(), false);
     } catch (loginError) {
       setError(errorMessage(loginError));
     } finally {

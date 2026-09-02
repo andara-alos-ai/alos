@@ -1,30 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { clearSessionToken, readSessionToken, storeSessionToken } from "./session";
+import { COOKIE_SESSION_MARKER, readCsrfToken } from "./session";
 
-describe("session token", () => {
-  const values = new Map<string, string>();
-
-  beforeEach(() => {
-    values.clear();
-    const sessionStorage = {
-      getItem: vi.fn((key: string) => values.get(key) ?? null),
-      setItem: vi.fn((key: string, value: string) => values.set(key, value)),
-      removeItem: vi.fn((key: string) => values.delete(key)),
-    } as unknown as Storage;
-    vi.stubGlobal("window", { sessionStorage });
-  });
-
+describe("browser session", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it("menghapus token lokal saat pengguna logout", () => {
-    storeSessionToken("synthetic-session-token");
-    expect(readSessionToken()).toBe("synthetic-session-token");
+  it("menggunakan marker non-rahasia untuk sesi cookie", () => {
+    expect(COOKIE_SESSION_MARKER).toBe("__alos_cookie_session__");
+  });
 
-    clearSessionToken();
-
-    expect(readSessionToken()).toBeNull();
+  it("membaca CSRF token dari cookie document", () => {
+    vi.stubGlobal("document", { cookie: "other=1; alos_csrf=csrf-test-token-123; foo=bar" });
+    expect(readCsrfToken()).toBe("csrf-test-token-123");
   });
 });

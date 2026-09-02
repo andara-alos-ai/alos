@@ -73,6 +73,10 @@ class LeadRead(BaseModel):
     source: str
     consent_recorded: bool
     status: str
+    pipeline_stage: str
+    qualification_result: str | None
+    qualification_notes: str | None
+    lost_reason: str | None
     assigned_user_id: UUID | None
     current_step: str
     workflow_status: str
@@ -90,6 +94,9 @@ class SalesInteractionRead(BaseModel):
     notes: str
     evidence_reference: str | None
     evidence_document_version_id: UUID | None
+    qualification_result: str | None
+    lost_reason: str | None
+    next_follow_up_at: datetime | None
     occurred_at: datetime
 
 
@@ -118,12 +125,17 @@ class PaymentRequestRead(BaseModel):
     document_version_id: UUID
     requester_user_id: UUID
     payee_name: str
+    vendor_reference: str | None
+    category_code: str
     purpose: str
     amount: Decimal
     currency: str
     requested_payment_date: date
     status: str
     budget_available: bool
+    evidence_complete: bool
+    approval_route: str | None
+    revision_number: int
     current_step: str
     workflow_status: str
     created_at: datetime

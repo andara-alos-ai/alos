@@ -240,11 +240,6 @@ def test_controlled_pilot_uat_requires_evidence_and_all_human_signoffs() -> None
         assert checks["PILOT-RECOVERY-DRILL"]["status"] == "PASS"
     finally:
         with psycopg.connect(database_url) as connection:
-            if audited_entity_ids:
-                connection.execute(
-                    "DELETE FROM audit.entries WHERE entity_id = ANY(%s)",
-                    (list(audited_entity_ids),),
-                )
             if run_id is not None:
                 connection.execute("DELETE FROM uat.runs WHERE uat_run_id = %s", (run_id,))
             connection.execute("DELETE FROM platform.projects WHERE project_id = %s", (project_id,))

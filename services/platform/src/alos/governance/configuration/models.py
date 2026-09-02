@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ConfigurationStatus(StrEnum):
@@ -28,7 +28,11 @@ class ConfigurationMapping(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     mapping_id: str = Field(pattern=r"^ALOS-CFG-[A-Z0-9-]{3,80}$")
-    document_key: str = Field(pattern=r"^(MASTER|[A-N]|DECISION)$")
+    source_code: str = Field(
+        pattern=r"^[A-Z][A-Z0-9_.:/-]{0,79}$",
+        validation_alias=AliasChoices("source_code", "document_key"),
+        serialization_alias="source_code",
+    )
     name: str = Field(min_length=5, max_length=200)
     target_registry: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
     business_owner: str = Field(pattern=r"^[A-Z][A-Z0-9_& -]{1,79}$")
@@ -107,11 +111,9 @@ class CanonicalConfigurationRegister(BaseModel):
             raise ValueError("mapping_id wajib unik dalam register")
         if len(target_registries) != len(set(target_registries)):
             raise ValueError("target_registry wajib unik dalam register")
-        required_keys = {"MASTER", *tuple("ABCDEFGHIJKLMN")}
-        covered_keys = {mapping.document_key for mapping in self.mappings}
-        missing = sorted(required_keys - covered_keys)
-        if missing:
-            raise ValueError(f"Mapping Master dan Lampiran A-N belum lengkap: {', '.join(missing)}")
+        source_codes = [mapping.source_code for mapping in self.mappings]
+        if len(source_codes) != len(set(source_codes)):
+            raise ValueError("source_code wajib unik dalam configuration register")
         return self
 
     @property

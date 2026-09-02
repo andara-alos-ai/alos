@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "policy_id": "ALOS-POL-PAYMENT-APPROVAL",
+  "version": "0.1.0",
+  "status": "PILOT",
+  "currency": "IDR",
+  "business_owner": "KEUANGAN",
+  "source_references": ["ALOS-SRC-SYNTHETIC-PILOT-001"],
+  "production_effect": false,
+  "tiers": [
+    {
+      "route": "FINANCE_REVIEWER",
+      "required_role": "FINANCE",
+      "maximum_amount": "25000000",
+      "sla_hours": 24
+    },
+    {
+      "route": "FINANCE_HEAD",
+      "required_role": "DIVISION_HEAD",
+      "maximum_amount": "250000000",
+      "sla_hours": 12
+    },
+    {
+      "route": "DIRECTOR",
+      "required_role": "DIRECTOR",
+      "maximum_amount": null,
+      "sla_hours": 8
+    }
+  ]
+}

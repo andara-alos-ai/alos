@@ -90,6 +90,8 @@ class AgentCapabilityService:
         )
         payload = dict(command.input_payload)
         payload["data_classification"] = command.data_classification
+        if capability.execution_mode.value == "AI_ASSISTED":
+            payload.setdefault("source_reference", command.input_references[0])
         executed = self._runtime.execute(plan, payload)
         if executed.execution is None:
             raise RuntimeError("Runtime tidak menghasilkan execution record")

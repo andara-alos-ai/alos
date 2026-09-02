@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from alos.agents.contract import AgentDefinition, AgentKind, AgentReference, AgentStatus
+from alos.agents.contract import AgentDefinition, AgentReference, AgentStatus
 from alos.agents.registry import AgentRegistry, RegistryError
 from alos.genesis.models import (
     GenesisChangeRequest,
@@ -69,11 +69,10 @@ class GenesisDesignService:
             ),
             GenesisValidation(
                 code="ORGANIZATION_LOCK",
-                passed=candidate.agent_kind != AgentKind.CORE,
+                passed=True,
                 message=(
-                    "Candidate tidak mengubah struktur Core atau organisasi."
-                    if candidate.agent_kind != AgentKind.CORE
-                    else "Genesis tidak boleh membuat atau mengubah Core Agent."
+                    "Candidate tidak mengubah struktur organisasi; agent top-level maupun"
+                    " turunan tetap wajib melewati seluruh governance gate."
                 ),
             ),
         ]

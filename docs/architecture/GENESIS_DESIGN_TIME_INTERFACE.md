@@ -8,7 +8,7 @@
 
 ## Tujuan dan Batas
 
-Genesis membentuk tenaga kerja digital melalui kontrak yang sama dengan 18 Core Agent. Genesis bukan Core Agent ke-19, tidak mengubah struktur organisasi, tidak menulis konfigurasi production, dan tidak melakukan deployment.
+Genesis membentuk tenaga kerja digital melalui Agent Contract universal yang sama untuk agent top-level, Sub-Agent, dan Sub-Sub-Agent. Genesis bukan agent operasional, tidak mengubah struktur organisasi, tidak menulis konfigurasi production, dan tidak melakukan deployment.
 
 Alur yang tersedia:
 
@@ -28,9 +28,9 @@ Source pack Master dan Lampiran A–N berstatus `DRAFT`. Source tersebut dapat d
 |---|---|
 | `REUSE` | menggunakan versi agent yang sudah terdaftar tanpa mengubah kontraknya |
 | `EXTEND` | menghasilkan candidate Sub-Agent/Sub-Sub-Agent yang mempertahankan capability dan tool base |
-| `CREATE` | menghasilkan candidate baru melalui Agent Contract universal |
+| `CREATE` | menghasilkan candidate baru melalui Agent Contract universal; candidate dapat berupa agent top-level, Sub-Agent, atau Sub-Sub-Agent |
 
-Candidate `EXTEND` dan `CREATE` wajib berstatus `DRAFT`. Genesis dilarang membuat atau mengubah Core Agent. Parent, hierarchy, versi, capability, tool, evidence, dan batas approval divalidasi sebelum review.
+Candidate `EXTEND` dan `CREATE` wajib berstatus `DRAFT`. Genesis tidak boleh mengubah struktur organisasi atau melewati review, staging, dan release. Parent untuk agent turunan, hierarchy, versi, capability, tool, evidence, dan batas approval divalidasi sebelum review.
 
 ## Governance Gate
 

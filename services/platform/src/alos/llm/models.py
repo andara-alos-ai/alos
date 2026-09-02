@@ -8,6 +8,7 @@ class LLMProvider(StrEnum):
     DISABLED = "disabled"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    LOCAL = "local"
 
 
 class DataClassification(IntEnum):

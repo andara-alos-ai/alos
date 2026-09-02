@@ -37,7 +37,11 @@ def test_tia_and_marketing_agent_execute_via_same_audited_runtime() -> None:
                 "capability": "validate_invoice_rules",
                 "input_references": ["invoice:synthetic-001"],
                 "requested_tools": ["deterministic.calculator"],
-                "input_payload": {"invoice_number": "SYNTHETIC-001"},
+                "input_payload": {
+                    "invoice_number": "SYNTHETIC-001",
+                    "amount": "1000000",
+                    "tax_amount": "110000",
+                },
                 "data_classification": "INTERNAL",
             },
         )
@@ -81,9 +85,6 @@ def test_tia_and_marketing_agent_execute_via_same_audited_runtime() -> None:
     finally:
         with psycopg.connect(database_url) as connection:
             if run_ids:
-                connection.execute(
-                    "DELETE FROM audit.entries WHERE entity_id = ANY(%s::text[])", (run_ids,)
-                )
                 connection.execute(
                     "DELETE FROM agents.agent_runs WHERE agent_run_id = ANY(%s::uuid[])",
                     (run_ids,),

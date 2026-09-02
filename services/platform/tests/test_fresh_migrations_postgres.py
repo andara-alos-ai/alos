@@ -30,11 +30,11 @@ def test_all_migrations_apply_to_a_fresh_database() -> None:
         connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
     try:
         applied = apply_migrations(temporary_url, REPOSITORY_ROOT / "infra" / "database")
-        assert len(applied) == 29
+        assert len(applied) == 42
         with psycopg.connect(temporary_url) as connection:
             assert (
                 connection.execute("SELECT count(*) FROM platform.schema_migrations").fetchone()[0]
-                    == 29
+                    == 42
             )
             constraint_exists = connection.execute(
                 """
@@ -51,9 +51,48 @@ def test_all_migrations_apply_to_a_fresh_database() -> None:
                 """
             ).fetchone()
             assert reservation_evidence_column is not None
+            scoped_references = {
+                "reservations_organization_reference_key": (
+                    "UNIQUE (organization_id, reservation_reference)"
+                ),
+                "payment_records_organization_reference_key": (
+                    "UNIQUE (organization_id, payment_reference)"
+                ),
+                "reconciliations_organization_reference_key": (
+                    "UNIQUE (organization_id, transaction_reference)"
+                ),
+            }
+            for constraint_name, expected_definition in scoped_references.items():
+                definition = connection.execute(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = %s",
+                    (constraint_name,),
+                ).fetchone()
+                assert definition is not None
+                assert definition[0] == expected_definition
+            assert connection.execute(
+                "SELECT 1 FROM pg_constraint "
+                "WHERE conname = 'payment_requests_approval_route_check'"
+            ).fetchone() is not None
             assert connection.execute(
                 "SELECT 1 FROM information_schema.tables "
                 "WHERE table_schema = 'uat' AND table_name = 'signoffs'"
+            ).fetchone() is not None
+            for constraint_name in (
+                "reservations_organization_lead_fkey",
+                "payment_records_organization_request_fkey",
+                "reconciliations_organization_request_fkey",
+                "reconciliations_organization_record_fkey",
+            ):
+                assert connection.execute(
+                    "SELECT 1 FROM pg_constraint WHERE conname = %s",
+                    (constraint_name,),
+                ).fetchone() is not None
+            assert connection.execute(
+                "SELECT 1 FROM pg_trigger WHERE tgname = 'audit_entries_append_only'"
+            ).fetchone() is not None
+            assert connection.execute(
+                "SELECT 1 FROM pg_trigger "
+                "WHERE tgname = 'audit_chain_legacy_exceptions_append_only'"
             ).fetchone() is not None
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:

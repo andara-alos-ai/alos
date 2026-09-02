@@ -86,7 +86,7 @@
       "division_head_allowed": true
     }
   ],
-  "expected_core_agents": 18,
+  "minimum_registered_agents": 1,
   "expected_workflows": 6,
   "minimum_safe_documents": 1,
   "worker_max_age_minutes": 5,

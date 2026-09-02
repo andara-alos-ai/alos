@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from collections.abc import Mapping
 from typing import Any, Protocol
@@ -118,7 +119,7 @@ class OpenAIProvider:
         for item in payload.get("output", []):
             for content in item.get("content", []):
                 if content.get("type") == "output_text" and isinstance(content.get("text"), str):
-                    return content["text"]
+                    return str(content["text"])
         raise ValueError("OpenAI response tidak memuat output_text")
 
 
@@ -186,6 +187,84 @@ class AnthropicProvider:
             usage=LLMUsage(
                 input_tokens=int(usage.get("input_tokens", 0)),
                 output_tokens=int(usage.get("output_tokens", 0)),
+            ),
+            latency_ms=int((time.monotonic() - started) * 1000),
+            model=str(payload.get("model") or self._model),
+        )
+
+
+class LocalOpenAIProvider:
+    provider = LLMProvider.LOCAL
+
+    def __init__(
+        self,
+        model: str,
+        base_url: str = "http://localhost:11434/v1",
+        api_key: str | None = None,
+        timeout_seconds: float = 60.0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._model = model
+        headers = {"Authorization": f"Bearer {api_key or 'local-key'}"}
+        self._client = httpx.Client(
+            base_url=base_url.rstrip("/"),
+            headers=headers,
+            timeout=timeout_seconds,
+            transport=transport,
+        )
+
+    def generate(
+        self,
+        prompt: PromptDefinition,
+        input_data: Mapping[str, Any],
+        max_output_tokens: int,
+        safety_identifier: str,
+    ) -> ProviderOutput:
+        started = time.monotonic()
+        system_content = (
+            f"{prompt.instructions}\n"
+            "Anda WAJIB mengembalikan output dalam format JSON murni "
+            "yang sesuai dengan JSON Schema berikut:\n"
+            f"{json.dumps(prompt.output_schema, ensure_ascii=False)}"
+        )
+        response = self._client.post(
+            "/chat/completions",
+            json={
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": json.dumps(input_data, ensure_ascii=False)},
+                ],
+                "response_format": {"type": "json_object"},
+                "max_tokens": max_output_tokens,
+                "temperature": 0.1,
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+        choices = payload.get("choices") or []
+        if not choices:
+            raise ValueError("Local LLM response tidak memuat choices")
+        message = choices[0].get("message") or {}
+        raw_text = message.get("content") or ""
+        if isinstance(raw_text, dict):
+            output = raw_text
+        else:
+            clean_text = str(raw_text).strip()
+            if clean_text.startswith("```"):
+                clean_text = re.sub(r"^```(?:json)?\s*", "", clean_text)
+                clean_text = re.sub(r"\s*```$", "", clean_text)
+            output = json.loads(clean_text)
+
+        usage = payload.get("usage") or {}
+        return ProviderOutput(
+            output=output,
+            request_id=payload.get("id"),
+            usage=LLMUsage(
+                input_tokens=int(usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)),
+                output_tokens=int(
+                    usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+                ),
             ),
             latency_ms=int((time.monotonic() - started) * 1000),
             model=str(payload.get("model") or self._model),

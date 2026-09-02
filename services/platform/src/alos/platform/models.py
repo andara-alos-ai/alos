@@ -1,5 +1,5 @@
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -125,20 +125,36 @@ class WorkItemView(BaseModel):
 
 
 class SalesAssignment(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     sales_pic_user_id: UUID
+    first_follow_up_at: datetime | None = None
+    objective: str = Field(default="Qualification lead", min_length=3, max_length=500)
+
+    @field_validator("first_follow_up_at")
+    @classmethod
+    def require_follow_up_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("Jadwal follow-up wajib menyertakan zona waktu")
+        return value
 
 
 class InteractionOutcome(StrEnum):
     QUALIFIED = "qualified"
     RESERVED = "reserved"
     FOLLOW_UP = "follow_up"
+    LOST = "lost"
     EXCEPTION = "exception"
 
 
+class QualificationResult(StrEnum):
+    HOT = "HOT"
+    WARM = "WARM"
+    COLD = "COLD"
+
+
 class SalesInteraction(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     outcome: InteractionOutcome
     channel: str = Field(min_length=2, max_length=40)
@@ -146,9 +162,13 @@ class SalesInteraction(BaseModel):
     evidence_reference: str | None = Field(default=None, max_length=500)
     evidence_document_version_id: UUID | None = None
     reservation_reference: str | None = Field(default=None, max_length=120)
+    qualification_result: QualificationResult | None = None
+    lost_reason: str | None = Field(default=None, min_length=3, max_length=500)
+    next_follow_up_at: datetime | None = None
+    reservation_date: date | None = None
 
     @model_validator(mode="after")
-    def require_reservation_reference(self) -> "SalesInteraction":
+    def validate_outcome_fields(self) -> "SalesInteraction":
         if self.outcome == InteractionOutcome.RESERVED:
             if not self.reservation_reference:
                 raise ValueError("Referensi reservasi wajib untuk outcome reserved")
@@ -156,6 +176,26 @@ class SalesInteraction(BaseModel):
                 raise ValueError("Dokumen evidence wajib untuk outcome reserved")
         if self.outcome != InteractionOutcome.RESERVED and self.reservation_reference:
             raise ValueError("Referensi reservasi hanya boleh digunakan untuk outcome reserved")
+        if self.outcome != InteractionOutcome.RESERVED and self.reservation_date is not None:
+            raise ValueError("Tanggal reservasi hanya boleh digunakan untuk outcome reserved")
+        if self.reservation_date is not None and self.reservation_date > date.today():
+            raise ValueError("Tanggal reservasi tidak boleh berada di masa depan")
+        if self.outcome == InteractionOutcome.LOST and not self.lost_reason:
+            raise ValueError("Lost reason wajib untuk outcome lost")
+        if self.outcome != InteractionOutcome.LOST and self.lost_reason:
+            raise ValueError("Lost reason hanya boleh digunakan untuk outcome lost")
+        if self.outcome == InteractionOutcome.QUALIFIED and self.qualification_result is None:
+            raise ValueError("Hasil qualification wajib untuk outcome qualified")
+        if self.outcome != InteractionOutcome.QUALIFIED and self.qualification_result is not None:
+            raise ValueError("Hasil qualification hanya boleh untuk outcome qualified")
+        if self.next_follow_up_at is not None:
+            if self.next_follow_up_at.tzinfo is None or self.next_follow_up_at.utcoffset() is None:
+                raise ValueError("Jadwal follow-up wajib menyertakan zona waktu")
+            if self.outcome not in {
+                InteractionOutcome.FOLLOW_UP,
+                InteractionOutcome.QUALIFIED,
+            }:
+                raise ValueError("Jadwal berikutnya hanya untuk follow-up atau qualified")
         return self
 
 
@@ -338,17 +378,43 @@ class BudgetView(BaseModel):
     created_at: datetime
 
 
+class PaymentCategory(StrEnum):
+    GENERAL = "GENERAL"
+    MATERIAL = "MATERIAL"
+    OPERATIONS = "OPERATIONS"
+    CONTRACTOR = "CONTRACTOR"
+    TAX = "TAX"
+
+
 class PaymentRequestCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     project_id: UUID
     budget_id: UUID
     document_version_id: UUID
+    supporting_document_version_ids: tuple[UUID, ...] = Field(default=(), max_length=20)
     payee_name: str = Field(min_length=2, max_length=200)
+    vendor_reference: str | None = Field(default=None, min_length=2, max_length=120)
+    category_code: PaymentCategory = PaymentCategory.GENERAL
     purpose: str = Field(min_length=3, max_length=1000)
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
     currency: str = Field(default="IDR", pattern=r"^[A-Z]{3}$")
     requested_payment_date: date
+
+    @field_validator("supporting_document_version_ids")
+    @classmethod
+    def reject_duplicate_supporting_documents(
+        cls, value: tuple[UUID, ...]
+    ) -> tuple[UUID, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("Dokumen evidence tambahan tidak boleh duplikat")
+        return value
+
+    @model_validator(mode="after")
+    def require_distinct_supporting_documents(self) -> "PaymentRequestCreate":
+        if self.document_version_id in self.supporting_document_version_ids:
+            raise ValueError("Dokumen utama tidak boleh dihitung sebagai evidence tambahan")
+        return self
 
 
 class PaymentRequestView(BaseModel):
@@ -359,6 +425,8 @@ class PaymentRequestView(BaseModel):
     project_id: UUID
     budget_id: UUID
     payee_name: str
+    vendor_reference: str | None
+    category_code: PaymentCategory
     purpose: str
     amount: Decimal
     currency: str
@@ -366,19 +434,31 @@ class PaymentRequestView(BaseModel):
     status: str
     current_step: str
     budget_available: bool
+    evidence_complete: bool
+    approval_route: str | None
     correlation_id: UUID
     created_at: datetime
 
 
 class PaymentDecisionCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     decision: str = Field(pattern=r"^(APPROVED|REJECTED|REVISION_REQUESTED)$")
     reason: str = Field(min_length=3, max_length=2000)
 
 
+class PaymentCancelCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    reason: str = Field(min_length=8, max_length=2000)
+
+
+class PaymentRevisionCreate(PaymentRequestCreate):
+    reason: str = Field(min_length=8, max_length=2000)
+
+
 class PaymentRecordCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     payment_reference: str = Field(min_length=3, max_length=160)
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
@@ -391,11 +471,13 @@ class PaymentRecordCreate(BaseModel):
     def require_paid_at_timezone(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("Waktu pembayaran wajib menyertakan zona waktu")
+        if value > datetime.now(UTC) + timedelta(minutes=5):
+            raise ValueError("Waktu pembayaran tidak boleh berada di masa depan")
         return value
 
 
 class ReconciliationCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     transaction_reference: str = Field(min_length=3, max_length=160)
     transaction_amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)

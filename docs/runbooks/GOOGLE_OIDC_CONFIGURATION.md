@@ -89,5 +89,5 @@ pengguna pada direktori ALOS; sistem sengaja menolak akun yang belum diprovisika
 - jangan memakai client lokal untuk staging atau production.
 
 Publikasi OAuth ke production, domain organisasi, kebijakan MFA, dan pemilik operasional
-masih memerlukan keputusan perusahaan. Fondasi ini tidak mengubah struktur organisasi,
-18 Core Agent, atau business ownership agent.
+masih memerlukan keputusan perusahaan. Fondasi ini tidak mengubah struktur organisasi
+atau business ownership agent.

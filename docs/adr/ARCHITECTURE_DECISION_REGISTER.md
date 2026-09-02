@@ -60,7 +60,7 @@ Status keputusan: `PROPOSED`, `ACCEPTED`, `SUPERSEDED`, atau `REJECTED`.
 
 **Keputusan:** Genesis beroperasi pada tahap desain melalui sumber, analisis, pembuatan usulan, validasi, pengujian, selisih, review manusia, staging, dan rilis.
 
-**Konsekuensi:** Genesis bukan Core Agent ke-19 dan tidak dapat mengubah produksi atau struktur organisasi langsung. Rilis membutuhkan identitas manusia yang berwenang.
+**Konsekuensi:** Genesis bukan agent operasional dan tidak dapat mengubah production atau struktur organisasi langsung. Rilis agent baru membutuhkan contract, validasi, test, review, staging, dan identitas manusia yang berwenang.
 
 ## ADR-006 — Satu PostgreSQL dengan Skema Logis
 

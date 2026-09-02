@@ -11,8 +11,8 @@ import {
   useState,
 } from "react";
 
-import { ApiError, getPrincipal, getProjects } from "@/lib/api";
-import { clearSessionToken, readSessionToken, storeSessionToken } from "@/lib/session";
+import { ApiError, getPrincipal, getProjects, logoutApi } from "@/lib/api";
+import { COOKIE_SESSION_MARKER } from "@/lib/session";
 import type { Principal, Project } from "@/lib/types";
 
 type SessionState = {
@@ -22,7 +22,7 @@ type SessionState = {
   projects: Project[];
   activeProjectId: string | null;
   error: string | null;
-  authenticate: (token: string) => Promise<void>;
+  authenticate: (token: string, useCookieSession?: boolean) => Promise<void>;
   logout: () => void;
   setActiveProjectId: (projectId: string | null) => void;
   refreshProjects: () => Promise<void>;
@@ -40,7 +40,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [activeProjectId, setProjectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const loadProjects = useCallback(async (sessionToken: string) => {
+  const loadProjects = useCallback(async (sessionToken?: string) => {
     const availableProjects = await getProjects(sessionToken);
     setProjects(availableProjects);
     const saved = window.sessionStorage.getItem(activeProjectKey);
@@ -52,15 +52,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const authenticate = useCallback(
-    async (sessionToken: string) => {
+    async (sessionToken: string, useCookieSession = true) => {
       setError(null);
       const verifiedPrincipal = await getPrincipal(sessionToken);
-      storeSessionToken(sessionToken);
-      setToken(sessionToken);
+      setToken(useCookieSession ? COOKIE_SESSION_MARKER : sessionToken);
       setPrincipal(verifiedPrincipal);
       setStatus("authenticated");
       try {
-        await loadProjects(sessionToken);
+        await loadProjects(useCookieSession ? COOKIE_SESSION_MARKER : sessionToken);
       } catch (projectError) {
         setProjects([]);
         setError(
@@ -74,7 +73,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
-    clearSessionToken();
+    logoutApi().catch(() => {});
     window.sessionStorage.removeItem(activeProjectKey);
     setToken(null);
     setPrincipal(null);
@@ -86,19 +85,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   useEffect(() => {
-    const initialization = window.setTimeout(() => {
-      const savedToken = readSessionToken();
-      if (!savedToken) {
-        setStatus("anonymous");
-        return;
+    let active = true;
+    const initialization = window.setTimeout(async () => {
+      try {
+        const verifiedPrincipal = await getPrincipal();
+        if (!active) return;
+        setPrincipal(verifiedPrincipal);
+        setToken(COOKIE_SESSION_MARKER);
+        setStatus("authenticated");
+        try {
+          await loadProjects(COOKIE_SESSION_MARKER);
+        } catch {
+          if (active) setProjects([]);
+        }
+      } catch {
+        if (active) setStatus("anonymous");
       }
-      authenticate(savedToken).catch(() => {
-        clearSessionToken();
-        setStatus("anonymous");
-      });
     }, 0);
-    return () => window.clearTimeout(initialization);
-  }, [authenticate]);
+    return () => {
+      active = false;
+      window.clearTimeout(initialization);
+    };
+  }, [authenticate, loadProjects]);
 
   const setActiveProjectId = useCallback((projectId: string | null) => {
     setProjectId(projectId);

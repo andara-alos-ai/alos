@@ -53,6 +53,9 @@ class CapabilityContract(BaseModel):
             raise ValueError("Capability schema wajib JSON Schema bertipe object")
         if value.get("additionalProperties") is not False:
             raise ValueError("Capability schema wajib menolak additionalProperties")
+        properties = value.get("properties")
+        if not isinstance(properties, dict) or not properties:
+            raise ValueError("Capability schema wajib mendefinisikan properties")
         return value
 
     def canonical_payload(self) -> dict[str, object]:

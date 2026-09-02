@@ -83,9 +83,21 @@ export const governanceNavigation: NavigationItem[] = [
     roles: ["DIRECTOR", "AI_EXECUTIVE", "DIVISION_HEAD", "IT_ADMIN", "AUDITOR"],
   },
   {
+    label: "Genesis Command Center",
+    href: "/genesis",
+    icon: "agent",
+    roles: ["DIRECTOR", "AI_EXECUTIVE", "DIVISION_HEAD", "IT_ADMIN", "AUDITOR"],
+  },
+  {
     label: "UAT & Go-Live",
     href: "/uat",
     icon: "workflow",
+    roles: businessRoles,
+  },
+  {
+    label: "Workflow Lapangan",
+    href: "/field",
+    icon: "work",
     roles: businessRoles,
   },
 ];

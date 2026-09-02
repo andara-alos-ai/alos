@@ -154,28 +154,11 @@ export type SourcePackStatus =
   | "SUPERSEDED"
   | "RETIRED";
 
-export type DocumentKey =
-  | "MASTER"
-  | "DECISION"
-  | "SYNTHETIC"
-  | "A"
-  | "B"
-  | "C"
-  | "D"
-  | "E"
-  | "F"
-  | "G"
-  | "H"
-  | "I"
-  | "J"
-  | "K"
-  | "L"
-  | "M"
-  | "N";
+export type SourceCode = string;
 
 export type SourceRecord = {
   source_id: string;
-  document_key: DocumentKey;
+  source_code: SourceCode;
   title: string;
   source_type: "DOCUMENT" | "SYSTEM_BASELINE";
   version: string;
@@ -211,7 +194,7 @@ export type SourcePack = {
 
 export type ConfigurationMapping = {
   mapping_id: string;
-  document_key: Exclude<DocumentKey, "SYNTHETIC">;
+  source_code: SourceCode;
   name: string;
   target_registry: string;
   business_owner: string;
@@ -398,6 +381,10 @@ export type LeadRecord = {
   source: string;
   consent_recorded: boolean;
   status: string;
+  pipeline_stage: string;
+  qualification_result: string | null;
+  qualification_notes: string | null;
+  lost_reason: string | null;
   assigned_user_id: string | null;
   current_step: string;
   workflow_status: string;
@@ -415,6 +402,9 @@ export type SalesInteractionRecord = {
   notes: string;
   evidence_reference: string | null;
   evidence_document_version_id: string | null;
+  qualification_result: string | null;
+  lost_reason: string | null;
+  next_follow_up_at: string | null;
   occurred_at: string;
 };
 
@@ -466,12 +456,17 @@ export type PaymentRequestRecord = {
   document_version_id: string;
   requester_user_id: string;
   payee_name: string;
+  vendor_reference: string | null;
+  category_code: string;
   purpose: string;
   amount: string;
   currency: string;
   requested_payment_date: string;
   status: string;
   budget_available: boolean;
+  evidence_complete: boolean;
+  approval_route: string | null;
+  revision_number: number;
   current_step: string;
   workflow_status: string;
   created_at: string;
@@ -652,4 +647,217 @@ export type ExecutiveBriefResult = {
   exception_id: string | null;
   terminal: boolean;
   correlation_id: string;
+};
+
+export type GenesisValidation = {
+  code: string;
+  passed: boolean;
+  message: string;
+};
+
+export type GenesisAnalyzeWorkflowStep = {
+  step_id: string;
+  name: string;
+  actor: string;
+  description: string;
+};
+
+export type GenesisAnalyzeWorkflowProposal = {
+  workflow_name: string;
+  steps: GenesisAnalyzeWorkflowStep[];
+};
+
+export type GenesisAnalyzeLLMMetadata = {
+  provider: string;
+  model: string | null;
+  prompt_id: string;
+  prompt_version: string;
+  prompt_digest: string;
+  input_tokens: number;
+  output_tokens: number;
+  latency_ms: number;
+  redacted_fields: string[];
+  warnings: string[];
+};
+
+export type GenesisAnalyzeContractDraft = {
+  agent_id: string;
+  name: string;
+  purpose: string;
+  agent_kind: string;
+  parent_agent_id: string;
+  parent_agent_version: string | null;
+  contract_version: string;
+  domain: string;
+  human_owner: string;
+  triggers: string[];
+  extends: string | null;
+  inputs: string[];
+  outputs: string[];
+  source_of_truth: string[];
+  capabilities: string[];
+  tools_allowed: string[];
+  approval_boundary: string[];
+  evidence_requirement: string[];
+  forbidden_actions: string[];
+  kpi_metrics: string[];
+  escalation: string[];
+  version: string;
+  status: string;
+};
+
+export type GenesisAnalyzeResult = {
+  understanding: string;
+  strategy: "REUSE" | "EXTEND" | "CREATE";
+  strategy_justification: string;
+  parent_core_agent_id: string;
+  business_owner: string;
+  domain: string;
+  agent_contract_draft: GenesisAnalyzeContractDraft;
+  workflow_proposal: GenesisAnalyzeWorkflowProposal;
+  risks_and_blockers: string[];
+  unanswered_questions: string[];
+  governance_notes: string;
+  validations: GenesisValidation[];
+  production_effect: boolean;
+  source_references: string[];
+  llm_result_status: string;
+  llm_metadata: GenesisAnalyzeLLMMetadata;
+};
+
+export type GenesisConversationStatus = "ACTIVE" | "ARCHIVED" | "RELEASED";
+export type GenesisSenderType = "USER" | "GENESIS_ASSISTANT" | "SYSTEM";
+
+export type GenesisMessageView = {
+  message_id: string;
+  conversation_id: string;
+  sender_type: GenesisSenderType;
+  sender_user_id: string | null;
+  message_text: string;
+  analysis_result: GenesisAnalyzeResult | null;
+  created_at: string;
+  source_references: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type GenesisFieldDiff = {
+  field: string;
+  before: unknown;
+  after: unknown;
+};
+
+export type GenesisArtifactVersionView = {
+  artifact_version_id: string;
+  conversation_id: string;
+  version_number: number;
+  agent_id: string;
+  spec_data: Record<string, unknown>;
+  created_by_user_id: string;
+  change_summary: string;
+  created_at: string;
+  diff: GenesisFieldDiff[];
+  metadata: Record<string, unknown>;
+  pipeline_request_id: string | null;
+};
+
+export type GenesisConversationView = {
+  conversation_id: string;
+  organization_id: string;
+  project_id: string | null;
+  created_by_user_id: string;
+  title: string;
+  status: GenesisConversationStatus;
+  context_data: Record<string, unknown>;
+  messages: GenesisMessageView[];
+  artifact_versions: GenesisArtifactVersionView[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type GenesisConversationListItem = {
+  conversation_id: string;
+  organization_id: string;
+  project_id: string | null;
+  created_by_user_id: string;
+  title: string;
+  status: GenesisConversationStatus;
+  message_count: number;
+  artifact_version_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GenesisStrategy = "REUSE" | "EXTEND" | "CREATE";
+export type GenesisLifecycleStatus =
+  | "INVALID"
+  | "AWAITING_HUMAN_REVIEW"
+  | "REJECTED"
+  | "APPROVED"
+  | "STAGED"
+  | "RELEASED";
+
+export type GenesisReviewGate = "BUSINESS" | "TECHNICAL";
+export type GenesisReviewDecision = "APPROVED" | "REJECTED";
+
+export type GenesisReviewView = {
+  review_id: string;
+  gate: GenesisReviewGate;
+  decision: GenesisReviewDecision;
+  reviewer_user_id: string;
+  notes: string;
+  reviewed_at: string;
+};
+
+export type GenesisReleaseView = {
+  release_id: string;
+  request_id: string;
+  contract_digest: string;
+  status: "STAGED" | "RELEASED";
+  staged_by_user_id: string;
+  released_by_user_id: string | null;
+  production_effect: boolean;
+  staged_at: string;
+  released_at: string | null;
+};
+
+export type GenesisTestResult = {
+  code: string;
+  passed: boolean;
+  message: string;
+};
+
+export type GenesisPipelineView = {
+  request_id: string;
+  organization_id: string;
+  strategy: GenesisStrategy;
+  requested_by_user_id: string;
+  justification: string;
+  source_references: string[];
+  status: GenesisLifecycleStatus;
+  proposal: Record<string, unknown>;
+  tests: GenesisTestResult[];
+  reviews: GenesisReviewView[];
+  release: GenesisReleaseView | null;
+  next_allowed_action: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ComponentHealthStatus = "HEALTHY" | "DEGRADED" | "UNHEALTHY";
+
+export type ComponentCheck = {
+  component: string;
+  status: ComponentHealthStatus;
+  message: string;
+  latency_ms: number | null;
+  details: Record<string, unknown>;
+};
+
+export type SystemReadinessReport = {
+  status: ComponentHealthStatus;
+  application_name: string;
+  environment: string;
+  timestamp: string;
+  all_passed: boolean;
+  checks: ComponentCheck[];
 };

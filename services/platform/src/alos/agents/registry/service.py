@@ -6,7 +6,9 @@ from alos.agents.capabilities import CapabilityRegistry, CapabilityRegistryError
 from alos.agents.contract import AgentDefinition, AgentKind, AgentStatus
 from alos.tools import ToolRegistry, ToolRegistryError
 
-CORE_AGENT_IDS = frozenset(
+# Kept only for the legacy controlled-pilot validator. Runtime discovery is
+# registry-driven and must not depend on a fixed taxonomy or agent count.
+LEGACY_CORE_AGENT_IDS = frozenset(
     {
         "MCA",
         "DIA",
@@ -28,6 +30,9 @@ CORE_AGENT_IDS = frozenset(
         "CLA",
     }
 )
+# Backward-compatible import for existing tooling. It is intentionally not
+# consulted by runtime discovery; new code should not depend on this constant.
+CORE_AGENT_IDS = LEGACY_CORE_AGENT_IDS
 
 AgentKey = tuple[str, str]
 
@@ -90,10 +95,15 @@ class AgentRegistry:
             raise RegistryError(f"Referensi Capability Registry tidak valid: {exc}") from exc
 
     def load_core(self) -> tuple[AgentDefinition, ...]:
-        """Return the latest contract for each of the 18 baseline Core Agent identities."""
+        """Return the latest contract for every top-level agent.
+
+        ``CORE`` is a hierarchy level, not a permanent list of identities.
+        Genesis may add another top-level agent after the normal validation,
+        review, staging, and release gates. The old fixed 18-agent check is
+        intentionally not part of runtime loading.
+        """
 
         agents = self.load_all()
-        self.validate_core_baseline(agents)
         latest: dict[str, AgentDefinition] = {}
         for agent in agents:
             if agent.agent_kind != AgentKind.CORE:
@@ -104,6 +114,11 @@ class AgentRegistry:
             ):
                 latest[agent.agent_id] = agent
         return tuple(latest[agent_id] for agent_id in sorted(latest))
+
+    def load_top_level(self) -> tuple[AgentDefinition, ...]:
+        """Return the latest version of each top-level agent identity."""
+
+        return self.load_core()
 
     def get(self, agent_id: str, version: str | None = None) -> AgentDefinition:
         normalized = agent_id.upper()
@@ -183,9 +198,16 @@ class AgentRegistry:
 
     @staticmethod
     def validate_core_baseline(agents: tuple[AgentDefinition, ...]) -> None:
+        """Validate the historical 18-agent pilot baseline explicitly.
+
+        This method is retained for audit/backward compatibility only. It is
+        never called by runtime discovery, because the active taxonomy is
+        intentionally extensible through Genesis.
+        """
+
         core_ids = {agent.agent_id for agent in agents if agent.agent_kind == AgentKind.CORE}
-        missing = sorted(CORE_AGENT_IDS - core_ids)
-        unexpected = sorted(core_ids - CORE_AGENT_IDS)
+        missing = sorted(LEGACY_CORE_AGENT_IDS - core_ids)
+        unexpected = sorted(core_ids - LEGACY_CORE_AGENT_IDS)
         if missing or unexpected:
             raise RegistryError(
                 "Baseline Core Agent tidak sesuai; "

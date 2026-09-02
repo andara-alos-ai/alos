@@ -59,7 +59,7 @@ Bidang tambahan yang dianjurkan: tingkat risiko, skema keyakinan, batas waktu ek
 - Sub-Sub-Agent wajib menunjuk Sub-Agent beserta versi yang tepat;
 - kombinasi `agent_id` dan `version` wajib unik;
 - parent dan `extends` yang tidak ditemukan, self-reference, serta dependency cycle ditolak;
-- penambahan Sub-Agent atau Sub-Sub-Agent tidak mengubah baseline tepat 18 identitas Core Agent.
+- penambahan agent tidak dibatasi oleh jumlah atau taxonomy tetap; setiap agent baru tetap wajib melewati validasi contract, governance, test, review, staging, dan release.
 
 ## 4. Status Definisi
 

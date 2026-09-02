@@ -18,7 +18,7 @@ describe("navigasi berbasis peran", () => {
       "/work-queue",
       "/sales",
     ]);
-    expect(governance.map((item) => item.href)).toEqual(["/documents", "/risks", "/uat"]);
+    expect(governance.map((item) => item.href)).toEqual(["/documents", "/risks", "/uat", "/field"]);
     expect(system).toHaveLength(0);
   });
 

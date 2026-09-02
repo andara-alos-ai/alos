@@ -292,8 +292,6 @@ def _cleanup(database_url: str, created: dict[str, Any]) -> None:
             )
         entity_ids = [str(value) for key, value in created.items() if key.endswith("_id") and value]
         entity_ids.extend(str(user_id) for user_id in created.get("user_ids", []))
-        if entity_ids:
-            connection.execute("DELETE FROM audit.entries WHERE entity_id = ANY(%s)", (entity_ids,))
         if created.get("project_id"):
             connection.execute(
                 "DELETE FROM platform.projects WHERE project_id = %s", (created["project_id"],)

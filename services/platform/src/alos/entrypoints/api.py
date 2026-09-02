@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -20,13 +20,20 @@ from alos.agents.runtime import (
     build_default_handler_registry,
 )
 from alos.config import Settings, get_settings
+from alos.governance.approval_policy import PaymentApprovalPolicyRegistry
 from alos.llm import (
     AnthropicProvider,
     DataClassification,
     DisabledProvider,
     LLMGateway,
+    LocalOpenAIProvider,
     OpenAIProvider,
     PromptRegistry,
+)
+from alos.observability import (
+    HealthStatus,
+    SystemReadinessReport,
+    evaluate_system_readiness,
 )
 from alos.persistence import Database, PostgresOperationalStore
 from alos.platform import (
@@ -52,10 +59,12 @@ from alos.platform import (
     LegalReviewCreate,
     LegalSubmissionCreate,
     LegalWorkflowResult,
+    PaymentCancelCreate,
     PaymentDecisionCreate,
     PaymentRecordCreate,
     PaymentRequestCreate,
     PaymentRequestView,
+    PaymentRevisionCreate,
     ProjectCreate,
     ProjectStatusUpdate,
     ProjectView,
@@ -80,6 +89,10 @@ from alos.security import (
     TokenCodec,
     UserCreate,
     UserView,
+    clear_session_cookies,
+    generate_csrf_token,
+    set_session_cookies,
+    verify_csrf_token,
 )
 from alos.security.authorization import AuthorizationDenied
 from alos.tools import ToolRegistry
@@ -96,7 +109,7 @@ SettingsDependency = Annotated[Settings, Depends(get_settings)]
 @lru_cache(maxsize=4)
 def agent_registry_for_root(definitions_root: Path) -> AgentRegistry:
     registry = AgentRegistry(definitions_root)
-    registry.load_core()
+    registry.load_all()
     return registry
 
 
@@ -131,7 +144,7 @@ WorkflowRegistryDependency = Annotated[WorkflowRegistry, Depends(workflow_regist
 
 
 @lru_cache(maxsize=8)
-def shared_runtime_for_config(
+def llm_gateway_for_config(
     definitions_root: Path,
     llm_provider: str,
     llm_api_key: str,
@@ -141,9 +154,9 @@ def shared_runtime_for_config(
     llm_max_data_classification: str,
     llm_daily_request_limit: int,
     llm_daily_output_token_limit: int,
-) -> SharedAgentRuntime:
+) -> LLMGateway:
     prompts = PromptRegistry(definitions_root)
-    provider: OpenAIProvider | AnthropicProvider | DisabledProvider
+    provider: OpenAIProvider | AnthropicProvider | LocalOpenAIProvider | DisabledProvider
     if llm_provider == "openai":
         provider = OpenAIProvider(
             llm_api_key,
@@ -158,14 +171,68 @@ def shared_runtime_for_config(
             llm_base_url or "https://api.anthropic.com/v1",
             llm_timeout_seconds,
         )
+    elif llm_provider == "local":
+        provider = LocalOpenAIProvider(
+            llm_model,
+            llm_base_url or "http://localhost:11434/v1",
+            llm_api_key or None,
+            llm_timeout_seconds,
+        )
     else:
         provider = DisabledProvider()
-    gateway = LLMGateway(
+    return LLMGateway(
         prompts,
         provider,
         max_classification=DataClassification[llm_max_data_classification],
         daily_request_limit=llm_daily_request_limit,
         daily_output_token_limit=llm_daily_output_token_limit,
+    )
+
+
+def llm_gateway(settings: SettingsDependency) -> LLMGateway:
+    api_key = (
+        settings.llm_api_key.get_secret_value().strip()
+        if settings.llm_api_key is not None
+        else ""
+    )
+    return llm_gateway_for_config(
+        settings.definitions_root,
+        settings.llm_provider,
+        api_key,
+        settings.llm_model,
+        settings.llm_base_url or "",
+        settings.llm_timeout_seconds,
+        settings.llm_max_data_classification,
+        settings.llm_daily_request_limit,
+        settings.llm_daily_output_token_limit,
+    )
+
+
+LLMGatewayDependency = Annotated[LLMGateway, Depends(llm_gateway)]
+
+
+@lru_cache(maxsize=8)
+def shared_runtime_for_config(
+    definitions_root: Path,
+    llm_provider: str,
+    llm_api_key: str,
+    llm_model: str,
+    llm_base_url: str,
+    llm_timeout_seconds: float,
+    llm_max_data_classification: str,
+    llm_daily_request_limit: int,
+    llm_daily_output_token_limit: int,
+) -> SharedAgentRuntime:
+    gateway = llm_gateway_for_config(
+        definitions_root,
+        llm_provider,
+        llm_api_key,
+        llm_model,
+        llm_base_url,
+        llm_timeout_seconds,
+        llm_max_data_classification,
+        llm_daily_request_limit,
+        llm_daily_output_token_limit,
     )
     handlers = build_default_handler_registry(
         CapabilityRegistry(definitions_root), gateway
@@ -205,7 +272,11 @@ def database_for_url(url: str) -> Database:
 
 
 def operational_store(settings: SettingsDependency) -> PostgresOperationalStore:
-    return PostgresOperationalStore(database_for_url(settings.database_url))
+    approval_policy = PaymentApprovalPolicyRegistry(settings.definitions_root).load()
+    return PostgresOperationalStore(
+        database_for_url(settings.database_url),
+        payment_approval_policy=approval_policy,
+    )
 
 
 OperationalStoreDependency = Annotated[PostgresOperationalStore, Depends(operational_store)]
@@ -271,18 +342,38 @@ def validate_released_principal(principal: Principal, settings: Settings) -> Non
 
 
 def current_principal(
+    request: Request,
     settings: SettingsDependency,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)] = None,
 ) -> Principal:
-    if credentials is None:
+    raw_token: str | None = None
+    is_cookie_session = False
+
+    if credentials is not None and credentials.credentials:
+        raw_token = credentials.credentials
+    elif request.cookies.get(settings.session_cookie_name):
+        raw_token = request.cookies.get(settings.session_cookie_name)
+        is_cookie_session = True
+
+    if not raw_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token diperlukan")
+
+    if is_cookie_session and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        csrf_header = request.headers.get("x-csrf-token")
+        csrf_cookie = request.cookies.get(settings.csrf_cookie_name)
+        if not verify_csrf_token(csrf_header, csrf_cookie):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="CSRF token tidak valid atau tidak ditemukan",
+            )
+
     codec = TokenCodec(
         settings.auth_signing_secret.get_secret_value(),
         settings.auth_issuer,
         settings.auth_audience,
     )
     try:
-        principal = codec.verify(credentials.credentials)
+        principal = codec.verify(raw_token)
         validate_released_principal(principal, settings)
         return principal
     except AuthenticationError as exc:
@@ -327,14 +418,21 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
-def issue_token(principal: Principal, settings: Settings) -> TokenResponse:
+def issue_token(
+    principal: Principal,
+    settings: Settings,
+    response: Response | None = None,
+) -> TokenResponse:
     codec = TokenCodec(
         settings.auth_signing_secret.get_secret_value(),
         settings.auth_issuer,
         settings.auth_audience,
     )
+    token = codec.issue(principal, settings.auth_token_ttl_seconds)
+    if response is not None:
+        set_session_cookies(response, token, settings)
     return TokenResponse(
-        access_token=codec.issue(principal, settings.auth_token_ttl_seconds),
+        access_token=token,
         expires_in=settings.auth_token_ttl_seconds,
     )
 
@@ -354,11 +452,26 @@ def health(settings: SettingsDependency) -> dict[str, str]:
     }
 
 
+@router.get("/ready", response_model=SystemReadinessReport, tags=["system"])
+def readiness_check(
+    response: Response,
+    settings: SettingsDependency,
+) -> SystemReadinessReport:
+    report = evaluate_system_readiness(settings)
+    if report.status == HealthStatus.UNHEALTHY:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return report
+
+
 @router.post("/auth/local-token", response_model=TokenResponse, tags=["authentication"])
-def issue_local_token(request: LocalTokenRequest, settings: SettingsDependency) -> TokenResponse:
+def issue_local_token(
+    request: LocalTokenRequest,
+    response: Response,
+    settings: SettingsDependency,
+) -> TokenResponse:
     require_pilot_environment(settings)
     principal = Principal.model_validate(request.model_dump())
-    return issue_token(principal, settings)
+    return issue_token(principal, settings, response=response)
 
 
 @router.get(
@@ -396,6 +509,7 @@ def list_pilot_profiles(settings: SettingsDependency) -> tuple[PilotProfile, ...
 @router.post("/auth/pilot-login", response_model=TokenResponse, tags=["authentication"])
 def login_pilot_profile(
     request: PilotLoginRequest,
+    response: Response,
     settings: SettingsDependency,
 ) -> TokenResponse:
     """Issue a local token from persisted assignments, never from browser claims."""
@@ -403,16 +517,44 @@ def login_pilot_profile(
     try:
         store = PilotProfileStore(database_for_url(settings.database_url).engine)
         profile = store.get_profile(request.user_id)
-        return issue_token(profile.to_principal(), settings)
+        return issue_token(profile.to_principal(), settings, response=response)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except OperationalError as exc:
         raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
 
 
+@router.post("/auth/logout", tags=["authentication"])
+def logout(response: Response, settings: SettingsDependency) -> dict[str, str]:
+    """Clear HttpOnly session and CSRF cookies."""
+    clear_session_cookies(response, settings)
+    return {"status": "ok", "message": "Berhasil logout"}
+
+
+@router.get("/auth/csrf", tags=["authentication"])
+def get_csrf_token_endpoint(
+    request: Request,
+    response: Response,
+    settings: SettingsDependency,
+) -> dict[str, str]:
+    """Issue or return active CSRF token with matching cookie."""
+    csrf = request.cookies.get(settings.csrf_cookie_name) or generate_csrf_token()
+    response.set_cookie(
+        key=settings.csrf_cookie_name,
+        value=csrf,
+        max_age=settings.csrf_token_ttl_seconds,
+        httponly=False,
+        secure=settings.is_session_cookie_secure,
+        samesite=settings.session_cookie_samesite,
+        path="/",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {"csrf_token": csrf}
+
+
 @router.get("/auth/me", response_model=Principal, tags=["authentication"])
 def authenticated_principal(principal: PrincipalDependency) -> Principal:
-    """Return the server-validated identity context for the current bearer token."""
+    """Return the server-validated identity context for the current session or bearer token."""
     return principal
 
 
@@ -537,9 +679,14 @@ def decide_payment(
     request: PaymentDecisionCreate,
     principal: PrincipalDependency,
     service: OperationsDependency,
+    idempotency_key: Annotated[
+        str, Header(alias="Idempotency-Key", min_length=8, max_length=120)
+    ],
 ) -> FinanceWorkflowResult:
     try:
-        return service.decide_payment(payment_request_id, request, principal)
+        return service.decide_payment(
+            payment_request_id, request, principal, idempotency_key
+        )
     except AuthorizationDenied as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
@@ -562,9 +709,14 @@ def record_payment(
     request: PaymentRecordCreate,
     principal: PrincipalDependency,
     service: OperationsDependency,
+    idempotency_key: Annotated[
+        str, Header(alias="Idempotency-Key", min_length=8, max_length=120)
+    ],
 ) -> FinanceWorkflowResult:
     try:
-        return service.record_payment(payment_request_id, request, principal)
+        return service.record_payment(
+            payment_request_id, request, principal, idempotency_key
+        )
     except AuthorizationDenied as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
@@ -573,6 +725,62 @@ def record_payment(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="Pembayaran duplikat") from exc
+    except OperationalError as exc:
+        raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
+
+
+@router.post(
+    "/finance/payment-requests/{payment_request_id}/cancel",
+    response_model=FinanceWorkflowResult,
+    tags=["finance", "workflow"],
+)
+def cancel_payment(
+    payment_request_id: UUID,
+    request: PaymentCancelCreate,
+    principal: PrincipalDependency,
+    service: OperationsDependency,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=120)],
+) -> FinanceWorkflowResult:
+    try:
+        return service.cancel_payment(
+            payment_request_id, request, principal, idempotency_key
+        )
+    except AuthorizationDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Pembatalan duplikat") from exc
+    except OperationalError as exc:
+        raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
+
+
+@router.post(
+    "/finance/payment-requests/{payment_request_id}/revision",
+    response_model=FinanceWorkflowResult,
+    tags=["finance", "workflow"],
+)
+def revise_payment(
+    payment_request_id: UUID,
+    request: PaymentRevisionCreate,
+    principal: PrincipalDependency,
+    service: OperationsDependency,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=120)],
+) -> FinanceWorkflowResult:
+    try:
+        return service.revise_payment(
+            payment_request_id, request, principal, idempotency_key
+        )
+    except AuthorizationDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, RuntimePolicyViolation) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Revisi duplikat") from exc
     except OperationalError as exc:
         raise HTTPException(status_code=503, detail="Database belum tersedia") from exc
 

@@ -112,8 +112,5 @@ def test_pilot_readiness_uses_registry_and_returns_only_aggregate_facts() -> Non
     finally:
         with psycopg.connect(database_url) as connection:
             connection.execute(
-                "DELETE FROM audit.entries WHERE entity_id = %s", (str(project_id),)
-            )
-            connection.execute(
                 "DELETE FROM platform.projects WHERE project_id = %s", (project_id,)
             )

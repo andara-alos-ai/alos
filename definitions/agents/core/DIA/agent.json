@@ -12,7 +12,7 @@
   "triggers": ["Dokumen diunggah", "Permintaan ekstraksi atau perbandingan"],
   "inputs": ["Versi dokumen", "Skema dokumen", "Konteks proses"],
   "source_of_truth": ["Document Version ALOS", "Template dokumen yang dirilis"],
-  "capabilities": ["classify_document", "extract_structured_fields", "summarize_document", "compare_versions"],
+  "capabilities": ["classify_document", "extract_structured_fields", "summarize_document", "compare_versions", "validate_document_metadata"],
   "outputs": ["Klasifikasi", "Bidang hasil ekstraksi", "Ringkasan", "Daftar perbedaan"],
   "tools_allowed": ["alos.document.read", "ai.document.analyze"],
   "approval_boundary": ["Hasil sensitif atau berkeyakinan rendah wajib direview manusia"],
@@ -20,6 +20,6 @@
   "forbidden_actions": ["Menetapkan keabsahan hukum", "Menetapkan validitas pembayaran", "Mengubah dokumen sumber"],
   "metrics": ["Akurasi ekstraksi", "Kelengkapan sitasi", "Tingkat koreksi manusia"],
   "escalation": ["Dokumen tidak terbaca", "Versi bertentangan", "Keyakinan di bawah ambang"],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "STAGED"
 }

@@ -245,11 +245,6 @@ def test_worker_dispatch_is_idempotent_and_dead_letter_is_recoverable() -> None:
         assert health_response.json()["last_worker_status"] == "COMPLETED"
     finally:
         with psycopg.connect(database_url) as connection:
-            if outbox_ids:
-                connection.execute(
-                    "DELETE FROM audit.entries WHERE entity_id = ANY(%s::text[])",
-                    ([str(item) for item in outbox_ids],),
-                )
             connection.execute(
                 "DELETE FROM integration.outbox_events WHERE aggregate_id IN "
                 "(SELECT reminder_id FROM platform.reminders WHERE work_item_id = %s)",
@@ -269,7 +264,4 @@ def test_worker_dispatch_is_idempotent_and_dead_letter_is_recoverable() -> None:
             connection.execute(
                 "DELETE FROM identity.divisions WHERE division_id = %s", (division_id,)
             )
-            connection.execute(
-                "DELETE FROM identity.organizations WHERE organization_id = %s",
-                (organization_id,),
-            )
+            # The append-only audit ledger intentionally retains the tenant foreign key.

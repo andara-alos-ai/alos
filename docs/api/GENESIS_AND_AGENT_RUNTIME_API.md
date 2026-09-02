@@ -2,7 +2,7 @@
 
 ## Shared Runtime
 
-`POST /api/v1/agent-runtime/execute` mengevaluasi capability melalui runtime yang sama untuk seluruh 18 Core Agent. Request membawa agent, capability, input reference, tool yang diminta, klasifikasi data, idempotency key, dan correlation ID opsional.
+`POST /api/v1/agent-runtime/execute` mengevaluasi capability melalui shared runtime untuk agent yang dipilih dari Agent Registry. Request membawa agent, capability, input reference, tool yang diminta, klasifikasi data, idempotency key, dan correlation ID opsional.
 
 Endpoint memeriksa business role, project scope, Agent Contract, Capability Contract, dan Tool Registry. Endpoint tidak menjalankan tindakan eksternal atau keputusan material, selalu menghasilkan `production_effect=false`, dan menyimpan run serta audit tanpa menyimpan payload mentah.
 

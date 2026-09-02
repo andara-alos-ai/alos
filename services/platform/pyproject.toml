@@ -16,14 +16,13 @@ dependencies = [
   "pydantic-settings>=2.10,<3",
   "sqlalchemy>=2.0.43,<3",
   "psycopg[binary]>=3.2.9,<4",
-  "alembic>=1.16.5,<2",
-  "structlog>=25.4,<26"
 ]
 
 [project.scripts]
 alos-migrate = "alos.persistence.migrations:main"
 alos-validate-sources = "alos.genesis.source.cli:main"
 alos-validate-configuration = "alos.governance.configuration.cli:main"
+alos-verify-audit = "alos.audit.cli:main"
 
 [project.optional-dependencies]
 dev = [

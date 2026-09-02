@@ -39,7 +39,15 @@ import type {
   WorkflowActionResult,
   WorkQueueScope,
   PropertyWorkflowResult,
+  GenesisAnalyzeResult,
+  GenesisArtifactVersionView,
+  GenesisConversationListItem,
+  GenesisConversationView,
+  GenesisPipelineView,
+  SystemReadinessReport,
 } from "./types";
+
+import { COOKIE_SESSION_MARKER, readCsrfToken } from "./session";
 
 const configuredBaseUrl = process.env.NEXT_PUBLIC_ALOS_API_URL?.replace(/\/$/, "");
 export const apiBaseUrl = configuredBaseUrl || "http://localhost:8000/api/v1";
@@ -62,13 +70,24 @@ async function request<T>(
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
   if (options.body) headers.set("Content-Type", "application/json");
-  if (options.token) headers.set("Authorization", `Bearer ${options.token}`);
+  if (options.token && options.token !== COOKIE_SESSION_MARKER) {
+    headers.set("Authorization", `Bearer ${options.token}`);
+  }
+
+  const method = (options.method || "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const csrfToken = readCsrfToken();
+    if (csrfToken && !headers.has("X-CSRF-Token")) {
+      headers.set("X-CSRF-Token", csrfToken);
+    }
+  }
 
   let response: Response;
   try {
     response = await fetch(`${apiBaseUrl}${path}`, {
       ...options,
       headers,
+      credentials: options.credentials ?? "include",
       cache: "no-store",
     });
   } catch {
@@ -119,12 +138,20 @@ export function exchangeOidcCode(code: string) {
   );
 }
 
-export function getPrincipal(token: string) {
-  return request<Principal>("/auth/me", { token });
+export function logoutApi() {
+  return request<{ status: string; message: string }>("/auth/logout", { method: "POST" });
 }
 
-export function getProjects(token: string) {
-  return request<Project[]>("/projects", { token });
+export function getCsrfTokenApi() {
+  return request<{ csrf_token: string }>("/auth/csrf");
+}
+
+export function getPrincipal(token?: string) {
+  return request<Principal>("/auth/me", token ? { token } : {});
+}
+
+export function getProjects(token?: string) {
+  return request<Project[]>("/projects", token ? { token } : {});
 }
 
 export function createProject(
@@ -338,14 +365,23 @@ export function createLead(
   });
 }
 
-export function assignSalesPic(token: string, workflowRunId: string, salesPicUserId: string) {
+export function assignSalesPic(
+  token: string,
+  workflowRunId: string,
+  salesPicUserId: string,
+  firstFollowUpAt?: string,
+) {
   return request<WorkflowActionResult>(
     `/workflow-runs/${workflowRunId}/sales-assignment`,
     {
       method: "POST",
       token,
       headers: idempotencyHeaders(),
-      body: JSON.stringify({ sales_pic_user_id: salesPicUserId }),
+      body: JSON.stringify({
+        sales_pic_user_id: salesPicUserId,
+        first_follow_up_at: firstFollowUpAt || null,
+        objective: "Qualification dan tindak lanjut lead",
+      }),
     },
   );
 }
@@ -354,12 +390,16 @@ export function recordSalesInteraction(
   token: string,
   workflowRunId: string,
   input: {
-    outcome: "qualified" | "reserved" | "follow_up" | "exception";
+    outcome: "qualified" | "reserved" | "follow_up" | "lost" | "exception";
     channel: string;
     notes: string;
     evidence_reference: string | null;
     evidence_document_version_id: string | null;
     reservation_reference: string | null;
+    reservation_date: string | null;
+    qualification_result: "HOT" | "WARM" | "COLD" | null;
+    lost_reason: string | null;
+    next_follow_up_at: string | null;
   },
 ) {
   return request<WorkflowActionResult>(`/workflow-runs/${workflowRunId}/interactions`, {
@@ -406,19 +446,25 @@ export function createPaymentRequest(
     project_id: string;
     budget_id: string;
     document_version_id: string;
+    supporting_document_version_ids?: string[];
     payee_name: string;
+    vendor_reference?: string | null;
+    category_code?: string;
     purpose: string;
     amount: string;
     currency: string;
     requested_payment_date: string;
   },
 ) {
-  return request<PaymentRequestRecord>("/finance/payment-requests", {
+  return request<Pick<PaymentRequestRecord, "payment_request_id" | "status" | "current_step">>(
+    "/finance/payment-requests",
+    {
     method: "POST",
     token,
     headers: idempotencyHeaders(),
     body: JSON.stringify(input),
-  });
+    },
+  );
 }
 
 export function decidePaymentRequest(
@@ -429,7 +475,12 @@ export function decidePaymentRequest(
 ) {
   return request<FinanceWorkflowResult>(
     `/finance/payment-requests/${paymentRequestId}/decision`,
-    { method: "POST", token, body: JSON.stringify({ decision, reason }) },
+    {
+      method: "POST",
+      token,
+      headers: idempotencyHeaders(),
+      body: JSON.stringify({ decision, reason }),
+    },
   );
 }
 
@@ -446,7 +497,53 @@ export function recordPayment(
 ) {
   return request<FinanceWorkflowResult>(
     `/finance/payment-requests/${paymentRequestId}/payment`,
-    { method: "POST", token, body: JSON.stringify(input) },
+    {
+      method: "POST",
+      token,
+      headers: idempotencyHeaders(),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function cancelPaymentRequest(token: string, paymentRequestId: string, reason: string) {
+  return request<FinanceWorkflowResult>(
+    `/finance/payment-requests/${paymentRequestId}/cancel`,
+    {
+      method: "POST",
+      token,
+      headers: idempotencyHeaders(),
+      body: JSON.stringify({ reason }),
+    },
+  );
+}
+
+export function revisePaymentRequest(
+  token: string,
+  paymentRequestId: string,
+  input: {
+    project_id: string;
+    budget_id: string;
+    document_version_id: string;
+    supporting_document_version_ids?: string[];
+    payee_name: string;
+    vendor_reference: string | null;
+    category_code: string;
+    purpose: string;
+    amount: string;
+    currency: string;
+    requested_payment_date: string;
+    reason: string;
+  },
+) {
+  return request<FinanceWorkflowResult>(
+    `/finance/payment-requests/${paymentRequestId}/revision`,
+    {
+      method: "POST",
+      token,
+      headers: idempotencyHeaders(),
+      body: JSON.stringify(input),
+    },
   );
 }
 
@@ -741,4 +838,164 @@ export function revokeUserProject(
     token,
     body: JSON.stringify({ reason }),
   });
+}
+
+export function analyzeGenesis(
+  requestData: {
+    prompt: string;
+    source_references?: string[];
+    division_code?: string;
+  },
+  token?: string | null,
+) {
+  return request<GenesisAnalyzeResult>("/genesis/analyze", {
+    method: "POST",
+    token: token || undefined,
+    body: JSON.stringify({
+      prompt: requestData.prompt,
+      source_references: requestData.source_references || [],
+      division_code: requestData.division_code || null,
+    }),
+  });
+}
+
+export function createGenesisConversation(
+  requestData: {
+    title: string;
+    project_id?: string | null;
+    initial_prompt?: string | null;
+    source_references?: string[];
+    division_code?: string | null;
+  },
+  token?: string | null,
+) {
+  return request<GenesisConversationView>("/genesis/conversations", {
+    method: "POST",
+    token: token || undefined,
+    body: JSON.stringify({
+      title: requestData.title,
+      project_id: requestData.project_id || null,
+      initial_prompt: requestData.initial_prompt || null,
+      source_references: requestData.source_references || [],
+      division_code: requestData.division_code || null,
+    }),
+  });
+}
+
+export function listGenesisConversations(
+  params?: { limit?: number; offset?: number },
+  token?: string | null,
+) {
+  const limit = params?.limit ?? 50;
+  const offset = params?.offset ?? 0;
+  return request<GenesisConversationListItem[]>(
+    `/genesis/conversations?limit=${limit}&offset=${offset}`,
+    { token: token || undefined },
+  );
+}
+
+export function getGenesisConversation(conversationId: string, token?: string | null) {
+  return request<GenesisConversationView>(`/genesis/conversations/${conversationId}`, {
+    token: token || undefined,
+  });
+}
+
+export function sendGenesisMessage(
+  conversationId: string,
+  requestData: {
+    message_text: string;
+    source_references?: string[];
+    division_code?: string | null;
+  },
+  token?: string | null,
+) {
+  return request<GenesisConversationView>(
+    `/genesis/conversations/${conversationId}/messages`,
+    {
+      method: "POST",
+      token: token || undefined,
+      body: JSON.stringify({
+        message_text: requestData.message_text,
+        source_references: requestData.source_references || [],
+        division_code: requestData.division_code || null,
+      }),
+    },
+  );
+}
+
+export function getGenesisArtifactVersions(conversationId: string, token?: string | null) {
+  return request<GenesisArtifactVersionView[]>(
+    `/genesis/conversations/${conversationId}/artifacts`,
+    { token: token || undefined },
+  );
+}
+
+export function listGenesisRequests(
+  params?: { limit?: number; offset?: number },
+  token?: string | null,
+) {
+  const limit = params?.limit ?? 50;
+  const offset = params?.offset ?? 0;
+  return request<GenesisPipelineView[]>(
+    `/genesis/requests?limit=${limit}&offset=${offset}`,
+    { token: token || undefined },
+  );
+}
+
+export function getGenesisRequest(requestId: string, token?: string | null) {
+  return request<GenesisPipelineView>(`/genesis/requests/${requestId}`, {
+    token: token || undefined,
+  });
+}
+
+export function submitGenesisRequest(
+  payload: {
+    strategy: "REUSE" | "EXTEND" | "CREATE";
+    justification: string;
+    source_references: string[];
+    target?: { agent_id: string; version?: string } | null;
+    base?: { agent_id: string; version?: string } | null;
+    candidate?: Record<string, unknown> | null;
+  },
+  token?: string | null,
+) {
+  return request<GenesisPipelineView>("/genesis/requests", {
+    method: "POST",
+    token: token || undefined,
+    body: JSON.stringify(payload),
+  });
+}
+
+export function reviewGenesisRequest(
+  requestId: string,
+  payload: {
+    gate: "BUSINESS" | "TECHNICAL";
+    decision: "APPROVED" | "REJECTED";
+    notes: string;
+  },
+  token?: string | null,
+) {
+  return request<GenesisPipelineView>(`/genesis/requests/${requestId}/reviews`, {
+    method: "POST",
+    token: token || undefined,
+    body: JSON.stringify(payload),
+  });
+}
+
+export function stageGenesisRequest(requestId: string, token?: string | null) {
+  return request<GenesisPipelineView>(`/genesis/requests/${requestId}/stage`, {
+    method: "POST",
+    token: token || undefined,
+  });
+}
+
+export function releaseGenesisRequest(requestId: string, token?: string | null) {
+  return request<GenesisPipelineView>(`/genesis/requests/${requestId}/release`, {
+    method: "POST",
+    token: token || undefined,
+  });
+}
+
+export function getSystemReadiness(token?: string | null) {
+  return request<SystemReadinessReport>("/ready", { token: token || undefined });
 }

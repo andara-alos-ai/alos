@@ -20,7 +20,7 @@ def test_master_and_all_annexes_have_canonical_governed_mapping() -> None:
 
     assert register.production_effect is False
     assert len(register.mappings) == 16
-    assert {mapping.document_key for mapping in register.mappings} >= {
+    assert {mapping.source_code for mapping in register.mappings} >= {
         "MASTER",
         *tuple("ABCDEFGHIJKLMN"),
     }
@@ -56,7 +56,7 @@ def test_approved_mapping_cannot_keep_open_decision() -> None:
         ConfigurationMapping.model_validate(
             {
                 "mapping_id": "ALOS-CFG-INVALID-APPROVAL",
-                "document_key": "A",
+                "source_code": "LAMPIRAN-A",
                 "name": "Invalid approved mapping",
                 "target_registry": "INVALID_REGISTRY",
                 "business_owner": "IT",

@@ -10,10 +10,10 @@ def main() -> None:
     args = parser.parse_args()
     registry = AgentRegistry(args.definitions_root)
     agents = registry.load_all()
-    core_agents = registry.load_core()
+    top_level_agents = registry.load_top_level()
     print(
-        f"Valid: {len(core_agents)} Core Agent; "
-        f"{len(agents) - len(core_agents)} definisi agent/versi tambahan"
+        f"Valid: {len(top_level_agents)} top-level agent; "
+        f"{len(agents) - len(top_level_agents)} definisi turunan/versi tambahan"
     )
 
 

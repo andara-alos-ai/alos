@@ -192,12 +192,21 @@ async def test_oidc_login_links_preprovisioned_user_and_blocks_replay() -> None:
                 ).fetchone()[0]
                 == 1
             )
+            audit_forks = connection.execute(
+                """
+                SELECT previous_hash
+                FROM audit.entries
+                WHERE organization_id = %s
+                  AND actor_id = %s
+                  AND previous_hash IS NOT NULL
+                GROUP BY previous_hash
+                HAVING count(*) > 1
+                """,
+                (organization_id, str(user_id)),
+            ).fetchall()
+            assert audit_forks == []
     finally:
         with psycopg.connect(database_url) as connection:
-            connection.execute(
-                "DELETE FROM audit.entries WHERE actor_id = %s",
-                (str(user_id),),
-            )
             connection.execute(
                 "DELETE FROM identity.oidc_login_codes WHERE user_id = %s",
                 (user_id,),

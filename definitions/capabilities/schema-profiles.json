@@ -1,0 +1,207 @@
+{
+  "schema_version": "1.0.0",
+  "profiles": {
+    "ai.structured.v1": {
+      "input_properties": {
+        "content": {"type": "string", "minLength": 1, "maxLength": 100000},
+        "brief": {"type": "string", "minLength": 1, "maxLength": 20000},
+        "context": {"type": "object", "additionalProperties": true},
+        "source_reference": {"type": "string", "minLength": 1}
+      },
+      "input_required": ["source_reference"],
+      "output_properties": {
+        "summary": {"type": "string"},
+        "findings": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "human_review_required": {"type": "boolean"}
+      },
+      "output_required": ["summary", "findings", "confidence", "human_review_required"]
+    },
+    "approval.escalation.v1": {
+      "input_properties": {"due_at": {"type": "string", "minLength": 1}, "due_dates": {"type": "array", "items": {"type": "string"}}, "lead_hours": {"type": ["number", "string"]}},
+      "input_required": [],
+      "output_properties": {"due_at": {"type": "string"}, "escalation_at": {"type": "string"}, "lead_hours": {"type": "string"}, "scheduled_count": {"type": "integer"}, "next_escalation_at": {"type": ["string", "null"]}},
+      "output_required": []
+    },
+    "approval.route.v1": {
+      "input_properties": {"amount": {"type": ["number", "string"]}},
+      "input_required": ["amount"],
+      "output_properties": {"route": {"type": "string"}, "required_role": {"type": "string"}, "sla_hours": {"type": "integer"}, "policy_id": {"type": "string"}, "policy_version": {"type": "string"}, "self_approval_allowed": {"type": "boolean"}},
+      "output_required": []
+    },
+    "approval.sod.v1": {
+      "input_properties": {"requester_user_id": {"type": "string", "minLength": 1}, "approver_user_id": {"type": "string", "minLength": 1}},
+      "input_required": ["requester_user_id", "approver_user_id"],
+      "output_properties": {"separated": {"type": "boolean"}, "self_approval_allowed": {"type": "boolean"}},
+      "output_required": ["separated", "self_approval_allowed"]
+    },
+    "document.metadata.v1": {
+      "input_properties": {"document_metadata_valid": {"type": "boolean"}, "document_version_count": {"type": "integer", "minimum": 0}},
+      "input_required": ["document_metadata_valid", "document_version_count"],
+      "output_properties": {"valid": {"type": "boolean"}, "document_version_count": {"type": "integer", "minimum": 0}},
+      "output_required": ["valid", "document_version_count"]
+    },
+    "evidence.completeness.v1": {
+      "input_properties": {"required_items": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "provided_items": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}},
+      "input_required": ["required_items", "provided_items"],
+      "output_properties": {"complete": {"type": "boolean"}, "missing_items": {"type": "array", "items": {"type": "string"}}},
+      "output_required": ["complete", "missing_items"]
+    },
+    "evidence.metadata.v1": {
+      "input_properties": {"checksum_valid": {"type": "boolean"}, "scan_status": {"type": "string", "enum": ["NOT_CONFIGURED", "CLEAN", "PENDING", "INFECTED", "REJECTED", "ERROR", "FAILED"]}},
+      "input_required": ["checksum_valid", "scan_status"],
+      "output_properties": {"valid": {"type": "boolean"}, "checksum_valid": {"type": "boolean"}, "scan_status": {"type": "string"}},
+      "output_required": ["valid", "checksum_valid", "scan_status"]
+    },
+    "executive.aggregate.v1": {
+      "input_properties": {"verified_facts": {"type": "array", "items": {"type": "object", "additionalProperties": true}}, "source_references": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true}},
+      "input_required": ["verified_facts", "source_references"],
+      "output_properties": {"fact_count": {"type": "integer"}, "source_count": {"type": "integer"}, "facts_digest": {"type": "string"}, "ready": {"type": "boolean"}},
+      "output_required": ["fact_count", "source_count", "facts_digest", "ready"]
+    },
+    "finance.budget-check.v1": {
+      "input_properties": {"amount": {"type": ["number", "string"]}, "available_amount": {"type": ["number", "string"]}},
+      "input_required": ["amount", "available_amount"],
+      "output_properties": {"amount": {"type": "string"}, "available_amount": {"type": "string"}, "available": {"type": "boolean"}},
+      "output_required": []
+    },
+    "finance.reconcile.v1": {
+      "input_properties": {"payment_amount": {"type": ["number", "string"]}, "transaction_amount": {"type": ["number", "string"]}, "payment_reference": {"type": "string"}, "transaction_reference": {"type": "string"}, "payment_currency": {"type": "string"}, "currency": {"type": "string"}},
+      "input_required": ["payment_amount", "transaction_amount", "payment_reference", "transaction_reference", "payment_currency", "currency"],
+      "output_properties": {"difference": {"type": "string"}, "reference_match": {"type": "boolean"}, "currency_match": {"type": "boolean"}, "matched": {"type": "boolean"}, "case_required": {"type": "boolean"}, "case_status": {"type": "string"}},
+      "output_required": []
+    },
+    "finance.rules.v1": {
+      "input_properties": {"amount": {"type": ["number", "string"]}, "available_cash": {"type": ["number", "string"]}, "committed_cash": {"type": ["number", "string"]}, "expected_value": {"type": ["number", "string"]}, "actual_value": {"type": ["number", "string"]}, "payment_fingerprint": {"type": "string"}, "existing_fingerprints": {"type": "array", "items": {"type": "string"}}},
+      "input_required": [],
+      "output_properties": {"amount": {"type": "string"}, "projected_available_cash": {"type": "string"}, "sufficient": {"type": "boolean"}, "expected_value": {"type": "string"}, "actual_value": {"type": "string"}, "variance": {"type": "string"}, "duplicate": {"type": "boolean"}, "payment_fingerprint": {"type": "string"}},
+      "output_required": []
+    },
+    "finance.tax-rules.v1": {
+      "input_properties": {"invoice_number": {"type": "string"}, "amount": {"type": ["number", "string"]}, "tax_amount": {"type": ["number", "string"]}},
+      "input_required": ["invoice_number", "amount", "tax_amount"],
+      "output_properties": {"valid": {"type": "boolean"}, "corrections": {"type": "array", "items": {"type": "string"}}},
+      "output_required": ["valid", "corrections"]
+    },
+    "hr.access.v1": {
+      "input_properties": {"classification": {"type": "string"}, "requested_role": {"type": "string"}, "allowed_roles": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}},
+      "input_required": ["classification", "requested_role", "allowed_roles"],
+      "output_properties": {"classification": {"type": "string"}, "access_allowed": {"type": "boolean"}},
+      "output_required": ["classification", "access_allowed"]
+    },
+    "hr.deadline.v1": {
+      "input_properties": {"expires_at": {"type": "string"}, "lead_days": {"type": ["number", "string"]}},
+      "input_required": ["expires_at", "lead_days"],
+      "output_properties": {"expires_at": {"type": "string"}, "reminder_at": {"type": "string"}, "lead_days": {"type": "string"}},
+      "output_required": []
+    },
+    "hr.personnel-check.v1": {
+      "input_properties": {"required_documents": {"type": "array", "items": {"type": "string"}}, "provided_documents": {"type": "array", "items": {"type": "string"}}},
+      "input_required": ["required_documents", "provided_documents"],
+      "output_properties": {"complete": {"type": "boolean"}, "required_count": {"type": "integer"}, "provided_count": {"type": "integer"}, "missing_items": {"type": "array", "items": {"type": "string"}}},
+      "output_required": ["complete", "required_count", "provided_count", "missing_items"]
+    },
+    "hr.rules.v1": {
+      "input_properties": {"scheduled_minutes": {"type": ["number", "string"]}, "worked_minutes": {"type": ["number", "string"]}, "tolerance_minutes": {"type": ["number", "string"]}},
+      "input_required": ["scheduled_minutes", "worked_minutes", "tolerance_minutes"],
+      "output_properties": {"classification": {"type": "string"}, "shortage_minutes": {"type": "string"}, "requires_human_review": {"type": "boolean"}},
+      "output_required": []
+    },
+    "hr.tasks.v1": {
+      "input_properties": {"candidate_id": {"type": "string"}, "interviewer_user_id": {"type": "string"}, "scheduled_at": {"type": "string"}},
+      "input_required": ["candidate_id", "interviewer_user_id", "scheduled_at"],
+      "output_properties": {"candidate_id": {"type": "string"}, "interviewer_user_id": {"type": "string"}, "scheduled_at": {"type": "string"}, "status": {"type": "string"}},
+      "output_required": []
+    },
+    "kpi.calculate.v1": {
+      "input_properties": {"numerator": {"type": ["number", "string"]}, "denominator": {"type": ["number", "string"]}, "target": {"type": ["number", "string"]}},
+      "input_required": ["numerator", "denominator"],
+      "output_properties": {"value": {"type": "string"}, "target": {"type": "string"}, "variance": {"type": "string"}, "target_met": {"type": "boolean"}},
+      "output_required": []
+    },
+    "kpi.publish.v1": {
+      "input_properties": {"verified_metrics": {"type": "array", "items": {"type": "object", "additionalProperties": true}}},
+      "input_required": ["verified_metrics"],
+      "output_properties": {"metric_count": {"type": "integer"}, "snapshot_digest": {"type": "string"}, "publishable": {"type": "boolean"}},
+      "output_required": []
+    },
+    "legal.deadline.v1": {
+      "input_properties": {"expires_at": {"type": "string"}, "lead_days": {"type": ["number", "string"]}},
+      "input_required": ["expires_at", "lead_days"],
+      "output_properties": {"expires_at": {"type": "string"}, "reminder_at": {"type": "string"}, "lead_days": {"type": "string"}},
+      "output_required": []
+    },
+    "legal.rules.v1": {
+      "input_properties": {"required_permits": {"type": "array", "items": {"type": "string"}}, "available_permits": {"type": "array", "items": {"type": "string"}}, "active_permits": {"type": "array", "items": {"type": "string"}}},
+      "input_required": ["required_permits"],
+      "output_properties": {"complete": {"type": "boolean"}, "required_count": {"type": "integer"}, "provided_count": {"type": "integer"}, "missing_items": {"type": "array", "items": {"type": "string"}}, "blocked": {"type": "boolean"}, "blockers": {"type": "array", "items": {"type": "string"}}},
+      "output_required": []
+    },
+    "marketing.brand-check.v1": {
+      "input_properties": {"required_requirements": {"type": "array", "items": {"type": "string"}}, "provided_requirements": {"type": "array", "items": {"type": "string"}}},
+      "input_required": ["required_requirements", "provided_requirements"],
+      "output_properties": {"complete": {"type": "boolean"}, "required_count": {"type": "integer"}, "provided_count": {"type": "integer"}, "missing_items": {"type": "array", "items": {"type": "string"}}},
+      "output_required": []
+    },
+    "property.evidence.v1": {
+      "input_properties": {"required_evidence": {"type": "array", "items": {"type": "string"}}, "provided_evidence": {"type": "array", "items": {"type": "string"}}, "all_verified": {"type": "boolean"}},
+      "input_required": ["required_evidence", "provided_evidence", "all_verified"],
+      "output_properties": {"complete": {"type": "boolean"}, "required_count": {"type": "integer"}, "provided_count": {"type": "integer"}, "missing_items": {"type": "array", "items": {"type": "string"}}, "all_verified": {"type": "boolean"}, "acceptable": {"type": "boolean"}},
+      "output_required": []
+    },
+    "property.variance.v1": {
+      "input_properties": {"claimed_progress": {"type": ["number", "string"]}, "measured_progress": {"type": ["number", "string"]}},
+      "input_required": ["claimed_progress", "measured_progress"],
+      "output_properties": {"claimed_progress": {"type": "string"}, "measured_progress": {"type": "string"}, "variance": {"type": "string"}},
+      "output_required": []
+    },
+    "risk.classify.v1": {
+      "input_properties": {"impact_score": {"type": ["number", "string"]}, "probability_score": {"type": ["number", "string"]}},
+      "input_required": ["impact_score", "probability_score"],
+      "output_properties": {"risk_score": {"type": "string"}, "severity": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]}},
+      "output_required": []
+    },
+    "risk.deadline.v1": {
+      "input_properties": {"due_at": {"type": "string"}, "due_dates": {"type": "array", "items": {"type": "string"}}, "evaluated_at": {"type": "string"}},
+      "input_required": [],
+      "output_properties": {"due_at": {"type": "string"}, "evaluated_at": {"type": "string"}, "overdue": {"type": "boolean"}, "overdue_seconds": {"type": "integer"}, "total_count": {"type": "integer"}, "overdue_count": {"type": "integer"}, "next_due_at": {"type": ["string", "null"]}},
+      "output_required": []
+    },
+    "risk.rules.v1": {
+      "input_properties": {"baseline_value": {"type": ["number", "string"]}, "current_value": {"type": ["number", "string"]}, "target_value": {"type": ["number", "string"]}},
+      "input_required": ["baseline_value", "current_value", "target_value"],
+      "output_properties": {"improvement": {"type": "string"}, "target_met": {"type": "boolean"}, "review_status": {"type": "string"}},
+      "output_required": []
+    },
+    "sales.follow-up.v1": {
+      "input_properties": {"base_at": {"type": "string"}, "delay_hours": {"type": ["number", "string"]}, "assigned_user_id": {"type": "string"}},
+      "input_required": ["base_at", "delay_hours", "assigned_user_id"],
+      "output_properties": {"due_at": {"type": "string"}, "status": {"type": "string"}, "assigned_user_id": {"type": "string"}},
+      "output_required": []
+    },
+    "sales.lead-validation.v1": {
+      "input_properties": {"phone": {"type": "string"}, "email": {"type": "string"}, "consent_recorded": {"type": "boolean"}},
+      "input_required": ["consent_recorded"],
+      "output_properties": {"valid": {"type": "boolean"}, "has_contact_channel": {"type": "boolean"}, "consent_recorded": {"type": "boolean"}},
+      "output_required": ["valid", "has_contact_channel", "consent_recorded"]
+    },
+    "sales.rules.v1": {
+      "input_properties": {"candidate_user_ids": {"type": "array", "items": {"type": "string"}}, "open_workload": {"type": "object", "additionalProperties": {"type": ["number", "string"]}}, "email": {"type": "string"}, "phone": {"type": "string"}, "existing_identifiers": {"type": "array", "items": {"type": "string"}}},
+      "input_required": [],
+      "output_properties": {"assigned_user_id": {"type": "string"}, "assignment_rule": {"type": "string"}, "duplicate": {"type": "boolean"}, "matched_identifiers": {"type": "array", "items": {"type": "string"}}},
+      "output_required": []
+    },
+    "sop.plan.v1": {
+      "input_properties": {"released_steps": {"type": "array", "items": {"type": "string"}}, "required_items": {"type": "array", "items": {"type": "string"}}},
+      "input_required": [],
+      "output_properties": {"ordered_steps": {"type": "array", "items": {"type": "string"}}, "step_count": {"type": "integer"}, "plan_digest": {"type": "string"}, "checklist": {"type": "array", "items": {"type": "object", "additionalProperties": true}}, "item_count": {"type": "integer"}},
+      "output_required": []
+    },
+    "sop.select.v1": {
+      "input_properties": {"released_versions": {"type": "array", "items": {"type": "object", "additionalProperties": true}, "minItems": 1}},
+      "input_required": ["released_versions"],
+      "output_properties": {"sop_id": {"type": "string"}, "version": {"type": "string"}, "status": {"type": "string"}},
+      "output_required": []
+    }
+  }
+}

@@ -1,6 +1,5 @@
 import os
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from uuid import uuid4
 
 import psycopg
@@ -515,25 +514,6 @@ def _cleanup(
         if work_item_id:
             connection.execute(
                 "DELETE FROM platform.work_items WHERE work_item_id = %s", (work_item_id,)
-            )
-        entity_ids: list[Any] = [
-            item
-            for item in [
-                project_id,
-                work_item_id,
-                lead_id,
-                approval_id,
-                exception_id,
-                capa_id,
-                document_id,
-                *user_ids,
-            ]
-            if item
-        ]
-        if entity_ids:
-            connection.execute(
-                "DELETE FROM audit.entries WHERE entity_id = ANY(%s::text[])",
-                (entity_ids,),
             )
         if user_ids:
             connection.execute(

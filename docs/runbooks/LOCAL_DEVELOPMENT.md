@@ -172,7 +172,7 @@ pnpm test
 pnpm build
 ```
 
-Registry valid hanya jika tepat 18 Core Agent, 38 tool, enam workflow pilot wajib tersedia, dan seluruh source pack dapat dimuat. Workflow tambahan diperbolehkan setelah memiliki definisi valid; status selain `STAGED` atau `RELEASED` tidak dapat dijalankan. Setiap langkah agent wajib memiliki capability invocation yang valid dan workflow harus menolak transisi yang tidak didefinisikan.
+Registry valid jika minimal satu agent terdaftar dan seluruh definisi agent, 38 tool, enam workflow pilot wajib, serta source pack dapat dimuat. Jumlah dan taxonomy agent tidak dikunci; 18 definisi lama tetap tersedia sebagai baseline kompatibilitas pilot sampai workflow bisnis dimigrasikan. Workflow tambahan diperbolehkan setelah memiliki definisi valid; status selain `STAGED` atau `RELEASED` tidak dapat dijalankan. Setiap langkah agent wajib memiliki capability invocation yang valid dan workflow harus menolak transisi yang tidak didefinisikan.
 
 Pemeriksaan web juga mencakup redirect tanpa sesi, login pilot, dashboard data nyata,
 navigasi role/divisi, konteks proyek, tampilan kosong/error, serta breakpoint ponsel.

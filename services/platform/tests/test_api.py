@@ -1,5 +1,6 @@
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from alos.config import Settings, get_settings
@@ -9,6 +10,11 @@ from alos.platform.identity import PilotProfile
 from alos.security import Role
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _clear_client_cookies() -> None:
+    client.cookies.clear()
 
 
 def test_health_reports_llm_disabled_by_default() -> None:

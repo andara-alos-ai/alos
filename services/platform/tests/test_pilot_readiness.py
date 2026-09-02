@@ -24,7 +24,7 @@ def test_controlled_pilot_profile_is_versioned_and_has_no_production_effect() ->
     assert profile.status == "PILOT"
     assert profile.data_policy == "SYNTHETIC_OR_SANITIZED"
     assert profile.production_effect is False
-    assert profile.expected_core_agents == 18
+    assert profile.minimum_registered_agents == 1
     assert profile.expected_workflows == 6
     assert profile.required_divisions == {
         "FINANCE",

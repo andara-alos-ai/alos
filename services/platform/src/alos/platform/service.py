@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
 
@@ -26,10 +27,12 @@ from alos.platform.models import (
     LegalReviewCreate,
     LegalSubmissionCreate,
     LegalWorkflowResult,
+    PaymentCancelCreate,
     PaymentDecisionCreate,
     PaymentRecordCreate,
     PaymentRequestCreate,
     PaymentRequestView,
+    PaymentRevisionCreate,
     ProjectCreate,
     ProjectStatusUpdate,
     ProjectView,
@@ -69,12 +72,24 @@ class OperationalStore(Protocol):
         idempotency_key: str,
     ) -> PaymentRequestView: ...
 
+    def prepare_payment_request(
+        self, command: PaymentRequestCreate, principal: Principal
+    ) -> dict[str, object]: ...
+
+    def document_execution_context(
+        self,
+        document_version_id: UUID,
+        project_id: UUID,
+        principal: Principal,
+    ) -> dict[str, object]: ...
+
     def decide_payment(
         self,
         payment_request_id: UUID,
         command: PaymentDecisionCreate,
         principal: Principal,
         definition: WorkflowDefinition,
+        idempotency_key: str,
     ) -> FinanceWorkflowResult: ...
 
     def record_payment(
@@ -83,7 +98,31 @@ class OperationalStore(Protocol):
         command: PaymentRecordCreate,
         principal: Principal,
         definition: WorkflowDefinition,
+        idempotency_key: str,
     ) -> FinanceWorkflowResult: ...
+
+    def cancel_payment(
+        self,
+        payment_request_id: UUID,
+        command: PaymentCancelCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        idempotency_key: str,
+    ) -> FinanceWorkflowResult: ...
+
+    def revise_payment(
+        self,
+        payment_request_id: UUID,
+        command: PaymentRevisionCreate,
+        principal: Principal,
+        definition: WorkflowDefinition,
+        plans: tuple[AgentExecutionPlan, ...],
+        idempotency_key: str,
+    ) -> FinanceWorkflowResult: ...
+
+    def payment_reconciliation_context(
+        self, payment_request_id: UUID, principal: Principal
+    ) -> dict[str, object]: ...
 
     def reconcile_payment(
         self,
@@ -92,6 +131,7 @@ class OperationalStore(Protocol):
         principal: Principal,
         definition: WorkflowDefinition,
         plan: AgentExecutionPlan,
+        idempotency_key: str,
     ) -> FinanceWorkflowResult: ...
 
     def submit_site_evidence(
@@ -112,6 +152,10 @@ class OperationalStore(Protocol):
         definition: WorkflowDefinition,
         plan: AgentExecutionPlan,
     ) -> PropertyWorkflowResult: ...
+
+    def site_evidence_review_context(
+        self, site_evidence_id: UUID, principal: Principal
+    ) -> dict[str, object]: ...
 
     def submit_legal_document(
         self,
@@ -150,6 +194,10 @@ class OperationalStore(Protocol):
         agent_plan: AgentExecutionPlan | None,
     ) -> RecruitmentWorkflowResult: ...
 
+    def recruitment_decision_context(
+        self, recruitment_request_id: UUID, principal: Principal
+    ) -> dict[str, object]: ...
+
     def generate_executive_brief(
         self,
         command: ExecutiveBriefCreate,
@@ -159,6 +207,10 @@ class OperationalStore(Protocol):
         correlation_id: UUID,
         idempotency_key: str,
     ) -> ExecutiveBriefResult: ...
+
+    def prepare_executive_brief(
+        self, command: ExecutiveBriefCreate, principal: Principal
+    ) -> dict[str, object]: ...
 
     def review_executive_brief(
         self,
@@ -218,7 +270,16 @@ class OperationalStore(Protocol):
         principal: Principal,
         definition: WorkflowDefinition,
         agent_plan: AgentExecutionPlan,
+        idempotency_key: str,
     ) -> WorkflowActionResult: ...
+
+    def prepare_sales_assignment(
+        self,
+        workflow_run_id: UUID,
+        command: SalesAssignment,
+        principal: Principal,
+        idempotency_key: str,
+    ) -> dict[str, object]: ...
 
     def record_sales_interaction(
         self,
@@ -227,7 +288,16 @@ class OperationalStore(Protocol):
         principal: Principal,
         definition: WorkflowDefinition,
         agent_plan: AgentExecutionPlan | None,
+        idempotency_key: str,
     ) -> WorkflowActionResult: ...
+
+    def prepare_sales_interaction(
+        self,
+        workflow_run_id: UUID,
+        command: SalesInteraction,
+        principal: Principal,
+        idempotency_key: str,
+    ) -> dict[str, object]: ...
 
 
 class OperationsService:
@@ -288,32 +358,98 @@ class OperationsService:
         require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
         definition = self._payment_workflow()
+        preflight = self._store.prepare_payment_request(command, principal)
+        payload = command.model_dump(mode="json")
+        payload.update(preflight)
         plans = self._execute_agent_steps(
             definition,
             ("document-extraction", "evidence-check", "budget-check", "approval-routing"),
             [f"payment-request:{idempotency_key}"],
             correlation_id,
             idempotency_key,
-            command.model_dump(mode="json"),
+            payload,
         )
         return self._store.create_payment_request(
             command, principal, definition, plans, correlation_id, idempotency_key
         )
 
     def decide_payment(
-        self, payment_request_id: UUID, command: PaymentDecisionCreate, principal: Principal
+        self,
+        payment_request_id: UUID,
+        command: PaymentDecisionCreate,
+        principal: Principal,
+        idempotency_key: str,
     ) -> FinanceWorkflowResult:
-        require_division_role(principal, "FINANCE", Role.FINANCE)
+        if not principal.has_any_role(Role.DIRECTOR):
+            require_division_role(principal, "FINANCE", Role.FINANCE)
         return self._store.decide_payment(
-            payment_request_id, command, principal, self._payment_workflow()
+            payment_request_id,
+            command,
+            principal,
+            self._payment_workflow(),
+            idempotency_key,
         )
 
     def record_payment(
-        self, payment_request_id: UUID, command: PaymentRecordCreate, principal: Principal
+        self,
+        payment_request_id: UUID,
+        command: PaymentRecordCreate,
+        principal: Principal,
+        idempotency_key: str,
     ) -> FinanceWorkflowResult:
         require_division_role(principal, "FINANCE", Role.FINANCE)
         return self._store.record_payment(
-            payment_request_id, command, principal, self._payment_workflow()
+            payment_request_id,
+            command,
+            principal,
+            self._payment_workflow(),
+            idempotency_key,
+        )
+
+    def cancel_payment(
+        self,
+        payment_request_id: UUID,
+        command: PaymentCancelCreate,
+        principal: Principal,
+        idempotency_key: str,
+    ) -> FinanceWorkflowResult:
+        if not principal.has_any_role(Role.DIRECTOR):
+            require_division_role(principal, "FINANCE", Role.FINANCE)
+        return self._store.cancel_payment(
+            payment_request_id,
+            command,
+            principal,
+            self._payment_workflow(),
+            idempotency_key,
+        )
+
+    def revise_payment(
+        self,
+        payment_request_id: UUID,
+        command: PaymentRevisionCreate,
+        principal: Principal,
+        idempotency_key: str,
+    ) -> FinanceWorkflowResult:
+        require_division_role(principal, "FINANCE", Role.FINANCE)
+        preflight = self._store.prepare_payment_request(command, principal)
+        payload = command.model_dump(mode="json")
+        payload.update(preflight)
+        definition = self._payment_workflow()
+        plans = self._execute_agent_steps(
+            definition,
+            ("document-extraction", "evidence-check", "budget-check", "approval-routing"),
+            [f"payment-request:{payment_request_id}:revision"],
+            uuid4(),
+            idempotency_key,
+            payload,
+        )
+        return self._store.revise_payment(
+            payment_request_id,
+            command,
+            principal,
+            definition,
+            plans,
+            idempotency_key,
         )
 
     def reconcile_payment(
@@ -325,16 +461,26 @@ class OperationsService:
     ) -> FinanceWorkflowResult:
         require_division_role(principal, "FINANCE", Role.FINANCE)
         definition = self._payment_workflow()
+        runtime_context = self._store.payment_reconciliation_context(
+            payment_request_id, principal
+        )
+        payload = command.model_dump(mode="json")
+        payload.update(runtime_context)
         plan = self._execute_agent_step(
             definition,
             "reconciliation",
             [f"payment-request:{payment_request_id}"],
             uuid4(),
             idempotency_key,
-            command.model_dump(mode="json"),
+            payload,
         )
         return self._store.reconcile_payment(
-            payment_request_id, command, principal, definition, plan
+            payment_request_id,
+            command,
+            principal,
+            definition,
+            plan,
+            idempotency_key,
         )
 
     def submit_site_evidence(
@@ -348,13 +494,19 @@ class OperationsService:
         require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
         definition = self._property_workflow()
+        payload = command.model_dump(mode="json")
+        payload.update(
+            self._store.document_execution_context(
+                command.document_version_id, command.project_id, principal
+            )
+        )
         plans = self._execute_agent_steps(
             definition,
             ("evidence-check", "progress-verification"),
             [f"site-evidence:{idempotency_key}"],
             correlation_id,
             idempotency_key,
-            command.model_dump(mode="json"),
+            payload,
         )
         return self._store.submit_site_evidence(
             command,
@@ -375,13 +527,26 @@ class OperationsService:
         require_division_role(principal, "PROPERTY", Role.PROPERTY)
         definition = self._property_workflow()
         step_id = "kpi-updated" if command.decision == "ACCEPTED" else "capa-open"
+        payload = command.model_dump(mode="json")
+        payload.update(
+            self._store.site_evidence_review_context(site_evidence_id, principal)
+        )
+        if command.decision == "ACCEPTED":
+            payload["verified_metrics"] = [
+                {
+                    "metric_code": "PROPERTY_VERIFIED_PROGRESS",
+                    "value": str(command.verified_progress),
+                }
+            ]
+        else:
+            payload.update({"impact_score": "4", "probability_score": "3"})
         plan = self._execute_agent_step(
             definition,
             step_id,
             [f"site-evidence:{site_evidence_id}"],
             uuid4(),
             idempotency_key,
-            command.model_dump(mode="json"),
+            payload,
         )
         return self._store.review_site_evidence(
             site_evidence_id, command, principal, definition, plan
@@ -400,6 +565,20 @@ class OperationsService:
         definition = self._legal_workflow()
         input_references = [f"legal-document:{command.document_version_id}"]
         payload = command.model_dump(mode="json")
+        document_context = self._store.document_execution_context(
+            command.document_version_id, command.project_id, principal
+        )
+        payload.update(document_context)
+        payload.update(
+            {
+                "required_items": ["PRIMARY_DOCUMENT"],
+                "provided_items": (
+                    ["PRIMARY_DOCUMENT"]
+                    if document_context["checksum_valid"] is True
+                    else []
+                ),
+            }
+        )
         plans = (
             self._execute_agent_step(
                 definition,
@@ -466,6 +645,9 @@ class OperationsService:
         require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
         definition = self._hr_workflow()
+        self._store.document_execution_context(
+            command.candidate_document_version_id, command.project_id, principal
+        )
         plans = self._execute_agent_steps(
             definition,
             ("sop-plan", "candidate-screening"),
@@ -493,13 +675,29 @@ class OperationsService:
         require_division_role(principal, "HR", Role.HR)
         plan = None
         if command.decision == "SELECTED":
+            payload = command.model_dump(mode="json")
+            payload.update(
+                self._store.recruitment_decision_context(
+                    recruitment_request_id, principal
+                )
+            )
+            payload.update(
+                {
+                    "required_documents": command.personnel_requirements,
+                    "provided_documents": [],
+                }
+            )
             plan = self._execute_agent_step(
                 self._hr_workflow(),
                 "onboarding-checklist",
                 [f"recruitment-request:{recruitment_request_id}"],
                 uuid4(),
                 idempotency_key,
-                command.model_dump(mode="json"),
+                payload,
+            )
+        else:
+            self._store.recruitment_decision_context(
+                recruitment_request_id, principal
             )
         return self._store.decide_recruitment(
             recruitment_request_id, command, principal, self._hr_workflow(), plan
@@ -517,13 +715,54 @@ class OperationsService:
             require_project_access(principal, command.project_id)
         correlation_id = correlation_id or uuid4()
         definition = self._executive_workflow()
-        plans = self._execute_agent_steps(
-            definition,
-            ("kpi-aggregation", "risk-aggregation", "approval-aggregation", "brief-generation"),
-            [f"executive-period:{command.period_start}:{command.period_end}"],
-            correlation_id,
-            idempotency_key,
-            command.model_dump(mode="json"),
+        input_references = [
+            f"executive-period:{command.period_start}:{command.period_end}"
+        ]
+        context = self._store.prepare_executive_brief(command, principal)
+        facts_value = context["facts"]
+        if not isinstance(facts_value, dict):
+            raise ValueError("Fakta Executive Brief tidak valid")
+        facts = {str(key): int(value) for key, value in facts_value.items()}
+        source_references_value = context["source_references"]
+        if not isinstance(source_references_value, list) or not all(
+            isinstance(reference, str) for reference in source_references_value
+        ):
+            raise ValueError("Referensi sumber Executive Brief tidak valid")
+        source_references = list(source_references_value)
+        payloads: dict[str, dict[str, object]] = {
+            "kpi-aggregation": {
+                "numerator": facts["verified_kpi_snapshots"],
+                "denominator": facts["property_records"],
+            },
+            "risk-aggregation": {"due_dates": context["capa_due_dates"]},
+            "approval-aggregation": {
+                "due_dates": context["approval_due_dates"]
+            },
+            "brief-generation": {
+                "verified_facts": [
+                    {"name": name, "value": value}
+                    for name, value in sorted(facts.items())
+                ],
+                "source_references": source_references,
+            },
+        }
+        plans = tuple(
+            self._runtime.execute_from_context(
+                self._prepare_agent_step(
+                    definition,
+                    step_id,
+                    input_references,
+                    correlation_id,
+                    idempotency_key,
+                ),
+                payloads[step_id],
+            )
+            for step_id in (
+                "kpi-aggregation",
+                "risk-aggregation",
+                "approval-aggregation",
+                "brief-generation",
+            )
         )
         return self._store.generate_executive_brief(
             command,
@@ -651,15 +890,59 @@ class OperationsService:
     ) -> WorkflowActionResult:
         require_division_role(principal, "SALES_MARKETING", Role.SALES)
         definition = self._lead_workflow()
+        now = datetime.now(UTC)
+        effective_command = command
+        if command.first_follow_up_at is None:
+            effective_command = command.model_copy(
+                update={"first_follow_up_at": now + timedelta(hours=24)}
+            )
+        context = self._store.prepare_sales_assignment(
+            workflow_run_id, command, principal, idempotency_key
+        )
+        if context.get("idempotent_replay") is True:
+            prepared_plan = self._prepare_agent_step(
+                definition,
+                "follow-up-plan",
+                [f"workflow-run:{workflow_run_id}"],
+                uuid4(),
+                idempotency_key,
+            )
+            return self._store.assign_sales_pic(
+                workflow_run_id,
+                command,
+                principal,
+                definition,
+                prepared_plan,
+                idempotency_key,
+            )
+        due_at = effective_command.first_follow_up_at
+        if due_at is None:
+            raise ValueError("Jadwal follow-up efektif tidak tersedia")
+        payload = effective_command.model_dump(mode="json")
+        payload.update(
+            {
+                "base_at": now.isoformat(),
+                "delay_hours": str((due_at - now).total_seconds() / 3600),
+                "assigned_user_id": str(effective_command.sales_pic_user_id),
+                **context,
+            }
+        )
         plan = self._execute_agent_step(
             definition,
             "follow-up-plan",
             [f"workflow-run:{workflow_run_id}"],
             uuid4(),
             idempotency_key,
-            command.model_dump(mode="json"),
+            payload,
         )
-        return self._store.assign_sales_pic(workflow_run_id, command, principal, definition, plan)
+        return self._store.assign_sales_pic(
+            workflow_run_id,
+            command,
+            principal,
+            definition,
+            plan,
+            idempotency_key,
+        )
 
     def record_sales_interaction(
         self,
@@ -670,18 +953,52 @@ class OperationsService:
     ) -> WorkflowActionResult:
         require_division_role(principal, "SALES_MARKETING", Role.SALES)
         definition = self._lead_workflow()
+        context = self._store.prepare_sales_interaction(
+            workflow_run_id, command, principal, idempotency_key
+        )
+        if context.get("idempotent_replay") is True:
+            return self._store.record_sales_interaction(
+                workflow_run_id,
+                command,
+                principal,
+                definition,
+                None,
+                idempotency_key,
+            )
+        effective_command = command
         plan = None
-        if command.outcome == InteractionOutcome.FOLLOW_UP:
+        if command.outcome in {InteractionOutcome.FOLLOW_UP, InteractionOutcome.QUALIFIED}:
+            now = datetime.now(UTC)
+            if command.next_follow_up_at is None:
+                effective_command = command.model_copy(
+                    update={"next_follow_up_at": now + timedelta(hours=24)}
+                )
+            due_at = effective_command.next_follow_up_at
+            if due_at is None:
+                raise ValueError("Jadwal follow-up efektif tidak tersedia")
+            payload = effective_command.model_dump(mode="json")
+            payload.update(
+                {
+                    "base_at": now.isoformat(),
+                    "delay_hours": str((due_at - now).total_seconds() / 3600),
+                    "assigned_user_id": str(context["owner_user_id"]),
+                }
+            )
             plan = self._execute_agent_step(
                 definition,
                 "follow-up-plan",
                 [f"workflow-run:{workflow_run_id}"],
                 uuid4(),
                 idempotency_key,
-                command.model_dump(mode="json"),
+                payload,
             )
         return self._store.record_sales_interaction(
-            workflow_run_id, command, principal, definition, plan
+            workflow_run_id,
+            command,
+            principal,
+            definition,
+            plan,
+            idempotency_key,
         )
 
     def _prepare_agent_steps(
@@ -714,7 +1031,7 @@ class OperationsService:
         input_payload: dict[str, object],
     ) -> tuple[AgentExecutionPlan, ...]:
         return tuple(
-            self._runtime.execute(plan, input_payload)
+            self._runtime.execute_from_context(plan, input_payload)
             for step_id in step_ids
             for plan in self._runtime.prepare_workflow_step(
                 definition,
@@ -764,7 +1081,7 @@ class OperationsService:
             idempotency_key,
             selector,
         )
-        return self._runtime.execute(plan, input_payload)
+        return self._runtime.execute_from_context(plan, input_payload)
 
     def _lead_workflow(self) -> WorkflowDefinition:
         return self._workflows.get("FLOW-001")

@@ -12,6 +12,7 @@ from sqlalchemy.exc import OperationalError
 from alos.config import Settings, get_settings
 from alos.persistence import Database
 from alos.platform.identity.oidc import OIDCLoginService, PostgresOIDCStore
+from alos.security.cookies import set_session_cookies
 from alos.security.oidc import GoogleOIDCProvider, OIDCAuthenticationError
 from alos.security.tokens import TokenCodec
 
@@ -219,7 +220,7 @@ def exchange_oidc_login_code(
         settings.auth_issuer,
         settings.auth_audience,
     ).issue(principal, settings.auth_token_ttl_seconds)
-    response.headers["Cache-Control"] = "no-store"
+    set_session_cookies(response, token, settings)
     return OIDCTokenResponse(
         access_token=token,
         expires_in=settings.auth_token_ttl_seconds,

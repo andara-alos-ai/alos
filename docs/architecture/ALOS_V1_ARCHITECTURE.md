@@ -18,7 +18,7 @@ Dokumen ini menetapkan arsitektur logis dan deployment ALOS. Rancangan pilot mem
 - satu basis kode backend modular yang dapat dijalankan sebagai API, worker, dan scheduler;
 - satu PostgreSQL dengan skema logis dan kepemilikan modul;
 - satu penyimpanan objek untuk dokumen dan bukti;
-- satu lingkungan eksekusi untuk 18 Core Agent logis;
+- satu shared Agent Runtime untuk seluruh agent yang terdaftar; 18 definisi lama dipertahankan sementara sebagai baseline kompatibilitas pilot;
 - aturan tata kelola dan alur kerja deterministik berada di luar prompt;
 - sistem eksternal hanya diakses melalui adaptor integrasi terkendali;
 - Genesis dipisahkan dari operasi harian dan perubahan produksi.

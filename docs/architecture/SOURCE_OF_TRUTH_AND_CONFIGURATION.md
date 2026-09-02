@@ -36,7 +36,7 @@ AI Executive Operating Layer tidak merupakan pejabat resmi dan tidak menggantika
 
 Hal berikut merupakan dasar implementasi, bukan aturan permanen yang terkunci:
 
-- taksonomi dan pemetaan 18 Core Agent;
+- definisi, hierarchy, dan pemetaan agent yang terdaftar;
 - governance gate, tingkat persetujuan, RACI, KPI, SLA, dan alur kerja;
 - model data, arsitektur, keamanan, observabilitas, dan integrasi;
 - pipeline Genesis serta detail implementasi.

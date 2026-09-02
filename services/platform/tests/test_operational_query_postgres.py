@@ -146,6 +146,7 @@ def test_operational_queries_and_identity_access_are_scoped_and_audited() -> Non
                 "channel": "phone",
                 "outcome": "qualified",
                 "notes": "Lead memenuhi kriteria dasar sintetis",
+                "qualification_result": "WARM",
             },
         )
         assert interaction_response.status_code == 200, interaction_response.text
@@ -178,13 +179,31 @@ def test_operational_queries_and_identity_access_are_scoped_and_audited() -> Non
             headers=sales_headers,
         )
         assert transitions.status_code == 200, transitions.text
-        assert transitions.json()["total"] == 3
+        assert transitions.json()["total"] == 6
 
         agents = client.get(
             "/api/v1/agent-runs", headers=sales_headers, params={"project_id": project_id}
         )
         assert agents.status_code == 200, agents.text
-        assert agents.json()["total"] == 2
+        assert agents.json()["total"] == 3
+
+        lost_response = client.post(
+            f"/api/v1/workflow-runs/{lead['workflow_run_id']}/interactions",
+            headers={**sales_headers, "Idempotency-Key": f"lost-{uuid4().hex}"},
+            json={
+                "channel": "phone",
+                "outcome": "lost",
+                "notes": "Lead memilih alternatif lain setelah qualification.",
+                "lost_reason": "Tidak melanjutkan pada periode pembelian sintetis.",
+            },
+        )
+        assert lost_response.status_code == 200, lost_response.text
+        assert lost_response.json()["terminal"] is True
+        lost_detail = client.get(f"/api/v1/leads/{lead['lead_id']}", headers=sales_headers)
+        assert lost_detail.status_code == 200, lost_detail.text
+        assert lost_detail.json()["status"] == "LOST"
+        assert lost_detail.json()["pipeline_stage"] == "LOST"
+        assert lost_detail.json()["lost_reason"].startswith("Tidak melanjutkan")
 
         foreign_scope_headers = _headers(
             client,
@@ -197,6 +216,19 @@ def test_operational_queries_and_identity_access_are_scoped_and_audited() -> Non
         hidden = client.get("/api/v1/leads", headers=foreign_scope_headers)
         assert hidden.status_code == 200
         assert hidden.json()["total"] == 0
+
+        foreign_organization_headers = _headers(
+            client,
+            uuid4(),
+            user_id,
+            ["SALES"],
+            ["SALES_MARKETING"],
+            [project_id],
+        )
+        tenant_hidden = client.get(
+            f"/api/v1/leads/{lead['lead_id']}", headers=foreign_organization_headers
+        )
+        assert tenant_hidden.status_code == 404
 
         finance_headers = _headers(
             client,
@@ -313,21 +345,6 @@ def _cleanup(database_url: str, created: dict[str, Any], admin_id: object) -> No
             )
             connection.execute(
                 "DELETE FROM identity.role_assignments WHERE user_id = %s", (user_id,)
-            )
-        entity_ids = [
-            str(value)
-            for value in (
-                created.get("project_id"),
-                created.get("user_id"),
-                *(created.get("assignment_ids") or []),
-                lead["lead_id"] if lead else None,
-            )
-            if value
-        ]
-        if entity_ids:
-            connection.execute(
-                "DELETE FROM audit.entries WHERE entity_id = ANY(%s) OR actor_id = %s",
-                (entity_ids, str(admin_id)),
             )
         if created.get("project_id"):
             connection.execute(

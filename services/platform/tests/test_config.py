@@ -128,3 +128,8 @@ def test_local_google_oidc_accepts_registered_localhost_callback() -> None:
 
     assert settings.oidc_redirect_uri.endswith("/auth/oidc/callback/google")
     assert settings.oidc_client_secret_value == "synthetic-client-secret"
+
+
+def test_samesite_none_requires_secure_cookie() -> None:
+    with pytest.raises(ValidationError, match="SameSite=None"):
+        isolated_settings(session_cookie_samesite="none")

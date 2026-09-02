@@ -17,6 +17,7 @@ from alos.agents.runtime.models import (
     CapabilityDispatchResult,
 )
 from alos.tools import ToolEffect, ToolReference, ToolRegistry
+from alos.validation import JsonSchemaValidationError, validate_json_schema
 from alos.workflow.models import WorkflowDefinition, WorkflowStatus
 
 
@@ -188,6 +189,12 @@ class SharedAgentRuntime:
             raise RuntimePolicyViolation(
                 "Mode Capability Contract pada execution plan tidak konsisten"
             )
+        try:
+            validate_json_schema(dict(input_payload), capability.input_schema)
+        except JsonSchemaValidationError as exc:
+            raise RuntimePolicyViolation(
+                f"Input capability {capability.capability_id} tidak sesuai contract: {exc}"
+            ) from exc
         if set(plan.approved_tools) != {
             reference.tool_id for reference in plan.approved_tool_releases
         }:
@@ -208,6 +215,12 @@ class SharedAgentRuntime:
             raise RuntimePolicyViolation(
                 "Handler hasil dispatch tidak sama dengan Capability Contract"
             )
+        try:
+            validate_json_schema(result.output_reference, capability.output_schema)
+        except JsonSchemaValidationError as exc:
+            raise RuntimePolicyViolation(
+                f"Output capability {capability.capability_id} tidak sesuai contract: {exc}"
+            ) from exc
         if (
             capability.evidence_policy == CapabilityEvidencePolicy.REQUIRED
             and not result.evidence_references
@@ -227,6 +240,34 @@ class SharedAgentRuntime:
 
         result = self.dispatch(plan, input_payload, handlers)
         return plan.model_copy(update={"execution": result.to_execution_record()})
+
+    def execute_from_context(
+        self,
+        plan: AgentExecutionPlan,
+        context: Mapping[str, object],
+        handlers: CapabilityHandlerRegistry | None = None,
+    ) -> AgentExecutionPlan:
+        """Project a workflow context onto the declared capability input contract."""
+
+        capability = self._capability_registry.get(
+            plan.capability, plan.capability_version
+        )
+        properties = capability.input_schema.get("properties", {})
+        allowed = set(properties) if isinstance(properties, dict) else set()
+        required_value = capability.input_schema.get("required", [])
+        required = set(required_value) if isinstance(required_value, list) else set()
+        projected = {
+            key: value
+            for key, value in context.items()
+            if key in allowed and (value is not None or key in required)
+        }
+        if (
+            "source_reference" in allowed
+            and "source_reference" not in projected
+            and plan.input_references
+        ):
+            projected["source_reference"] = plan.input_references[0]
+        return self.execute(plan, projected, handlers)
 
     @staticmethod
     def _agent_idempotency_key(agent_id: str, step_id: str, source_key: str) -> str:

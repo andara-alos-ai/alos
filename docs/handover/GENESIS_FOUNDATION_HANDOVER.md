@@ -8,7 +8,7 @@
 
 ## Hasil
 
-- 18 Core tetap menjadi logical agent pada satu shared runtime;
+- seluruh agent tetap berupa konfigurasi logis pada satu shared runtime; 18 definisi lama dipertahankan sementara untuk kompatibilitas workflow pilot;
 - Agent Contract universal berlaku untuk Core, Sub-Agent, dan Sub-Sub-Agent;
 - 61 capability dan 38 tool berada pada registry berversi;
 - keenam workflow melakukan dispatch melalui capability handler, bukan branch per agent;
@@ -16,7 +16,7 @@
 - TIA, MCA_MKT, dan agent lain dapat dievaluasi melalui endpoint runtime yang sama tanpa efek eksternal;
 - LLM Gateway mendukung OpenAI/Anthropic, default nonaktif, structured output, redaction, klasifikasi, budget, retry, dan fail-closed;
 - Genesis menjalankan REUSE/EXTEND/CREATE sampai dua review, staging, dan release package immutable;
-- Genesis tidak dapat mengubah Core, organisasi, registry production, atau deployment;
+- Genesis tidak dapat mengubah struktur organisasi, registry production, atau deployment; agent baru hanya dapat masuk melalui contract, governance, review, staging, dan release;
 - migrasi, API, worker, web, dan PostgreSQL memiliki konfigurasi deployment yang dapat diulang.
 
 ## Validasi Serah Terima

@@ -5,7 +5,19 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react
 import { EmptyState, ErrorState, LoadingState } from "@/components/page-state";
 import { useSession } from "@/components/session-provider";
 import {
+  DataTable,
+  FormField,
+  Modal,
+  SelectInput,
+  StatsCard,
+  StatusPill,
+  TextAreaInput,
+  TextInput,
+  useToast,
+} from "@/components/ui";
+import {
   ApiError,
+  cancelPaymentRequest,
   createBudget,
   createPaymentRequest,
   decidePaymentRequest,
@@ -15,7 +27,7 @@ import {
   reconcilePayment,
   recordPayment,
 } from "@/lib/api";
-import { formatDateTime, humanizeCode, shortId } from "@/lib/format";
+import { formatDateTime, shortId } from "@/lib/format";
 import type { BudgetRecord, DocumentRecord, PaymentRequestRecord } from "@/lib/types";
 
 type PaymentDecision = "APPROVED" | "REJECTED" | "REVISION_REQUESTED";
@@ -32,25 +44,37 @@ function today(): string {
 
 export default function FinancePage() {
   const { activeProjectId, principal, status, token } = useSession();
+  const { error: toastError, success: toastSuccess } = useToast();
+
   const [budgets, setBudgets] = useState<BudgetRecord[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [payments, setPayments] = useState<PaymentRequestRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"list" | "approval" | "payment" | "reconcile" | "budget">("list");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Modals
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
+
+  // Forms
   const [budgetForm, setBudgetForm] = useState({ code: "", name: "", amount: "" });
   const [requestForm, setRequestForm] = useState({
     budgetId: "",
     documentVersionId: "",
+    supportingDocumentVersionId: "",
     payeeName: "",
+    vendorReference: "",
+    categoryCode: "GENERAL",
     purpose: "",
     amount: "",
     requestedPaymentDate: today(),
   });
   const [decision, setDecision] = useState<PaymentDecision>("APPROVED");
   const [decisionReason, setDecisionReason] = useState("");
+  const [cancellationReason, setCancellationReason] = useState("");
   const [paymentForm, setPaymentForm] = useState({
     reference: "",
     amount: "",
@@ -63,16 +87,32 @@ export default function FinancePage() {
   });
 
   const selected = useMemo(
-    () => payments.find((payment) => payment.payment_request_id === selectedId) || null,
+    () => payments.find((p) => p.payment_request_id === selectedId) || null,
     [payments, selectedId],
   );
+
   const canOperate = Boolean(
-    principal
-    && principal.division_codes.includes("FINANCE")
-    && principal.roles.some((role) => role === "FINANCE" || role === "DIVISION_HEAD"),
+    principal &&
+      principal.division_codes.includes("FINANCE") &&
+      principal.roles.some((r) => r === "FINANCE" || r === "DIVISION_HEAD"),
   );
-  const isOwnRequest = Boolean(
-    principal && selected && principal.user_id === selected.requester_user_id,
+
+  const canDecideSelected = Boolean(
+    principal &&
+      selected &&
+      ((selected.approval_route === "FINANCE_REVIEWER" &&
+        principal.division_codes.includes("FINANCE") &&
+        principal.roles.some((r) => r === "FINANCE" || r === "DIVISION_HEAD")) ||
+        (selected.approval_route === "DIVISION_HEAD" &&
+          principal.roles.includes("DIVISION_HEAD")) ||
+        (selected.approval_route === "DIRECTOR" && principal.roles.includes("DIRECTOR"))),
+  );
+
+  const canCancelSelected = Boolean(
+    principal &&
+      selected &&
+      ["DRAFT", "EXCEPTION_HOLD", "REVISION_REQUESTED"].includes(selected.status) &&
+      canOperate,
   );
 
   const loadData = useCallback(async () => {
@@ -83,264 +123,783 @@ export default function FinancePage() {
     setLoading(true);
     setError(null);
     try {
-      const [budgetPage, paymentPage, documentPage] = await Promise.all([
+      const [budgetPage, docPage, paymentPage] = await Promise.all([
         getBudgets(token, activeProjectId),
-        getPaymentRequests(token, activeProjectId),
         getDocuments(token, activeProjectId),
+        getPaymentRequests(token, activeProjectId),
       ]);
       setBudgets(budgetPage.items);
+      setDocuments(docPage.items);
       setPayments(paymentPage.items);
-      setDocuments(documentPage.items);
-      setSelectedId((current) => (
-        paymentPage.items.some((payment) => payment.payment_request_id === current)
-          ? current
-          : paymentPage.items[0]?.payment_request_id || null
-      ));
-      setRequestForm((current) => ({
-        ...current,
-        budgetId: budgetPage.items.some((budget) => budget.budget_id === current.budgetId)
-          ? current.budgetId
-          : budgetPage.items[0]?.budget_id || "",
-        documentVersionId: documentPage.items.some(
-          (document) => document.document_version_id === current.documentVersionId,
-        ) ? current.documentVersionId : documentPage.items[0]?.document_version_id || "",
-      }));
-    } catch (loadError) {
-      setError(message(loadError));
+      if (budgetPage.items.length > 0 && !requestForm.budgetId) {
+        setRequestForm((prev) => ({ ...prev, budgetId: budgetPage.items[0].budget_id }));
+      }
+      if (docPage.items.length > 0 && !requestForm.documentVersionId) {
+        setRequestForm((prev) => ({ ...prev, documentVersionId: docPage.items[0].document_version_id }));
+      }
+      if (paymentPage.items.length > 0 && !selectedId) {
+        setSelectedId(paymentPage.items[0].payment_request_id);
+      }
+    } catch (err) {
+      setError(message(err));
     } finally {
       setLoading(false);
     }
-  }, [activeProjectId, token]);
+  }, [activeProjectId, requestForm.budgetId, requestForm.documentVersionId, selectedId, token]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
-    const refresh = window.setTimeout(() => void loadData(), 0);
-    return () => window.clearTimeout(refresh);
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadData, status]);
 
-  async function submitBudget(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!token || !activeProjectId || !canOperate) return;
+  // Submit New Budget
+  const handleCreateBudget = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token || !activeProjectId) return;
     setBusy(true);
-    setFeedback(null);
     try {
       await createBudget(token, {
         project_id: activeProjectId,
         code: budgetForm.code.trim().toUpperCase(),
         name: budgetForm.name.trim(),
+        allocated_amount: budgetForm.amount.trim(),
         currency: "IDR",
-        allocated_amount: budgetForm.amount,
       });
       setBudgetForm({ code: "", name: "", amount: "" });
+      setShowBudgetModal(false);
+      toastSuccess("Alokasi anggaran baru berhasil dibuat.");
       await loadData();
-      setFeedback("Budget aktif berhasil dibuat dan dicatat pada audit trail.");
-    } catch (submitError) {
-      setFeedback(message(submitError));
+    } catch (err) {
+      toastError(message(err));
     } finally {
       setBusy(false);
     }
-  }
+  };
 
-  async function submitPaymentRequest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!token || !activeProjectId || !canOperate) return;
+  // Submit New Payment Request
+  const handleCreatePaymentRequest = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token || !activeProjectId) return;
+    const docId = requestForm.documentVersionId || documents[0]?.document_version_id;
+    if (!docId) {
+      toastError("Dokumen invoice/bukti tagihan wajib dilampirkan.");
+      return;
+    }
     setBusy(true);
-    setFeedback(null);
     try {
       const created = await createPaymentRequest(token, {
         project_id: activeProjectId,
         budget_id: requestForm.budgetId,
-        document_version_id: requestForm.documentVersionId,
+        document_version_id: docId,
+        supporting_document_version_ids: requestForm.supportingDocumentVersionId
+          ? [requestForm.supportingDocumentVersionId]
+          : undefined,
         payee_name: requestForm.payeeName.trim(),
+        vendor_reference: requestForm.vendorReference.trim() || null,
+        category_code: requestForm.categoryCode,
         purpose: requestForm.purpose.trim(),
-        amount: requestForm.amount,
+        amount: requestForm.amount.trim(),
         currency: "IDR",
         requested_payment_date: requestForm.requestedPaymentDate,
       });
-      setRequestForm((current) => ({
-        ...current,
-        payeeName: "",
-        purpose: "",
-        amount: "",
-        requestedPaymentDate: today(),
-      }));
+      setShowRequestModal(false);
+      toastSuccess("Permohonan pembayaran berhasil diajukan ke antrean approval.");
       await loadData();
       setSelectedId(created.payment_request_id);
-      setFeedback("Payment request lolos pemeriksaan awal dan masuk ke approval.");
-    } catch (submitError) {
-      setFeedback(message(submitError));
+    } catch (err) {
+      toastError(message(err));
     } finally {
       setBusy(false);
     }
-  }
+  };
 
-  async function submitDecision(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!token || !selected || !canOperate) return;
+  // Submit Approval Decision
+  const handleDecide = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token || !selected || !canDecideSelected) return;
     setBusy(true);
-    setFeedback(null);
     try {
-      await decidePaymentRequest(
-        token,
-        selected.payment_request_id,
-        decision,
-        decisionReason.trim(),
-      );
+      await decidePaymentRequest(token, selected.payment_request_id, decision, decisionReason.trim());
       setDecisionReason("");
+      toastSuccess(`Keputusan ${decision} berhasil dicatat.`);
       await loadData();
-      setFeedback("Keputusan approval tersimpan dengan separation of duties.");
-    } catch (decisionError) {
-      setFeedback(message(decisionError));
+    } catch (err) {
+      toastError(message(err));
     } finally {
       setBusy(false);
     }
-  }
+  };
 
-  async function submitPayment(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  // Record Payment
+  const handleRecordPayment = async (e: FormEvent) => {
+    e.preventDefault();
     if (!token || !selected || !canOperate) return;
-    const paidAt = new Date(paymentForm.paidAt);
-    if (Number.isNaN(paidAt.getTime())) {
-      setFeedback("Waktu pembayaran tidak valid.");
-      return;
-    }
+    const docId = paymentForm.evidenceDocumentVersionId || documents[0]?.document_version_id || selected.document_version_id;
     setBusy(true);
-    setFeedback(null);
     try {
       await recordPayment(token, selected.payment_request_id, {
         payment_reference: paymentForm.reference.trim(),
-        amount: paymentForm.amount,
+        amount: paymentForm.amount.trim() || selected.amount,
         currency: selected.currency,
-        paid_at: paidAt.toISOString(),
-        evidence_document_version_id: paymentForm.evidenceDocumentVersionId,
+        paid_at: new Date().toISOString(),
+        evidence_document_version_id: docId,
       });
-      setReconciliationForm({
-        reference: paymentForm.reference.trim(),
-        amount: paymentForm.amount,
-      });
+      toastSuccess("Pembayaran berhasil dicatat. Transaksi siap untuk rekonsiliasi.");
       setPaymentForm({ reference: "", amount: "", paidAt: "", evidenceDocumentVersionId: "" });
       await loadData();
-      setFeedback("Pembayaran tercatat dan menunggu rekonsiliasi FRA.");
-    } catch (paymentError) {
-      setFeedback(message(paymentError));
+    } catch (err) {
+      toastError(message(err));
     } finally {
       setBusy(false);
     }
-  }
+  };
 
-  async function submitReconciliation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  // Reconcile Payment
+  const handleReconcile = async (e: FormEvent) => {
+    e.preventDefault();
     if (!token || !selected || !canOperate) return;
     setBusy(true);
-    setFeedback(null);
     try {
-      const result = await reconcilePayment(token, selected.payment_request_id, {
+      await reconcilePayment(token, selected.payment_request_id, {
         transaction_reference: reconciliationForm.reference.trim(),
-        transaction_amount: reconciliationForm.amount,
+        transaction_amount: reconciliationForm.amount.trim() || selected.amount,
         currency: selected.currency,
       });
+      toastSuccess("Rekonsiliasi bank deterministik berhasil diselesaikan.");
+      setReconciliationForm({ reference: "", amount: "" });
       await loadData();
-      setFeedback(
-        result.reconciliation_status === "MATCHED"
-          ? "Rekonsiliasi cocok dan workflow telah selesai."
-          : "Rekonsiliasi berbeda; exception dan CAPA perlu ditindaklanjuti.",
-      );
-    } catch (reconciliationError) {
-      setFeedback(message(reconciliationError));
+    } catch (err) {
+      toastError(message(err));
     } finally {
       setBusy(false);
     }
+  };
+
+  // Cancel Payment Request
+  const handleCancel = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token || !selected || !canCancelSelected) return;
+    setBusy(true);
+    try {
+      await cancelPaymentRequest(token, selected.payment_request_id, cancellationReason.trim());
+      setCancellationReason("");
+      toastSuccess("Payment request berhasil dibatalkan dan komitmen anggaran dilepas.");
+      await loadData();
+    } catch (err) {
+      toastError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) {
+    return <LoadingState label="Memuat modul operasional keuangan..." />;
   }
 
+  const pendingPayments = payments.filter((p) => p.status === "PENDING_APPROVAL");
+  const approvedPayments = payments.filter((p) => p.status === "APPROVED");
+  const reconciledPayments = payments.filter((p) => p.status === "RECONCILED");
+
   return (
-    <>
-      <header className="pageHeader">
+    <div className="spaceY6">
+      {/* Top Banner */}
+      <header className="workspaceBanner">
         <div>
-          <p className="eyebrow">Keuangan · FLOW-002</p>
-          <h1>Payment sampai Rekonsiliasi</h1>
-          <p>Kelola anggaran, evidence, approval, pembayaran, dan rekonsiliasi secara deterministik.</p>
+          <span className="workspaceBannerTag">
+            Workspace Keuangan · Core FRA
+          </span>
+          <h1 className="workspaceBannerTitle">
+            Manajemen Anggaran, Pembayaran & Rekonsiliasi
+          </h1>
+          <p className="workspaceBannerSubtitle">
+            Pemeriksaan dokumen invoice/pajak, persetujuan bertingkat, dan rekonsiliasi deterministik.
+          </p>
         </div>
-        <button className="button secondary" disabled={loading} onClick={() => void loadData()} type="button">Perbarui data</button>
+
+        {canOperate && (
+          <div className="workspaceActionGroup">
+            <button
+              className="button secondary"
+              onClick={() => setShowBudgetModal(true)}
+              type="button"
+            >
+              + Alokasi Anggaran
+            </button>
+            <button
+              className="button primary"
+              onClick={() => setShowRequestModal(true)}
+              type="button"
+            >
+              + Ajukan Payment Request
+            </button>
+          </div>
+        )}
       </header>
 
-      {!activeProjectId ? <EmptyState title="Pilih proyek terlebih dahulu" description="Gunakan pemilih proyek di bagian atas untuk membuka transaksi Keuangan." /> : null}
-      {activeProjectId && loading ? <LoadingState label="Memuat transaksi Keuangan…" /> : null}
-      {activeProjectId && !loading && error ? <ErrorState message={error} retry={() => void loadData()} /> : null}
+      {error && <ErrorState message={error} retry={() => void loadData()} />}
 
-      {activeProjectId && !loading && !error ? (
-        <>
-          {feedback ? <div className="transactionFeedback" role="status">{feedback}</div> : null}
-          {canOperate ? (
-            <div className="transactionCreateGrid">
-              <section className="panel">
-                <div className="panelHeader"><div><p className="eyebrow">Budget control</p><h2>Buat budget</h2></div></div>
-                <form className="formStack transactionPanelBody" onSubmit={submitBudget}>
-                  <div className="fieldGrid"><label>Kode<input maxLength={32} minLength={2} onChange={(event) => setBudgetForm({ ...budgetForm, code: event.target.value })} required value={budgetForm.code} /></label><label>Alokasi IDR<input min="0.01" onChange={(event) => setBudgetForm({ ...budgetForm, amount: event.target.value })} required step="0.01" type="number" value={budgetForm.amount} /></label></div>
-                  <label>Nama budget<input maxLength={160} minLength={3} onChange={(event) => setBudgetForm({ ...budgetForm, name: event.target.value })} required value={budgetForm.name} /></label>
-                  <button className="button primary" disabled={busy} type="submit">Simpan budget</button>
-                </form>
-              </section>
-              <section className="panel">
-                <div className="panelHeader"><div><p className="eyebrow">Request intake</p><h2>Buat payment request</h2></div></div>
-                <form className="formStack transactionPanelBody" onSubmit={submitPaymentRequest}>
-                  <div className="fieldGrid"><label>Budget<select onChange={(event) => setRequestForm({ ...requestForm, budgetId: event.target.value })} required value={requestForm.budgetId}><option value="">Pilih budget</option>{budgets.map((budget) => <option key={budget.budget_id} value={budget.budget_id}>{budget.code} · tersedia {budget.available_amount}</option>)}</select></label><label>Dokumen pendukung<select onChange={(event) => setRequestForm({ ...requestForm, documentVersionId: event.target.value })} required value={requestForm.documentVersionId}><option value="">Pilih dokumen</option>{documents.map((document) => <option key={document.document_version_id} value={document.document_version_id}>{document.logical_name} · v{document.version_number}</option>)}</select></label></div>
-                  <div className="fieldGrid"><label>Penerima<input maxLength={200} minLength={2} onChange={(event) => setRequestForm({ ...requestForm, payeeName: event.target.value })} required value={requestForm.payeeName} /></label><label>Jumlah IDR<input min="0.01" onChange={(event) => setRequestForm({ ...requestForm, amount: event.target.value })} required step="0.01" type="number" value={requestForm.amount} /></label></div>
-                  <label>Tujuan pembayaran<textarea maxLength={1000} minLength={3} onChange={(event) => setRequestForm({ ...requestForm, purpose: event.target.value })} required rows={2} value={requestForm.purpose} /></label>
-                  <label>Tanggal pembayaran diminta<input onChange={(event) => setRequestForm({ ...requestForm, requestedPaymentDate: event.target.value })} required type="date" value={requestForm.requestedPaymentDate} /></label>
-                  <button className="button primary" disabled={busy || !budgets.length || !documents.length} type="submit">Ajukan pembayaran</button>
-                </form>
-              </section>
-            </div>
-          ) : null}
+      {/* Stats Cards */}
+      <section className="gridCols4">
+        <StatsCard
+          badge={{ text: `${budgets.length} Akun`, variant: "info" }}
+          subtitle="Pos anggaran aktif pada proyek ini"
+          title="Total Pos Anggaran"
+          value={budgets.length}
+        />
+        <StatsCard
+          badge={{ text: `${pendingPayments.length} Menunggu`, variant: pendingPayments.length > 0 ? "warning" : "success" }}
+          subtitle="Permohonan pembayaran menunggu persetujuan"
+          title="Menunggu Approval"
+          value={pendingPayments.length}
+        />
+        <StatsCard
+          badge={{ text: `${approvedPayments.length} Siap Bayar`, variant: "info" }}
+          subtitle="Permohonan siap dibayarkan ke vendor"
+          title="Disetujui (Approved)"
+          value={approvedPayments.length}
+        />
+        <StatsCard
+          badge={{ text: `${reconciledPayments.length} Cocok`, variant: "success" }}
+          subtitle="Transaksi terverifikasi dengan mutasi bank"
+          title="Rekonsiliasi Selesai"
+          value={reconciledPayments.length}
+        />
+      </section>
 
-          <div className="transactionLayout">
-            <section className="panel">
-              <div className="panelHeader"><div><p className="eyebrow">Payment queue</p><h2>Daftar permintaan</h2></div><span className="resultCount">{payments.length} permintaan</span></div>
-              {!payments.length ? <EmptyState title="Belum ada payment request" description="Permintaan pada proyek ini akan tampil di sini." /> : (
-                <div className="transactionRecordList">
-                  {payments.map((payment) => (
-                    <button className={payment.payment_request_id === selectedId ? "selected" : ""} key={payment.payment_request_id} onClick={() => setSelectedId(payment.payment_request_id)} type="button"><span><strong>{payment.payee_name}</strong><small>IDR {payment.amount} · {payment.purpose}</small></span><span><b className="statusBadge">{humanizeCode(payment.status)}</b><small>{shortId(payment.payment_request_id)}</small></span></button>
-                  ))}
+      {/* Tabs Navigation */}
+      <div className="tabBar">
+        <button
+          className={`tabButton ${activeTab === "list" ? "active" : ""}`}
+          onClick={() => setActiveTab("list")}
+          type="button"
+        >
+          📋 Daftar Permohonan Pembayaran ({payments.length})
+        </button>
+        <button
+          className={`tabButton ${activeTab === "approval" ? "active" : ""}`}
+          onClick={() => setActiveTab("approval")}
+          type="button"
+        >
+          🛡️ Persetujuan & Keputusan
+        </button>
+        <button
+          className={`tabButton ${activeTab === "payment" ? "active" : ""}`}
+          onClick={() => setActiveTab("payment")}
+          type="button"
+        >
+          💳 Catat Pembayaran
+        </button>
+        <button
+          className={`tabButton ${activeTab === "reconcile" ? "active" : ""}`}
+          onClick={() => setActiveTab("reconcile")}
+          type="button"
+        >
+          🔄 Rekonsiliasi Bank Deterministik
+        </button>
+        <button
+          className={`tabButton ${activeTab === "budget" ? "active" : ""}`}
+          onClick={() => setActiveTab("budget")}
+          type="button"
+        >
+          📊 Pos Anggaran ({budgets.length})
+        </button>
+      </div>
+
+      {/* Tab 1: Payment Request List */}
+      {activeTab === "list" && (
+        <DataTable
+          columns={[
+            {
+              header: "ID Permohonan",
+              cell: (p: PaymentRequestRecord) => (
+                <span style={{ fontFamily: "monospace", color: "var(--green-700)", fontWeight: 700 }}>
+                  {shortId(p.payment_request_id)}
+                </span>
+              ),
+            },
+            {
+              header: "Penerima (Payee)",
+              cell: (p: PaymentRequestRecord) => (
+                <div>
+                  <strong style={{ display: "block" }}>{p.payee_name}</strong>
+                  <span style={{ fontSize: "11px", color: "var(--muted)" }}>{p.purpose}</span>
                 </div>
-              )}
-            </section>
+              ),
+            },
+            {
+              header: "Nominal (IDR)",
+              cell: (p: PaymentRequestRecord) => (
+                <span style={{ fontFamily: "monospace", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                  Rp {Number(p.amount).toLocaleString("id-ID")}
+                </span>
+              ),
+            },
+            {
+              header: "Rute Approval",
+              cell: (p: PaymentRequestRecord) => (
+                <span style={{ color: "var(--muted)", fontFamily: "monospace", fontSize: "11px" }}>
+                  {p.approval_route || "-"}
+                </span>
+              ),
+            },
+            {
+              header: "Status",
+              cell: (p: PaymentRequestRecord) => <StatusPill status={p.status} />,
+            },
+            {
+              header: "Tanggal Pengajuan",
+              cell: (p: PaymentRequestRecord) => (
+                <span style={{ color: "var(--muted)", fontSize: "11px" }}>
+                  {formatDateTime(p.created_at)}
+                </span>
+              ),
+            },
+          ]}
+          data={payments}
+          keyExtractor={(p) => p.payment_request_id}
+          onRowClick={(p) => {
+            setSelectedId(p.payment_request_id);
+            setActiveTab("approval");
+          }}
+          searchFilter={(p, q) =>
+            p.payee_name.toLowerCase().includes(q) ||
+            p.purpose.toLowerCase().includes(q) ||
+            p.status.toLowerCase().includes(q)
+          }
+          searchPlaceholder="Cari nama vendor, tujuan, atau status..."
+        />
+      )}
 
-            <section className="panel transactionDetail">
-              <div className="panelHeader"><div><p className="eyebrow">Workflow detail</p><h2>{selected?.payee_name || "Pilih permintaan"}</h2></div>{selected ? <span className="statusBadge large">{humanizeCode(selected.status)}</span> : null}</div>
-              {selected ? (
-                <div className="transactionDetailBody">
-                  <dl className="detailGrid">
-                    <div><dt>Jumlah</dt><dd>{selected.currency} {selected.amount}</dd></div>
-                    <div><dt>Langkah</dt><dd>{humanizeCode(selected.current_step)}</dd></div>
-                    <div><dt>Budget</dt><dd>{shortId(selected.budget_id)}</dd></div>
-                    <div><dt>Pemohon</dt><dd>{shortId(selected.requester_user_id)}</dd></div>
-                    <div><dt>Budget tersedia</dt><dd>{selected.budget_available ? "Ya" : "Tidak"}</dd></div>
-                    <div><dt>Dibuat</dt><dd>{formatDateTime(selected.created_at)}</dd></div>
-                  </dl>
-
-                  {canOperate && !isOwnRequest && selected.current_step === "finance-approval" ? (
-                    <form className="actionPanel" onSubmit={submitDecision}><div><p className="eyebrow">Human approval</p><h3>Keputusan pembayaran</h3><p>Pemohon tidak dapat menyetujui permintaannya sendiri.</p></div><label>Keputusan<select onChange={(event) => setDecision(event.target.value as PaymentDecision)} value={decision}><option>APPROVED</option><option>REJECTED</option><option>REVISION_REQUESTED</option></select></label><label>Alasan<textarea maxLength={2000} minLength={3} onChange={(event) => setDecisionReason(event.target.value)} required rows={3} value={decisionReason} /></label><button className="button primary" disabled={busy} type="submit">Simpan keputusan</button></form>
-                  ) : null}
-
-                  {canOperate && isOwnRequest && selected.current_step === "finance-approval" ? (
-                    <div className="readOnlyNotice"><p><strong>Menunggu approver lain</strong><span>Separation of duties melarang pemohon menyetujui permintaannya sendiri.</span></p></div>
-                  ) : null}
-
-                  {canOperate && selected.current_step === "payment-action" ? (
-                    <form className="actionPanel" onSubmit={submitPayment}><div><p className="eyebrow">Payment evidence</p><h3>Catat pembayaran</h3></div><div className="fieldGrid"><label>Referensi transaksi<input maxLength={160} minLength={3} onChange={(event) => setPaymentForm({ ...paymentForm, reference: event.target.value })} required value={paymentForm.reference} /></label><label>Jumlah<input min="0.01" onChange={(event) => setPaymentForm({ ...paymentForm, amount: event.target.value })} required step="0.01" type="number" value={paymentForm.amount} /></label></div><div className="fieldGrid"><label>Waktu dibayar<input onChange={(event) => setPaymentForm({ ...paymentForm, paidAt: event.target.value })} required type="datetime-local" value={paymentForm.paidAt} /></label><label>Dokumen bukti<select onChange={(event) => setPaymentForm({ ...paymentForm, evidenceDocumentVersionId: event.target.value })} required value={paymentForm.evidenceDocumentVersionId}><option value="">Pilih dokumen</option>{documents.map((document) => <option key={document.document_version_id} value={document.document_version_id}>{document.logical_name} · v{document.version_number}</option>)}</select></label></div><button className="button primary" disabled={busy} type="submit">Catat pembayaran</button></form>
-                  ) : null}
-
-                  {canOperate && selected.current_step === "reconciliation" ? (
-                    <form className="actionPanel" onSubmit={submitReconciliation}><div><p className="eyebrow">FRA deterministic check</p><h3>Rekonsiliasi transaksi</h3><p>Reference, amount, dan currency dibandingkan tanpa LLM.</p></div><div className="fieldGrid"><label>Referensi bank<input maxLength={160} minLength={3} onChange={(event) => setReconciliationForm({ ...reconciliationForm, reference: event.target.value })} required value={reconciliationForm.reference} /></label><label>Jumlah transaksi<input min="0.01" onChange={(event) => setReconciliationForm({ ...reconciliationForm, amount: event.target.value })} required step="0.01" type="number" value={reconciliationForm.amount} /></label></div><button className="button primary" disabled={busy} type="submit">Jalankan rekonsiliasi</button></form>
-                  ) : null}
-
-                  {!canOperate ? <div className="readOnlyNotice"><p><strong>Akses monitoring</strong><span>Anda dapat melihat transaksi tanpa menjalankan tindakan Keuangan.</span></p></div> : null}
+      {/* Tab 2: Persetujuan & Keputusan */}
+      {activeTab === "approval" && (
+        <div className="grid12">
+          <div className="colSpan7">
+            {!selected ? (
+              <EmptyState
+                description="Pilih salah satu permohonan pembayaran dari tabel untuk melihat rincian persetujuan."
+                title="Pilih Payment Request"
+              />
+            ) : (
+              <div className="panel" style={{ padding: "22px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "1px solid var(--line)", paddingBottom: "14px", marginBottom: "16px" }}>
+                  <div>
+                    <h2 style={{ margin: "0 0 4px", fontSize: "18px", fontFamily: "Georgia, serif" }}>
+                      Rincian Payment Request
+                    </h2>
+                    <span style={{ fontFamily: "monospace", color: "var(--muted)", fontSize: "11px" }}>
+                      ID: {selected.payment_request_id}
+                    </span>
+                  </div>
+                  <StatusPill status={selected.status} />
                 </div>
-              ) : <EmptyState title="Pilih payment request" description="Pilih permintaan untuk melihat tahapan dan tindakan yang tersedia." />}
-            </section>
+
+                <div className="gridCols2" style={{ marginBottom: "16px" }}>
+                  <div>
+                    <span style={{ color: "var(--muted)", fontSize: "11px", display: "block" }}>Penerima (Payee):</span>
+                    <strong style={{ fontSize: "14px" }}>{selected.payee_name}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--muted)", fontSize: "11px", display: "block" }}>Nominal:</span>
+                    <strong style={{ color: "var(--green-800)", fontSize: "18px", fontFamily: "Georgia, serif" }}>
+                      Rp {Number(selected.amount).toLocaleString("id-ID")}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--muted)", fontSize: "11px", display: "block" }}>Kategori:</span>
+                    <span>{selected.category_code}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--muted)", fontSize: "11px", display: "block" }}>Rute Kewenangan:</span>
+                    <span style={{ fontFamily: "monospace", color: "var(--green-700)" }}>{selected.approval_route || "-"}</span>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: "14px" }}>
+                  <span style={{ color: "var(--muted)", fontSize: "11px", display: "block", marginBottom: "4px" }}>Tujuan Pembayaran:</span>
+                  <p style={{ margin: 0, padding: "12px", background: "var(--paper)", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "12px", lineHeight: "1.5" }}>
+                    {selected.purpose}
+                  </p>
+                </div>
+
+                {selected.vendor_reference && (
+                  <div>
+                    <span style={{ color: "var(--muted)", fontSize: "11px", display: "block" }}>Nomor Invoice/Faktur:</span>
+                    <span style={{ fontFamily: "monospace" }}>{selected.vendor_reference}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        </>
-      ) : null}
-    </>
+
+          <div className="colSpan5 spaceY4">
+            {selected && canDecideSelected && (
+              <form
+                className="panel"
+                onSubmit={handleDecide}
+                style={{ padding: "20px" }}
+              >
+                <h3 style={{ margin: "0 0 14px", fontSize: "15px", borderBottom: "1px solid var(--line)", paddingBottom: "8px" }}>
+                  Formulir Keputusan Approval
+                </h3>
+
+                <FormField label="Keputusan:">
+                  <SelectInput
+                    onChange={(e) => setDecision(e.target.value as PaymentDecision)}
+                    value={decision}
+                  >
+                    <option value="APPROVED">Persetujuan (APPROVED)</option>
+                    <option value="REVISION_REQUESTED">Minta Revisi (REVISION_REQUESTED)</option>
+                    <option value="REJECTED">Tolak Permohonan (REJECTED)</option>
+                  </SelectInput>
+                </FormField>
+
+                <FormField label="Alasan / Catatan Keputusan:">
+                  <TextAreaInput
+                    disabled={busy}
+                    onChange={(e) => setDecisionReason(e.target.value)}
+                    placeholder="Wajib diisi jika revisi/ditolak atau sebagai audit note..."
+                    required={decision !== "APPROVED"}
+                    value={decisionReason}
+                  />
+                </FormField>
+
+                <button
+                  className={`button ${decision === "APPROVED" ? "primary" : "secondary"}`}
+                  disabled={busy}
+                  style={{ width: "100%", marginTop: "8px" }}
+                  type="submit"
+                >
+                  {busy ? "Menyimpan..." : `Konfirmasi Keputusan (${decision})`}
+                </button>
+              </form>
+            )}
+
+            {selected && canCancelSelected && (
+              <form
+                className="panel"
+                onSubmit={handleCancel}
+                style={{ padding: "18px", border: "1px solid #f6beba", background: "#fdf0ee" }}
+              >
+                <h3 style={{ margin: "0 0 4px", fontSize: "14px", color: "var(--red)" }}>Batalkan Permohonan</h3>
+                <p style={{ margin: "0 0 10px", fontSize: "11px", color: "var(--muted)" }}>
+                  Membatalkan payment request dan melepaskan komitmen anggaran yang tertahan.
+                </p>
+                <FormField label="Alasan Pembatalan:">
+                  <TextAreaInput
+                    disabled={busy}
+                    onChange={(e) => setCancellationReason(e.target.value)}
+                    placeholder="Masukkan alasan pembatalan transaksi..."
+                    required
+                    value={cancellationReason}
+                  />
+                </FormField>
+                <button
+                  className="button"
+                  disabled={busy || !cancellationReason.trim()}
+                  style={{ width: "100%", background: "var(--red)", color: "#fff" }}
+                  type="submit"
+                >
+                  {busy ? "Membatalkan..." : "Batalkan Payment Request"}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: Catat Pembayaran */}
+      {activeTab === "payment" && (
+        <div className="panel" style={{ maxWidth: "600px", margin: "0 auto", padding: "24px" }}>
+          <h2 style={{ margin: "0 0 4px", fontSize: "18px", fontFamily: "Georgia, serif" }}>
+            Pencatatan Pembayaran Nyata (Bank Transfer)
+          </h2>
+          <p style={{ color: "var(--muted)", fontSize: "12px", marginBottom: "18px" }}>
+            Hanya permohonan yang berstatus <StatusPill status="APPROVED" /> yang dapat dicatatkan buktinya.
+          </p>
+
+          <form className="spaceY4" onSubmit={handleRecordPayment}>
+            <FormField label="Pilih Payment Request Disetujui:">
+              <SelectInput
+                onChange={(e) => setSelectedId(e.target.value)}
+                value={selectedId || ""}
+              >
+                <option value="">-- Pilih Transaksi --</option>
+                {payments
+                  .filter((p) => p.status === "APPROVED")
+                  .map((p) => (
+                    <option key={p.payment_request_id} value={p.payment_request_id}>
+                      {p.payee_name} — Rp {Number(p.amount).toLocaleString("id-ID")} ({shortId(p.payment_request_id)})
+                    </option>
+                  ))}
+              </SelectInput>
+            </FormField>
+
+            <FormField label="Nomor Referensi Bank / No. Bukti Transfer:">
+              <TextInput
+                disabled={busy}
+                onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
+                placeholder="Contoh: TRF-BCA-88992109"
+                required
+                value={paymentForm.reference}
+              />
+            </FormField>
+
+            <FormField label="Nominal Terbayar:">
+              <TextInput
+                disabled={busy}
+                onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                placeholder={selected ? selected.amount : "Nominal IDR"}
+                value={paymentForm.amount}
+              />
+            </FormField>
+
+            <button
+              className="button primary"
+              disabled={busy || !selectedId || !paymentForm.reference.trim()}
+              style={{ width: "100%", marginTop: "12px" }}
+              type="submit"
+            >
+              {busy ? "Menyimpan..." : "Simpan Catatan Pembayaran"}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Tab 4: Rekonsiliasi Bank */}
+      {activeTab === "reconcile" && (
+        <div className="panel" style={{ maxWidth: "600px", margin: "0 auto", padding: "24px" }}>
+          <h2 style={{ margin: "0 0 4px", fontSize: "18px", fontFamily: "Georgia, serif" }}>
+            Rekonsiliasi Bank Deterministik (Core FRA)
+          </h2>
+          <p style={{ color: "var(--muted)", fontSize: "12px", marginBottom: "18px" }}>
+            Mencocokkan catatan transaksi sistem dengan mutasi rekening koran bank secara presisi.
+          </p>
+
+          <form className="spaceY4" onSubmit={handleReconcile}>
+            <FormField label="Pilih Transaksi Terbayar:">
+              <SelectInput
+                onChange={(e) => setSelectedId(e.target.value)}
+                value={selectedId || ""}
+              >
+                <option value="">-- Pilih Transaksi --</option>
+                {payments
+                  .filter((p) => p.status === "PAID")
+                  .map((p) => (
+                    <option key={p.payment_request_id} value={p.payment_request_id}>
+                      {p.payee_name} — Rp {Number(p.amount).toLocaleString("id-ID")} ({shortId(p.payment_request_id)})
+                    </option>
+                  ))}
+              </SelectInput>
+            </FormField>
+
+            <FormField label="Nomor Referensi Mutasi Bank:">
+              <TextInput
+                disabled={busy}
+                onChange={(e) =>
+                  setReconciliationForm({ ...reconciliationForm, reference: e.target.value })
+                }
+                placeholder="Contoh: MUT-BCA-992812"
+                required
+                value={reconciliationForm.reference}
+              />
+            </FormField>
+
+            <button
+              className="button primary"
+              disabled={busy || !selectedId || !reconciliationForm.reference.trim()}
+              style={{ width: "100%", marginTop: "12px" }}
+              type="submit"
+            >
+              {busy ? "Mencocokkan..." : "Jalankan Rekonsiliasi Deterministik"}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Tab 5: Pos Anggaran */}
+      {activeTab === "budget" && (
+        <DataTable
+          columns={[
+            {
+              header: "Kode Anggaran",
+              cell: (b: BudgetRecord) => (
+                <span style={{ fontFamily: "monospace", color: "var(--green-700)", fontWeight: 700 }}>
+                  {b.code}
+                </span>
+              ),
+            },
+            {
+              header: "Nama Pos Anggaran",
+              cell: (b: BudgetRecord) => <strong>{b.name}</strong>,
+            },
+            {
+              header: "Total Alokasi (IDR)",
+              cell: (b: BudgetRecord) => (
+                <span style={{ fontFamily: "monospace", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                  Rp {Number(b.allocated_amount).toLocaleString("id-ID")}
+                </span>
+              ),
+            },
+            {
+              header: "Terkomitmen (Committed)",
+              cell: (b: BudgetRecord) => (
+                <span style={{ fontFamily: "monospace", color: "var(--amber)", fontVariantNumeric: "tabular-nums" }}>
+                  Rp {Number(b.committed_amount).toLocaleString("id-ID")}
+                </span>
+              ),
+            },
+            {
+              header: "Sisa Tersedia (Available)",
+              cell: (b: BudgetRecord) => (
+                <span style={{ fontFamily: "monospace", color: "var(--green-800)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                  Rp {Number(b.available_amount).toLocaleString("id-ID")}
+                </span>
+              ),
+            },
+          ]}
+          data={budgets}
+          keyExtractor={(b) => b.budget_id}
+          searchFilter={(b, q) =>
+            b.code.toLowerCase().includes(q) || b.name.toLowerCase().includes(q)
+          }
+          searchPlaceholder="Cari kode atau nama pos anggaran..."
+        />
+      )}
+
+      {/* Modal: Ajukan Payment Request Baru */}
+      <Modal
+        onClose={() => setShowRequestModal(false)}
+        open={showRequestModal}
+        subtitle="Permohonan pembayaran operasional dan pengadaan vendor"
+        title="Ajukan Payment Request Baru"
+      >
+        <form className="spaceY4" onSubmit={handleCreatePaymentRequest}>
+          <FormField label="Pos Anggaran (Budget):" required>
+            <SelectInput
+              onChange={(e) => setRequestForm({ ...requestForm, budgetId: e.target.value })}
+              required
+              value={requestForm.budgetId}
+            >
+              {budgets.map((b) => (
+                <option key={b.budget_id} value={b.budget_id}>
+                  {b.code} — {b.name} (Sisa: Rp {Number(b.available_amount).toLocaleString("id-ID")})
+                </option>
+              ))}
+            </SelectInput>
+          </FormField>
+
+          <FormField label="Nama Penerima / Vendor (Payee):" required>
+            <TextInput
+              onChange={(e) => setRequestForm({ ...requestForm, payeeName: e.target.value })}
+              placeholder="Contoh: PT Semen Perkasa Makmur"
+              required
+              value={requestForm.payeeName}
+            />
+          </FormField>
+
+          <FormField label="Nomor Referensi Vendor / No. Invoice:">
+            <TextInput
+              onChange={(e) =>
+                setRequestForm({ ...requestForm, vendorReference: e.target.value })
+              }
+              placeholder="Contoh: INV-SPM-2026-0041"
+              value={requestForm.vendorReference}
+            />
+          </FormField>
+
+          <FormField label="Nominal Pembayaran (IDR):" required>
+            <TextInput
+              onChange={(e) => setRequestForm({ ...requestForm, amount: e.target.value })}
+              placeholder="Contoh: 15000000"
+              required
+              type="number"
+              value={requestForm.amount}
+            />
+          </FormField>
+
+          <FormField label="Tujuan Pembayaran (Justifikasi):" required>
+            <TextAreaInput
+              onChange={(e) => setRequestForm({ ...requestForm, purpose: e.target.value })}
+              placeholder="Jelaskan kebutuhan pengadaan atau pembayaran..."
+              required
+              value={requestForm.purpose}
+            />
+          </FormField>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "18px", borderTop: "1px solid var(--line)", paddingTop: "14px" }}>
+            <button
+              className="button secondary"
+              onClick={() => setShowRequestModal(false)}
+              type="button"
+            >
+              Batal
+            </button>
+            <button
+              className="button primary"
+              disabled={busy || !requestForm.amount || !requestForm.payeeName.trim()}
+              type="submit"
+            >
+              {busy ? "Memproses..." : "Ajukan Permohonan"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Buat Alokasi Anggaran Baru */}
+      <Modal
+        onClose={() => setShowBudgetModal(false)}
+        open={showBudgetModal}
+        subtitle="Alokasi pagu anggaran baru untuk divisi / proyek"
+        title="Buat Alokasi Anggaran Baru"
+      >
+        <form className="spaceY4" onSubmit={handleCreateBudget}>
+          <FormField label="Kode Anggaran:" required>
+            <TextInput
+              onChange={(e) => setBudgetForm({ ...budgetForm, code: e.target.value })}
+              placeholder="Contoh: BDG-PROJ-01-OP"
+              required
+              value={budgetForm.code}
+            />
+          </FormField>
+
+          <FormField label="Nama Pos Anggaran:" required>
+            <TextInput
+              onChange={(e) => setBudgetForm({ ...budgetForm, name: e.target.value })}
+              placeholder="Contoh: Operasional Lapangan & Logistik"
+              required
+              value={budgetForm.name}
+            />
+          </FormField>
+
+          <FormField label="Total Pagu Anggaran (IDR):" required>
+            <TextInput
+              onChange={(e) => setBudgetForm({ ...budgetForm, amount: e.target.value })}
+              placeholder="Contoh: 100000000"
+              required
+              type="number"
+              value={budgetForm.amount}
+            />
+          </FormField>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "18px", borderTop: "1px solid var(--line)", paddingTop: "14px" }}>
+            <button
+              className="button secondary"
+              onClick={() => setShowBudgetModal(false)}
+              type="button"
+            >
+              Batal
+            </button>
+            <button
+              className="button primary"
+              disabled={busy || !budgetForm.code.trim() || !budgetForm.amount}
+              type="submit"
+            >
+              {busy ? "Menyimpan..." : "Simpan Anggaran"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </div>
   );
 }

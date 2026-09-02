@@ -7,7 +7,12 @@ from alos.llm.models import (
     LLMResultStatus,
 )
 from alos.llm.prompts import PromptDefinition, PromptRegistry
-from alos.llm.providers import AnthropicProvider, DisabledProvider, OpenAIProvider
+from alos.llm.providers import (
+    AnthropicProvider,
+    DisabledProvider,
+    LocalOpenAIProvider,
+    OpenAIProvider,
+)
 
 __all__ = [
     "AnthropicProvider",
@@ -19,6 +24,7 @@ __all__ = [
     "LLMRequest",
     "LLMResult",
     "LLMResultStatus",
+    "LocalOpenAIProvider",
     "OpenAIProvider",
     "PromptDefinition",
     "PromptRegistry",

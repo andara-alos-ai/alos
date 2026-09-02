@@ -10,6 +10,8 @@
 
 - Operasi bisnis menggunakan bearer token, konteks organisasi, role, dan akses project.
 - Perintah yang dapat diulang wajib membawa `Idempotency-Key`.
+- Server mengikat `Idempotency-Key` pada organisasi, operasi, dan hash payload; request
+  paralel dengan key yang sama diserialisasi dalam transaksi.
 - `X-Correlation-ID` menghubungkan work item, workflow run, agent run, dan audit.
 - Endpoint autentikasi lokal tidak tersedia pada staging atau production.
 - Login OIDC hanya memverifikasi identitas; kewenangan selalu dimuat ulang dari database ALOS.
@@ -25,7 +27,7 @@
 | `GET` | `/auth/oidc/login` | memulai Authorization Code Flow + PKCE | publik; jika OIDC aktif |
 | `GET` | `/auth/oidc/callback/google` | memvalidasi callback Google dan menerbitkan kode sekali pakai | callback provider |
 | `POST` | `/auth/oidc/exchange` | menukar kode sekali pakai menjadi token ALOS | publik; kode satu kali |
-| `GET` | `/agents` | registry 18 Core Agent | pengguna terautentikasi; read-only |
+| `GET` | `/agents` | registry agent berversi | pengguna terautentikasi; read-only |
 | `GET` | `/workflows` | enam definisi workflow | pengguna terautentikasi; read-only |
 | `POST` | `/agent-runs/prepare` | validasi diagnostik kontrak runtime tanpa eksekusi bisnis | IT Admin |
 | `POST` | `/agent-runtime/execute` | evaluasi capability melalui shared runtime dan audit | pemilik bisnis domain; tanpa efek production |
@@ -38,8 +40,10 @@
 | `GET` | `/projects` | project dalam organisasi pengguna | pengguna terautentikasi |
 | `POST` | `/finance/budgets` | membuat budget aktif per project | Finance atau Head divisi Finance |
 | `POST` | `/finance/payment-requests` | memulai `FLOW-002` dan pemeriksaan DIA/CEA/BCA/ARA | Finance atau Head divisi Finance |
-| `POST` | `/finance/payment-requests/{id}/decision` | menyetujui atau menolak dengan pemisahan tugas | Finance approver yang bukan requester |
+| `POST` | `/finance/payment-requests/{id}/decision` | approve, reject, atau return for revision dengan pemisahan tugas dan route server-side | approver sesuai route yang bukan requester |
 | `POST` | `/finance/payment-requests/{id}/payment` | mencatat tindakan pembayaran dan bukti | Finance Human |
+| `POST` | `/finance/payment-requests/{id}/cancel` | membatalkan permintaan yang belum dibayar | requester, Finance Head, atau Direktur sesuai scope |
+| `POST` | `/finance/payment-requests/{id}/revision` | mengirim ulang data dan paket evidence setelah dikembalikan | requester asli |
 | `POST` | `/finance/payment-requests/{id}/reconciliation` | mencocokkan transaksi melalui FRA | Finance atau Head divisi Finance |
 | `POST` | `/property/site-evidence` | memulai pemeriksaan bukti dan progres CEA/TPA | Property atau Head divisi Property |
 | `POST` | `/property/site-evidence/{id}/review` | review manusia lalu KPI atau exception/CAPA | reviewer Property yang bukan pengunggah |
@@ -168,11 +172,14 @@ dalam token divalidasi ulang terhadap penugasan aktif di database pada setiap re
 3. menetapkan tenggat respons awal 15 menit sebagai baseline pilot;
 4. mencatat audit entry berantai hash;
 5. berhenti pada langkah `sales-assignment` untuk keputusan manusia;
-6. setelah Sales PIC ditetapkan, CFA membuat follow-up task tanpa mengirim pesan;
-7. Sales PIC mencatat interaksi sebagai `follow_up`, `qualified`, `reserved`, atau
-   `exception`;
-8. reservasi menyelesaikan workflow hanya setelah dicatat Sales Human dan memiliki
-   referensi reservasi.
+6. setelah Sales PIC yang memiliki penugasan project aktif ditetapkan, CFA membuat
+   follow-up task dan reminder tanpa mengirim pesan;
+7. Sales PIC mencatat riwayat interaksi sebagai `follow_up`, `qualified`, `reserved`,
+   `lost`, atau `exception`;
+8. hasil qualification, tahapan pipeline, jadwal follow-up, dan alasan lost divalidasi
+   sebagai transisi state deterministik di server;
+9. reservasi menyelesaikan workflow hanya setelah dicatat Sales Human, memiliki referensi
+   reservasi, dan menyertakan evidence bila ditandai wajib oleh transaksi.
 
 Tidak ada komunikasi pelanggan, perubahan harga, pembayaran, atau aktivitas eksternal
 yang dilakukan otomatis pada tahap foundation ini.
@@ -181,14 +188,34 @@ yang dilakukan otomatis pada tahap foundation ini.
 
 `POST /finance/payment-requests` membuat work item dan workflow run, mengaitkan dokumen
 sebagai evidence, lalu menjalankan pemeriksaan terstruktur DIA, CEA, BCA, dan ARA pada
-shared Agent Runtime. Anggaran yang tersedia dicadangkan sebagai `committed_amount` dan
-permintaan diteruskan ke approval manusia yang berbeda dari requester.
+shared Agent Runtime. Pemeriksaan dan hasilnya disimpan per agent. Anggaran yang tersedia
+dicadangkan sebagai `committed_amount`; dokumen tidak lengkap atau budget tidak memadai
+membuka exception dan menghentikan jalur normal.
+
+Pemeriksaan DIA pada workflow ini memakai capability metadata deterministik; jalur transaksi
+tidak memerlukan provider LLM.
+
+Kategori pembayaran dibatasi server ke `GENERAL`, `MATERIAL`, `OPERATIONS`, `CONTRACTOR`,
+atau `TAX`; dua kategori terakhir memerlukan evidence tambahan. Dokumen transaksi harus
+lulus scope organisasi/project/divisi, tidak berstatus verifikasi `REJECTED`, dan memiliki
+scan status `NOT_CONFIGURED` atau `CLEAN`.
+
+ARA memilih route deterministik dari nominal yang sudah divalidasi server dan policy registry
+berversi pada `definitions/policies/approval-levels/payment-request.json`. Baseline pilot saat
+ini mengarahkan sampai Rp25 juta ke `FINANCE_REVIEWER` (SLA 24 jam), sampai Rp250 juta ke
+`FINANCE_HEAD` (SLA 12 jam), dan di atas Rp250 juta ke `DIRECTOR` (SLA 8 jam). Nilai tersebut
+belum menjadi kebijakan produksi dan wajib diratifikasi sebelum status policy dinaikkan dari
+`PILOT`. Approver harus memenuhi
+route, scope organisasi/project, dan separation of duties. Keputusan yang tersedia adalah
+approve, reject, atau return for revision; cancel hanya diizinkan sebelum pembayaran dan
+selalu diaudit. Pengiriman revision menjalankan ulang pemeriksaan dan routing.
 
 Setelah disetujui, Finance Human tetap melakukan pembayaran di kanal resmi perusahaan
 dan mencatat referensi beserta bukti melalui endpoint payment. FRA kemudian mencocokkan
 referensi, nilai, dan mata uang secara deterministik. Hasil cocok memindahkan nilai budget
 dari committed menjadi spent; ketidakcocokan membuka exception untuk penanganan manusia.
 ALOS pada tahap ini tidak mengeksekusi transfer bank atau mengirim instruksi pembayaran.
+Semua operasi berisiko duplikasi memakai idempotency key yang disimpan server-side.
 
 ## Jalur Bukti Lapangan Saat Ini
 

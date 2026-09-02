@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, text
@@ -360,7 +360,7 @@ class PostgresDocumentRepository:
         ).scalar_one_or_none()
         if division_id is None:
             raise KeyError("Divisi dokumen tidak ditemukan")
-        return division_id
+        return cast(UUID, division_id)
 
     @staticmethod
     def _assert_project(connection: Any, project_id: UUID | None, principal: Principal) -> None:

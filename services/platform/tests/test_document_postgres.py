@@ -235,9 +235,6 @@ def _cleanup(
             connection.execute(
                 "DELETE FROM platform.documents WHERE document_id = %s", (document_id,)
             )
-            connection.execute(
-                "DELETE FROM audit.entries WHERE entity_id = %s", (str(document_id),)
-            )
         connection.execute(
             "DELETE FROM platform.projects WHERE project_id = %s", (created["project_id"],)
         )

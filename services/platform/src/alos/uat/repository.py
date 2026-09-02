@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, text
 
+from alos.audit import compute_audit_entry_hash
 from alos.security import Principal
 from alos.uat.models import (
     SignoffDecision,
@@ -256,7 +256,7 @@ class PostgresUatRepository:
                             WHERE dv.document_version_id = :document_version_id
                               AND d.organization_id = :organization_id
                               AND d.project_id = :project_id
-                              AND dv.scan_status <> 'INFECTED'
+                              AND dv.scan_status IN ('NOT_CONFIGURED', 'CLEAN')
                               AND dv.verification_status <> 'REJECTED'
                             """
                         ),
@@ -547,11 +547,13 @@ class PostgresUatRepository:
         )
         if row is None:
             raise KeyError("Siklus UAT tidak ditemukan")
-        return row
+        return cast(Mapping[str, Any], row)
 
     @staticmethod
     def _existing_actor_id(connection: Any, principal: Principal) -> UUID | None:
-        return connection.execute(
+        return cast(
+            UUID | None,
+            connection.execute(
             text(
                 """
                 SELECT user_id FROM identity.users
@@ -562,7 +564,8 @@ class PostgresUatRepository:
                 "user_id": principal.user_id,
                 "organization_id": principal.organization_id,
             },
-        ).scalar_one_or_none()
+            ).scalar_one_or_none(),
+        )
 
     @staticmethod
     def _clean_optional(value: str | None) -> str | None:
@@ -590,34 +593,36 @@ class PostgresUatRepository:
         previous_hash = connection.execute(
             text(
                 """
-                SELECT entry_hash FROM audit.entries
-                WHERE organization_id = :organization_id
-                ORDER BY occurred_at DESC, audit_entry_id DESC LIMIT 1
-                FOR UPDATE
+                SELECT candidate.entry_hash
+                FROM audit.entries AS candidate
+                WHERE candidate.organization_id = :organization_id
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM audit.entries AS child
+                      WHERE child.organization_id = candidate.organization_id
+                        AND child.previous_hash = candidate.entry_hash
+                  )
+                ORDER BY candidate.occurred_at DESC, candidate.audit_entry_id DESC
+                LIMIT 1
+                FOR UPDATE OF candidate
                 """
             ),
             {"organization_id": principal.organization_id},
         ).scalar_one_or_none()
         occurred_at = datetime.now(UTC)
-        canonical = json.dumps(
-            {
-                "organization_id": str(principal.organization_id),
-                "actor_id": str(principal.user_id),
-                "action": action,
-                "entity_type": entity_type,
-                "entity_id": str(entity_id),
-                "correlation_id": str(correlation_id),
-                "reason": reason,
-                "before": before,
-                "after": after,
-                "occurred_at": occurred_at.isoformat(),
-                "previous_hash": previous_hash,
-            },
-            default=str,
-            separators=(",", ":"),
-            sort_keys=True,
+        entry_hash = compute_audit_entry_hash(
+            organization_id=principal.organization_id,
+            actor_id=str(principal.user_id),
+            action=action,
+            entity_type=entity_type,
+            entity_id=str(entity_id),
+            correlation_id=correlation_id,
+            reason=reason,
+            before=before,
+            after=after,
+            occurred_at=occurred_at,
+            previous_hash=previous_hash,
         )
-        entry_hash = hashlib.sha256(canonical.encode()).hexdigest()
         connection.execute(
             text(
                 """

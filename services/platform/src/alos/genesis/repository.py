@@ -18,6 +18,13 @@ from alos.genesis.models import (
 class GenesisStore(Protocol):
     def create(self, view: GenesisPipelineView) -> GenesisPipelineView: ...
 
+    def list_requests(
+        self,
+        organization_id: UUID,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[GenesisPipelineView, ...]: ...
+
     def get(self, request_id: UUID, organization_id: UUID) -> GenesisPipelineView: ...
 
     def add_review(
@@ -54,6 +61,16 @@ class InMemoryGenesisStore:
             raise ValueError("Genesis request sudah ada")
         self._records[key] = view
         return view
+
+    def list_requests(
+        self,
+        organization_id: UUID,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[GenesisPipelineView, ...]:
+        items = [v for (org, _), v in self._records.items() if org == organization_id]
+        items.sort(key=lambda x: x.created_at, reverse=True)
+        return tuple(items[offset : offset + limit])
 
     def get(self, request_id: UUID, organization_id: UUID) -> GenesisPipelineView:
         try:
@@ -223,6 +240,26 @@ class PostgresGenesisStore:
                 )
         return view
 
+    def list_requests(
+        self,
+        organization_id: UUID,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[GenesisPipelineView, ...]:
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT request_id FROM genesis.change_requests
+                    WHERE organization_id = :org_id
+                    ORDER BY created_at DESC
+                    LIMIT :limit OFFSET :offset
+                    """
+                ),
+                {"org_id": organization_id, "limit": limit, "offset": offset},
+            ).fetchall()
+            return tuple(self._read(connection, row.request_id, organization_id) for row in rows)
+
     def get(self, request_id: UUID, organization_id: UUID) -> GenesisPipelineView:
         with self._engine.connect() as connection:
             return self._read(connection, request_id, organization_id)
@@ -260,10 +297,16 @@ class PostgresGenesisStore:
                     "reviewed_at": now,
                 },
             )
-            decisions = connection.execute(
-                text("SELECT gate, decision FROM genesis.reviews WHERE request_id = :request_id"),
-                {"request_id": request_id},
-            ).mappings().all()
+            decisions = (
+                connection.execute(
+                    text(
+                        "SELECT gate, decision FROM genesis.reviews WHERE request_id = :request_id"
+                    ),
+                    {"request_id": request_id},
+                )
+                .mappings()
+                .all()
+            )
             if any(item["decision"] == "REJECTED" for item in decisions):
                 status = GenesisLifecycleStatus.REJECTED
             elif {item["gate"] for item in decisions} == {"BUSINESS", "TECHNICAL"}:
@@ -373,16 +416,20 @@ class PostgresGenesisStore:
 
     @staticmethod
     def _lock_request(connection: Any, request_id: UUID, organization_id: UUID) -> Any:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT * FROM genesis.change_requests
                 WHERE request_id = :request_id AND organization_id = :organization_id
                 FOR UPDATE
                 """
-            ),
-            {"request_id": request_id, "organization_id": organization_id},
-        ).mappings().one_or_none()
+                ),
+                {"request_id": request_id, "organization_id": organization_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
         if row is None:
             raise KeyError("Genesis request tidak ditemukan")
         return row
@@ -436,30 +483,42 @@ class PostgresGenesisStore:
 
     @staticmethod
     def _read(connection: Any, request_id: UUID, organization_id: UUID) -> GenesisPipelineView:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT * FROM genesis.change_requests
                 WHERE request_id = :request_id AND organization_id = :organization_id
                 """
-            ),
-            {"request_id": request_id, "organization_id": organization_id},
-        ).mappings().one_or_none()
+                ),
+                {"request_id": request_id, "organization_id": organization_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
         if row is None:
             raise KeyError("Genesis request tidak ditemukan")
-        review_rows = connection.execute(
-            text(
-                """
+        review_rows = (
+            connection.execute(
+                text(
+                    """
                 SELECT review_id, gate, decision, reviewer_user_id, notes, reviewed_at
                 FROM genesis.reviews WHERE request_id = :request_id ORDER BY reviewed_at
                 """
-            ),
-            {"request_id": request_id},
-        ).mappings().all()
-        release_row = connection.execute(
-            text("SELECT * FROM genesis.release_packages WHERE request_id = :request_id"),
-            {"request_id": request_id},
-        ).mappings().one_or_none()
+                ),
+                {"request_id": request_id},
+            )
+            .mappings()
+            .all()
+        )
+        release_row = (
+            connection.execute(
+                text("SELECT * FROM genesis.release_packages WHERE request_id = :request_id"),
+                {"request_id": request_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
         status = GenesisLifecycleStatus(row["status"])
         return GenesisPipelineView(
             request_id=row["request_id"],
