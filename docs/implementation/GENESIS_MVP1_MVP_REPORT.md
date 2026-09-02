@@ -1,6 +1,6 @@
 # GENESIS MVP1 — Laporan Hasil Rebuild
 
-**Status:** READY FOR CONTROLLED SYNTHETIC PILOT  
+**Status:** HOLD — menunggu quality gate PostgreSQL disposable
 **Branch:** `develop`  
 **Tanggal:** 2 September 2026
 
@@ -31,6 +31,7 @@ ALOS sekarang berjalan sebagai satu aplikasi internal dengan satu shared Agent R
 | Agent/source/config registry validation | PASS — 18 legacy top-level + 3 logical definitions; 3 source packs; 1 config register |
 | Secret-pattern scan on tracked workspace content | PASS — no key pattern found; `.env` excluded/read untouched |
 | Python and Node dependency audit | PASS |
+| Security smoke (token, session/CSRF, response header, Model Gateway) | PASS — 19 test |
 
 The end-to-end isolated test proves: `CREATE → business review → technical review → stage → release → activate → run → tool denial → suspend → rollback`.
 
@@ -42,6 +43,11 @@ UAT scope juga membuktikan bahwa role IT dapat menjalankan logical agent lintas-
 - Source packs enforce version, authority, SHA metadata, allowed use, and citation references. Full production document extraction/chunk-level locator is not yet implemented; do not use this MVP for production document ingestion.
 - `estimated_cost_usd` depends on configured per-token rates. Default is `0.0` until finance/IT set approved rates; tokens, provider, model, and latency are still recorded.
 - Lifecycle filesystem status is audited through the application ledger. Production deployment/activation remains deliberately outside Genesis and requires a separate controlled deployment procedure.
+- Audit dependency tidak menemukan kerentanan yang diketahui. Paket lokal `alos-platform` tidak dipublikasikan ke PyPI sehingga tidak dapat diperiksa oleh layanan audit eksternal; dependency pihak ketiga tetap lulus.
+
+## Keputusan Teknis
+
+Rekomendasi teknis saat ini adalah **HOLD** untuk controlled internal pilot sampai fresh migration, integration/smoke PostgreSQL, serta backup/restore sintetis dijalankan pada database disposable. Genesis MVP1 tidak boleh diaktifkan untuk production dalam kondisi ini.
 
 ## Rollback
 
