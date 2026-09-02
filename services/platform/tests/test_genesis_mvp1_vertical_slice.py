@@ -10,11 +10,13 @@ from alos.agents.capabilities import CapabilityRegistry
 from alos.agents.contract import AgentDefinition, AgentKind, AgentReference, AgentStatus
 from alos.agents.registry import AgentRegistry, RegistryError
 from alos.agents.runtime import (
+    AgentCapabilityExecuteRequest,
     AgentLifecycleService,
     AgentRunRequest,
     RuntimePolicyViolation,
     SharedAgentRuntime,
 )
+from alos.agents.runtime.application import AgentCapabilityService
 from alos.genesis import GenesisDesignService, GenesisPipelineService, SourceRegistry
 from alos.genesis.models import (
     GenesisReviewCreate,
@@ -25,6 +27,7 @@ from alos.genesis.models import (
 )
 from alos.genesis.repository import InMemoryGenesisStore
 from alos.security import Principal, Role
+from alos.security.authorization import AuthorizationDenied
 from alos.tools import ToolRegistry
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -32,9 +35,14 @@ SOURCE_REFERENCE = "ALOS-SP-SYNTHETIC-PILOT@1.0.0"
 DIVISIONS = ("FINANCE", "SALES_MARKETING", "PROPERTY", "HR", "LEGAL", "IT")
 
 
-def _principal(organization_id: object, role: Role) -> Principal:
+def _principal(
+    organization_id: object, role: Role, division_codes: tuple[str, ...] = ()
+) -> Principal:
     return Principal(
-        user_id=uuid4(), organization_id=organization_id, roles=frozenset({role})
+        user_id=uuid4(),
+        organization_id=organization_id,
+        roles=frozenset({role}),
+        division_codes=frozenset(division_codes),
     )
 
 
@@ -238,6 +246,9 @@ def test_lifecycle_control_requires_human_it_operator_and_writes_audit_event(
     audit_events: list[tuple[str, str, str]] = []
 
     class AuditStore:
+        def record_standalone_agent_run(self, *_args: object) -> None:
+            raise AssertionError("lifecycle test must not record an agent run")
+
         def record_agent_lifecycle_transition(
             self,
             before: AgentDefinition,
@@ -290,4 +301,88 @@ def test_logical_agent_rejects_missing_or_overbroad_configuration_policy(tmp_pat
             _daily_brief_contract().model_copy(
                 update={"tools_allowed": ("alos.approval.create",)}
             )
+        )
+
+
+@pytest.mark.parametrize(
+    ("division", "role"),
+    (
+        ("FINANCE", Role.FINANCE),
+        ("SALES_MARKETING", Role.SALES),
+        ("PROPERTY", Role.PROPERTY),
+        ("HR", Role.HR),
+        ("LEGAL", Role.LEGAL),
+        ("IT", Role.IT_ADMIN),
+    ),
+)
+def test_daily_brief_runs_in_each_mvp1_division_context(
+    division: str, role: Role
+) -> None:
+    class RunStore:
+        def __init__(self) -> None:
+            self.run_ids: list[object] = []
+
+        def record_standalone_agent_run(self, plan: object, *_args: object) -> None:
+            self.run_ids.append(plan)
+
+        def record_agent_lifecycle_transition(self, *_args: object) -> None:
+            raise AssertionError("division UAT must not change lifecycle state")
+
+    registry = AgentRegistry(REPOSITORY_ROOT / "definitions")
+    runtime = SharedAgentRuntime(registry, ToolRegistry(REPOSITORY_ROOT / "definitions"))
+    store = RunStore()
+    service = AgentCapabilityService(
+        registry,
+        CapabilityRegistry(REPOSITORY_ROOT / "definitions"),
+        runtime,
+        store,
+    )
+    result = service.execute(
+        AgentCapabilityExecuteRequest(
+            agent_id="DAILY_BRIEF",
+            capability="aggregate_verified_facts",
+            input_references=[f"synthetic:{division.lower()}"],
+            requested_tools=["alos.audit.read"],
+            input_payload={
+                "verified_facts": [{"division": division, "status": "ON_TRACK"}],
+                "source_references": [f"synthetic:{division.lower()}"],
+            },
+        ),
+        _principal(uuid4(), role, (division,)),
+        f"uat-{division.lower()}-daily-001",
+    )
+
+    assert result.agent_id == "DAILY_BRIEF"
+    assert result.output_reference["fact_count"] == 1
+    assert store.run_ids
+
+
+def test_permit_monitor_denies_unauthorized_division_context() -> None:
+    registry = AgentRegistry(REPOSITORY_ROOT / "definitions")
+    runtime = SharedAgentRuntime(registry, ToolRegistry(REPOSITORY_ROOT / "definitions"))
+
+    class RunStore:
+        def record_standalone_agent_run(self, *_args: object) -> None:
+            raise AssertionError("run must not be recorded after scope denial")
+
+        def record_agent_lifecycle_transition(self, *_args: object) -> None:
+            raise AssertionError("scope denial must not change lifecycle state")
+
+    service = AgentCapabilityService(
+        registry,
+        CapabilityRegistry(REPOSITORY_ROOT / "definitions"),
+        runtime,
+        RunStore(),
+    )
+    with pytest.raises(AuthorizationDenied, match="konteks divisi"):
+        service.execute(
+            AgentCapabilityExecuteRequest(
+                agent_id="PERMIT_OVERDUE_MONITOR",
+                capability="monitor_capa_deadline",
+                input_references=["synthetic:finance-permit"],
+                requested_tools=["alos.legal.read"],
+                input_payload={"due_dates": ["2026-09-01T00:00:00Z"]},
+            ),
+            _principal(uuid4(), Role.FINANCE, ("FINANCE",)),
+            "uat-finance-permit-denied-001",
         )

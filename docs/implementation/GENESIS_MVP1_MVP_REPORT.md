@@ -15,6 +15,7 @@ ALOS sekarang berjalan sebagai satu aplikasi internal dengan satu shared Agent R
 - Shared runtime menjalankan contract yang dipin, memeriksa capability, tool allowlist, status lifecycle, schema, evidence, dan scope divisi.
 - Lifecycle tersedia: release, human activation, suspend/kill-switch, dan rollback ke versi lama. Aktivasi memilih satu versi ACTIVE per logical agent dan setiap operasi lifecycle mencatat audit event.
 - Tiga logical validation agent dibuat melalui pipeline menggunakan source sintetis: `DAILY_BRIEF`, `EVIDENCE_CHECKER`, dan `PERMIT_OVERDUE_MONITOR`.
+- UAT sintetis membuktikan `DAILY_BRIEF` berjalan pada enam konteks: Keuangan, Sales & Marketing, Property, HR, Legal, dan IT. `PERMIT_OVERDUE_MONITOR` menolak konteks Keuangan karena contract hanya mengizinkan Property/Legal.
 - Model Gateway adalah satu boundary provider: OpenAI primary, Claude fallback sesudah kegagalan primary, Ollama/local hanya local/test. Metadata menyimpan provider, model, token, latency, dan estimated cost.
 
 ## Bukti Verifikasi
@@ -32,6 +33,8 @@ ALOS sekarang berjalan sebagai satu aplikasi internal dengan satu shared Agent R
 | Python and Node dependency audit | PASS |
 
 The end-to-end isolated test proves: `CREATE → business review → technical review → stage → release → activate → run → tool denial → suspend → rollback`.
+
+UAT scope juga membuktikan bahwa role IT dapat menjalankan logical agent lintas-divisi hanya dalam division context yang sah; tidak ada bypass permission untuk agent dengan scope lebih sempit.
 
 ## Known Limitations / Follow-up Gate
 

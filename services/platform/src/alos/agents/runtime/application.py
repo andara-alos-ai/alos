@@ -54,6 +54,7 @@ DOMAIN_ROLES: dict[str, tuple[Role, ...]] = {
         Role.PROPERTY,
         Role.HR,
         Role.LEGAL,
+        Role.IT_ADMIN,
     ),
 }
 
