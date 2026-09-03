@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, status
 
 from alos.config import get_settings
+from alos.genesis.api import router as genesis_router
 from alos.persistence.database import database_is_ready
 from alos.security.tokens import (
     ActorContext,
@@ -12,6 +13,7 @@ from alos.security.tokens import (
 )
 
 app = FastAPI(title="ALOS", version="0.1.0")
+app.include_router(genesis_router)
 
 
 @app.get("/health")
