@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from alos.config import Settings
 
 DataClassification = Literal["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"]
-GatewayProvider = Literal["openai", "anthropic", "local", "fake"]
+GatewayProvider = Literal["openai", "anthropic", "gemini", "local", "fake"]
 
 _DATA_CLASSIFICATION_RANK: dict[DataClassification, int] = {
     "PUBLIC": 0,

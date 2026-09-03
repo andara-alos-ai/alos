@@ -39,6 +39,29 @@ def test_staging_disables_provider_response_storage() -> None:
         )
 
 
+def test_local_allows_gemini_for_the_temporary_local_provider() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="local",
+        llm_provider="gemini",
+        llm_api_key="test-only-key",
+        llm_model="gemini-3.7-flash",
+    )
+    assert settings.llm_provider == "gemini"
+
+
+def test_staging_rejects_gemini() -> None:
+    with pytest.raises(ValueError, match="Gemini is limited"):
+        Settings(
+            _env_file=None,
+            environment="staging",
+            auth_signing_secret="a" * 32,
+            llm_provider="gemini",
+            llm_api_key="test-only-key",
+            llm_model="gemini-3.7-flash",
+        )
+
+
 def test_config_allows_a_container_migrations_path() -> None:
     settings = Settings(_env_file=None, migrations_path="/app/infra/database")
     assert settings.migrations_path == Path("/app/infra/database")

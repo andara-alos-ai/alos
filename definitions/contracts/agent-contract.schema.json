@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ALOS Agent Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "agent_key",
+    "name",
+    "purpose",
+    "risk_level",
+    "input_schema",
+    "output_schema",
+    "model_policy",
+    "tool_keys",
+    "permission_keys",
+    "evidence_requirements",
+    "forbidden_actions",
+    "kpis"
+  ],
+  "properties": {
+    "agent_key": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,79}$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 200},
+    "parent_agent_key": {"type": ["string", "null"]},
+    "purpose": {"type": "string", "minLength": 1, "maxLength": 10000},
+    "risk_level": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+    "input_schema": {"type": "object"},
+    "output_schema": {"type": "object"},
+    "model_policy": {"type": "object"},
+    "tool_keys": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "permission_keys": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "evidence_requirements": {"type": "array", "items": {"type": "string"}},
+    "forbidden_actions": {"type": "array", "items": {"type": "string"}},
+    "kpis": {"type": "array", "items": {"type": "object"}}
+  }
+}

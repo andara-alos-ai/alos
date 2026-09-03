@@ -6,7 +6,7 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "test", "staging", "production"]
-LlmProvider = Literal["disabled", "openai", "anthropic", "local"]
+LlmProvider = Literal["disabled", "openai", "anthropic", "gemini", "local"]
 
 
 def repository_root() -> Path:
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = Field(default=8000, ge=1, le=65535)
     web_origin: str = "http://localhost:3000"
-    database_url: str = "postgresql+psycopg://alos:change-me@localhost:5433/alos"
+    database_url: str = "postgresql+psycopg://alos:change-me@127.0.0.1:5433/alos"
 
     auth_issuer: str = "alos-local"
     auth_audience: str = "alos-platform"
@@ -68,6 +68,8 @@ class Settings(BaseSettings):
             raise ValueError("production requires object storage outside the local filesystem")
         if self.llm_provider == "local" and self.environment not in {"local", "test"}:
             raise ValueError("local LLM is limited to local/test")
+        if self.llm_provider == "gemini" and self.environment not in {"local", "test"}:
+            raise ValueError("Gemini is limited to local/test")
         if self.environment == "production" and self.llm_provider not in {"disabled", "openai"}:
             raise ValueError("OpenAI is the only permitted primary production provider")
         if self.llm_provider != "disabled" and (

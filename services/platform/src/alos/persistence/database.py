@@ -7,7 +7,7 @@ def psycopg_url(sqlalchemy_url: str) -> str:
 
 def database_is_ready(database_url: str) -> bool:
     try:
-        with psycopg.connect(psycopg_url(database_url)) as connection:
+        with psycopg.connect(psycopg_url(database_url), connect_timeout=5) as connection:
             return connection.execute("SELECT 1").fetchone() == (1,)
     except psycopg.Error:
         return False

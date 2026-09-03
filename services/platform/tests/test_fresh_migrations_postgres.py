@@ -30,10 +30,23 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
         repository_root = Path(__file__).resolve().parents[3]
         assert apply_migrations(temporary_url, repository_root / "infra" / "database") == (
             "001_genesis_mvp1_baseline.sql",
+            "002_h1_policy_and_test_registry.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
             assert connection.execute("SELECT count(*) FROM audit.events").fetchone() == (0,)
+            assert connection.execute(
+                "SELECT to_regclass('agents.tool_definitions')"
+            ).fetchone() == ("agents.tool_definitions",)
+            assert connection.execute(
+                "SELECT to_regclass('governance.permission_policies')"
+            ).fetchone() == ("governance.permission_policies",)
+            assert connection.execute(
+                "SELECT to_regclass('governance.test_cases')"
+            ).fetchone() == ("governance.test_cases",)
+            assert connection.execute(
+                "SELECT to_regclass('governance.test_runs')"
+            ).fetchone() == ("governance.test_runs",)
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:
             connection.execute(

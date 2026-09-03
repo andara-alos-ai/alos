@@ -9,6 +9,7 @@ description = "ALOS control plane dan shared Agent Runtime"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "fastapi[standard]==0.141.1",
+  "httpx>=0.28,<1",
   "pyjwt[crypto]>=2.10,<3",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
@@ -21,7 +22,6 @@ alos-migrate = "alos.persistence.migrations:main"
 
 [project.optional-dependencies]
 dev = [
-  "httpx>=0.28,<1",
   "mypy>=1.17,<2",
   "pip-audit>=2.9,<3",
   "pytest>=9.0.3,<10",
