@@ -1,3 +1,4 @@
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -53,6 +54,9 @@ class Settings(BaseSettings):
     ] = "INTERNAL"
     llm_daily_request_limit: int = Field(default=500, ge=1)
     llm_daily_output_token_limit: int = Field(default=500_000, ge=1_000)
+    llm_daily_cost_cap_usd: Decimal = Field(default=Decimal("5.00"), ge=0)
+    llm_max_retries: int = Field(default=1, ge=0, le=3)
+    budget_timezone: str = "Asia/Jakarta"
 
     repository_root: Path = Field(default_factory=repository_root)
     migrations_path: Path | None = None

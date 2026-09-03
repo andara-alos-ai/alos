@@ -31,6 +31,9 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
         assert apply_migrations(temporary_url, repository_root / "infra" / "database") == (
             "001_genesis_mvp1_baseline.sql",
             "002_h1_policy_and_test_registry.sql",
+            "003_h2_agent_registry.sql",
+            "004_h3_runtime_budget.sql",
+            "005_h4_release_governance.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
@@ -41,12 +44,21 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             assert connection.execute(
                 "SELECT to_regclass('governance.permission_policies')"
             ).fetchone() == ("governance.permission_policies",)
+            assert connection.execute("SELECT to_regclass('governance.test_cases')").fetchone() == (
+                "governance.test_cases",
+            )
+            assert connection.execute("SELECT to_regclass('governance.test_runs')").fetchone() == (
+                "governance.test_runs",
+            )
             assert connection.execute(
-                "SELECT to_regclass('governance.test_cases')"
-            ).fetchone() == ("governance.test_cases",)
+                "SELECT tgname FROM pg_trigger WHERE tgname = 'agents_contract_parent_guard'"
+            ).fetchone() == ("agents_contract_parent_guard",)
             assert connection.execute(
-                "SELECT to_regclass('governance.test_runs')"
-            ).fetchone() == ("governance.test_runs",)
+                "SELECT to_regclass('runtime.budget_reservations')"
+            ).fetchone() == ("runtime.budget_reservations",)
+            assert connection.execute(
+                "SELECT to_regclass('governance.agent_change_requests')"
+            ).fetchone() == ("governance.agent_change_requests",)
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:
             connection.execute(

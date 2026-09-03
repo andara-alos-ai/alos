@@ -6,8 +6,10 @@
   "required": [
     "agent_key",
     "name",
+    "workspace_id",
     "purpose",
     "risk_level",
+    "owner_user_id",
     "input_schema",
     "output_schema",
     "model_policy",
@@ -15,14 +17,19 @@
     "permission_keys",
     "evidence_requirements",
     "forbidden_actions",
-    "kpis"
+    "kpis",
+    "approval_required",
+    "timeout_seconds",
+    "prompt_template"
   ],
   "properties": {
     "agent_key": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,79}$"},
     "name": {"type": "string", "minLength": 1, "maxLength": 200},
+    "workspace_id": {"type": "string", "format": "uuid"},
     "parent_agent_key": {"type": ["string", "null"]},
     "purpose": {"type": "string", "minLength": 1, "maxLength": 10000},
     "risk_level": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+    "owner_user_id": {"type": "string", "format": "uuid"},
     "input_schema": {"type": "object"},
     "output_schema": {"type": "object"},
     "model_policy": {"type": "object"},
@@ -30,6 +37,9 @@
     "permission_keys": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "evidence_requirements": {"type": "array", "items": {"type": "string"}},
     "forbidden_actions": {"type": "array", "items": {"type": "string"}},
-    "kpis": {"type": "array", "items": {"type": "object"}}
+    "kpis": {"type": "array", "items": {"type": "object"}},
+    "approval_required": {"type": "boolean"},
+    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+    "prompt_template": {"type": "string", "minLength": 1, "maxLength": 20000}
   }
 }

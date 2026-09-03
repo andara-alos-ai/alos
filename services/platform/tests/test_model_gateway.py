@@ -12,6 +12,7 @@ from alos.model_gateway import (
     ModelRequest,
     ModelResponse,
     ModelUsage,
+    RetryingModelGateway,
     UsageBudget,
 )
 
@@ -129,3 +130,17 @@ def test_gateway_rejects_a_provider_response_that_exceeds_reserved_output_limit(
         gateway.generate(request(max_output_tokens=50))
 
     assert budget.output_tokens == 0
+
+
+def test_retrying_gateway_retries_only_transient_provider_errors() -> None:
+    fake = FakeModelGateway(
+        [
+            ModelGatewayTimeoutError("TIMEOUT", "provider timed out"),
+            response(),
+        ]
+    )
+
+    result = RetryingModelGateway(fake, max_retries=1).generate(request())
+
+    assert result.model == "test-model"
+    assert len(fake.requests) == 2

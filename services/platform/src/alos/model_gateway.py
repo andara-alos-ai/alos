@@ -79,6 +79,25 @@ class ModelGateway(Protocol):
         """Return one structured generation result or raise a safe failure."""
 
 
+class RetryingModelGateway:
+    """Retry only transient provider failures; policy and content failures never retry."""
+
+    def __init__(self, delegate: ModelGateway, max_retries: int) -> None:
+        if max_retries < 0 or max_retries > 3:
+            raise ValueError("max_retries must be between 0 and 3")
+        self._delegate = delegate
+        self._max_retries = max_retries
+
+    def generate(self, request: ModelRequest) -> ModelResponse:
+        for attempt in range(self._max_retries + 1):
+            try:
+                return self._delegate.generate(request)
+            except ModelGatewayError as error:
+                if attempt >= self._max_retries or not _is_retryable(error):
+                    raise
+        raise AssertionError("retry loop must return or raise")
+
+
 @dataclass
 class UsageBudget:
     """In-memory deterministic reservation guard for a single accounting window.
@@ -174,3 +193,12 @@ class FakeModelGateway:
             usage=ModelUsage(input_tokens=1, output_tokens=1),
             latency_milliseconds=1,
         )
+
+
+def _is_retryable(error: ModelGatewayError) -> bool:
+    return error.code in {"TIMEOUT", "GEMINI_TRANSPORT"} or error.code in {
+        "GEMINI_HTTP_500",
+        "GEMINI_HTTP_502",
+        "GEMINI_HTTP_503",
+        "GEMINI_HTTP_504",
+    }
