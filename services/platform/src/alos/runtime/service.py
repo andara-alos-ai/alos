@@ -7,6 +7,7 @@ import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
@@ -20,6 +21,7 @@ from alos.agents.registry import AgentContract
 from alos.config import Settings
 from alos.model_gateway import ModelGateway, ModelGatewayError, ModelResponse
 from alos.persistence.database import psycopg_url
+from alos.sources.registry import SourceRegistryRepository
 
 RunStatus = Literal["SUCCEEDED", "FAILED", "BLOCKED"]
 
@@ -84,6 +86,32 @@ class AgentRunResult(BaseModel):
     model: str | None = None
     tool_decisions: list[ToolDecision] = Field(default_factory=list)
     error_code: str | None = None
+
+
+class AgentRunSummary(BaseModel):
+    """Safe run metadata for operations views; it never exposes inputs or output bodies."""
+
+    agent_run_id: UUID
+    agent_key: str
+    semantic_version: str
+    status: RunStatus
+    correlation_id: UUID
+    created_at: datetime
+    completed_at: datetime | None
+    provider: str | None
+    model: str | None
+    input_tokens: int | None
+    output_tokens: int | None
+    latency_milliseconds: int | None
+    estimated_cost_usd: Decimal | None
+
+
+class WorkspaceUsageSummary(BaseModel):
+    workspace_id: UUID
+    request_count: int
+    input_tokens: int
+    output_tokens: int
+    estimated_cost_usd: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +182,7 @@ class AgentRuntime:
             output = _parse_and_validate_output(
                 response.output_text, prepared.execution.contract.output_schema
             )
+            _validate_output_citations(output, prepared.fixture_context)
         except AgentRuntimeBlocked as error:
             self._repository.complete_failure(prepared, str(error))
             return _failure_result(prepared, "CONTRACT_POLICY_BLOCKED")
@@ -200,7 +229,11 @@ class AgentRuntime:
         output_limit = min(configured_limit, self._max_output_tokens)
         if output_limit < 1:
             raise AgentRuntimeBlocked("contract output token policy is invalid")
+        model_route = contract.model_policy.get("model_route", "standard")
+        if model_route not in {"light", "standard", "critical"}:
+            raise AgentRuntimeBlocked("contract model route is invalid")
         return ModelRequest(
+            model=self._settings.model_for_route(model_route),
             instructions=(
                 f"{contract.prompt_template}\n\n"
                 "Return JSON only. Do not take actions. "
@@ -245,6 +278,19 @@ class AgentRuntimeRepository:
                 connection, organization_id, request.workspace_id, agent_key
             )
             input_hash = _digest(request.input)
+            permission_error = self._evaluate_permissions(connection, execution)
+            if permission_error is not None:
+                return self._block_run(
+                    connection,
+                    execution,
+                    organization_id,
+                    request.workspace_id,
+                    actor_user_id,
+                    correlation_id,
+                    input_hash,
+                    tool_key="PERMISSION_POLICY",
+                    reason=permission_error,
+                )
             try:
                 _validate_json_schema(request.input, execution.contract.input_schema, "input")
             except InputSchemaError as error:
@@ -263,6 +309,7 @@ class AgentRuntimeRepository:
                 connection,
                 execution,
                 organization_id,
+                request.workspace_id,
                 request.requested_tool_keys,
                 request.input,
             )
@@ -417,6 +464,90 @@ class AgentRuntimeRepository:
             )
             return WorkspaceBudget(workspace_id=workspace_id, **request.model_dump())
 
+    def list_runs(
+        self,
+        workspace_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        limit: int = 50,
+    ) -> list[AgentRunSummary]:
+        """Read-only execution metadata for operations views."""
+        if limit < 1 or limit > 200:
+            raise AgentRuntimeError("run listing limit must be between 1 and 200")
+        with self._connection() as connection:
+            self._require_actor_workspace(connection, organization_id, actor_user_id, workspace_id)
+            rows = connection.execute(
+                """
+                SELECT run.agent_run_id, contract.agent_key, version.semantic_version, run.status,
+                       run.correlation_id, run.created_at, run.completed_at, ledger.provider,
+                       ledger.model, ledger.input_tokens, ledger.output_tokens, ledger.latency_ms,
+                       ledger.estimated_cost_usd
+                FROM runtime.agent_runs AS run
+                JOIN agents.versions AS version
+                  ON version.agent_version_id = run.agent_version_id
+                JOIN agents.contracts AS contract
+                  ON contract.agent_contract_id = version.agent_contract_id
+                LEFT JOIN observability.usage_ledger AS ledger
+                  ON ledger.agent_run_id = run.agent_run_id
+                WHERE run.organization_id = %s AND run.workspace_id = %s
+                ORDER BY run.created_at DESC, run.agent_run_id DESC
+                LIMIT %s
+                """,
+                (organization_id, workspace_id, limit),
+            ).fetchall()
+        return [
+            AgentRunSummary(
+                agent_run_id=row["agent_run_id"],
+                agent_key=row["agent_key"],
+                semantic_version=row["semantic_version"],
+                status=row["status"],
+                correlation_id=row["correlation_id"],
+                created_at=row["created_at"],
+                completed_at=row["completed_at"],
+                provider=row["provider"],
+                model=row["model"],
+                input_tokens=row["input_tokens"],
+                output_tokens=row["output_tokens"],
+                latency_milliseconds=row["latency_ms"],
+                estimated_cost_usd=row["estimated_cost_usd"],
+            )
+            for row in rows
+        ]
+
+    def usage_summary(
+        self,
+        workspace_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+    ) -> WorkspaceUsageSummary:
+        """Return daily persisted usage in the configured budget timezone."""
+        with self._connection() as connection:
+            self._require_actor_workspace(connection, organization_id, actor_user_id, workspace_id)
+            window_start_sql = "(date_trunc('day', now() AT TIME ZONE %s) AT TIME ZONE %s)"
+            row = connection.execute(
+                f"""
+                SELECT count(*) AS request_count,
+                       coalesce(sum(ledger.input_tokens), 0) AS input_tokens,
+                       coalesce(sum(ledger.output_tokens), 0) AS output_tokens,
+                       coalesce(sum(ledger.estimated_cost_usd), 0) AS estimated_cost_usd
+                FROM observability.usage_ledger AS ledger
+                JOIN runtime.agent_runs AS run ON run.agent_run_id = ledger.agent_run_id
+                WHERE run.organization_id = %s AND run.workspace_id = %s
+                  AND run.created_at >= {window_start_sql}
+                """,
+                (
+                    organization_id,
+                    workspace_id,
+                    self._settings.budget_timezone,
+                    self._settings.budget_timezone,
+                ),
+            ).fetchone()
+        if row is None:
+            raise AgentRuntimeError("daily usage could not be read")
+        return WorkspaceUsageSummary(workspace_id=workspace_id, **dict(row))
+
     def complete_success(
         self, prepared: _PreparedRun, response: ModelResponse, output: dict[str, Any]
     ) -> None:
@@ -538,6 +669,7 @@ class AgentRuntimeRepository:
         connection: psycopg.Connection[Any],
         execution: _ExecutionVersion,
         organization_id: UUID,
+        workspace_id: UUID,
         requested_tool_keys: list[str],
         fixture_input: dict[str, Any],
     ) -> tuple[list[ToolDecision], list[dict[str, Any]]] | ToolDecision:
@@ -571,11 +703,28 @@ class AgentRuntimeRepository:
                     decision="BLOCKED",
                     reason="tool is not an approved read-only tool",
                 )
-            if manifest.get("runtime_handler") != "FIXTURE_SOURCE_READ":
+            handler = manifest.get("runtime_handler")
+            if handler == "FIXTURE_SOURCE_READ":
+                fixture_context.append(_read_only_fixture(fixture_input))
+            elif handler == "SOURCE_REGISTRY_SEARCH":
+                query = _source_query(fixture_input)
+                citations = SourceRegistryRepository(self._database_url).search_evidence(
+                    workspace_id,
+                    query,
+                    organization_id=organization_id,
+                )
+                fixture_context.append(
+                    {
+                        "fixture": "SOURCE_REGISTRY_SEARCH",
+                        "query": query,
+                        "records": [citation.model_dump(mode="json") for citation in citations],
+                    }
+                )
+            else:
                 return ToolDecision(
                     tool_key=tool_key,
                     decision="BLOCKED",
-                    reason="tool has no approved H3 runtime handler",
+                    reason="tool has no approved shared-runtime handler",
                 )
             decisions.append(
                 ToolDecision(
@@ -584,8 +733,27 @@ class AgentRuntimeRepository:
                     reason="approved read-only fixture tool",
                 )
             )
-            fixture_context.append(_read_only_fixture(fixture_input))
         return decisions, fixture_context
+
+    @staticmethod
+    def _evaluate_permissions(
+        connection: psycopg.Connection[Any], execution: _ExecutionVersion
+    ) -> str | None:
+        """A contract permission is usable only after explicit policy approval."""
+        for permission_key in execution.contract.permission_keys:
+            policy = connection.execute(
+                """
+                SELECT effect, lifecycle_status
+                FROM governance.permission_policies
+                WHERE agent_version_id = %s AND permission_key = %s
+                """,
+                (execution.agent_version_id, permission_key),
+            ).fetchone()
+            if policy is None:
+                return f"permission {permission_key} has no approved policy"
+            if policy["lifecycle_status"] != "APPROVED" or policy["effect"] != "ALLOW":
+                return f"permission {permission_key} is not approved"
+        return None
 
     def _reserve_budget_and_create_run(
         self,
@@ -874,6 +1042,34 @@ def _parse_and_validate_output(value: str, schema: dict[str, Any]) -> dict[str, 
     return parsed
 
 
+def _validate_output_citations(
+    output: dict[str, Any], fixture_context: tuple[dict[str, Any], ...]
+) -> None:
+    """Prevent a model from claiming sources that the Runtime did not retrieve."""
+    permitted = {
+        citation["citation_key"]
+        for context in fixture_context
+        for citation in context.get("records", [])
+        if isinstance(citation, dict) and isinstance(citation.get("citation_key"), str)
+    }
+    if not permitted:
+        return
+    citations = output.get("citations")
+    if not isinstance(citations, list) or not citations:
+        raise OutputSchemaError("output must cite at least one retrieved source")
+    supplied: set[str] = set()
+    for citation in citations:
+        if isinstance(citation, str):
+            supplied.add(citation)
+        elif isinstance(citation, dict) and isinstance(citation.get("citation_key"), str):
+            supplied.add(citation["citation_key"])
+        else:
+            raise OutputSchemaError("each output citation must identify a citation_key")
+    unknown = supplied - permitted
+    if unknown:
+        raise OutputSchemaError("output cited a source not retrieved by the Runtime")
+
+
 def _validate_json_schema(value: Any, schema: dict[str, Any], path: str) -> None:
     expected_type = schema.get("type")
     if expected_type == "object":
@@ -916,6 +1112,15 @@ def _read_only_fixture(fixture_input: dict[str, Any]) -> dict[str, Any]:
             }
         ],
     }
+
+
+def _source_query(fixture_input: dict[str, Any]) -> str:
+    """Use an explicit retrieval query without asking the model to choose a source."""
+    for key in ("query", "claim", "question", "division_code"):
+        value = fixture_input.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 def _digest(value: Any) -> str:

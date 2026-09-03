@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "test", "staging", "production"]
 LlmProvider = Literal["disabled", "openai", "anthropic", "gemini", "local"]
+ModelRoute = Literal["light", "standard", "critical"]
 
 
 def repository_root() -> Path:
@@ -40,6 +41,9 @@ class Settings(BaseSettings):
     llm_provider: LlmProvider = "disabled"
     llm_api_key: SecretStr | None = None
     llm_model: str = ""
+    llm_model_light: str = ""
+    llm_model_standard: str = ""
+    llm_model_critical: str = ""
     llm_base_url: str | None = None
     llm_fallback_provider: Literal["disabled", "anthropic"] = "disabled"
     llm_fallback_api_key: SecretStr | None = None
@@ -85,6 +89,20 @@ class Settings(BaseSettings):
         if self.environment in {"staging", "production"} and self.llm_store_responses:
             raise ValueError("staging/production must keep provider response storage disabled")
         return self
+
+    def model_for_route(self, route: ModelRoute) -> str:
+        """Resolve a Contract model route only from server-side configuration.
+
+        A contract selects a bounded route, never a raw provider model name.
+        Empty route overrides intentionally fall back to the configured primary
+        model, which preserves the single-model Gemini local setup.
+        """
+        configured = {
+            "light": self.llm_model_light,
+            "standard": self.llm_model_standard,
+            "critical": self.llm_model_critical,
+        }[route]
+        return configured.strip() or self.llm_model.strip()
 
 
 @lru_cache

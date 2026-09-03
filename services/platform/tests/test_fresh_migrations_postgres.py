@@ -34,6 +34,8 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             "003_h2_agent_registry.sql",
             "004_h3_runtime_budget.sql",
             "005_h4_release_governance.sql",
+            "006_h5_source_evidence.sql",
+            "007_h5_tool_permission_approvals.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
@@ -59,6 +61,16 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             assert connection.execute(
                 "SELECT to_regclass('governance.agent_change_requests')"
             ).fetchone() == ("governance.agent_change_requests",)
+            assert connection.execute(
+                "SELECT to_regclass('sources.content_chunks')"
+            ).fetchone() == ("sources.content_chunks",)
+            assert connection.execute(
+                """
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema = 'governance' AND table_name = 'permission_policies'
+                  AND column_name = 'approved_by_user_id'
+                """
+            ).fetchone() == ("approved_by_user_id",)
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:
             connection.execute(

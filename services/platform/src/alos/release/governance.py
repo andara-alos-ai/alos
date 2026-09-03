@@ -16,7 +16,7 @@ from alos.identity import DivisionCode, HumanRole
 from alos.persistence.database import psycopg_url
 from alos.runtime.service import AgentRunRequest, AgentRunResult
 
-TestCategory = Literal["POSITIVE", "NEGATIVE", "REGRESSION"]
+TestCategory = Literal["POSITIVE", "NEGATIVE", "REGRESSION", "SECURITY", "RECOVERY"]
 ReviewGate = Literal["BUSINESS", "TECHNICAL"]
 ReviewDecision = Literal["APPROVED", "REJECTED", "RETURNED"]
 ReleaseState = Literal[
@@ -543,8 +543,11 @@ class ReleaseGovernanceRepository:
                 (context["agent_version_id"],),
             ).fetchall()
             passed_categories = {row["category"] for row in categories if row["passed"]}
-            if not {"POSITIVE", "NEGATIVE", "REGRESSION"}.issubset(passed_categories):
-                raise LifecycleConflictError("positive, negative, and regression tests must pass")
+            required_categories = {"POSITIVE", "NEGATIVE", "REGRESSION", "SECURITY", "RECOVERY"}
+            if not required_categories.issubset(passed_categories):
+                raise LifecycleConflictError(
+                    "positive, negative, regression, security, and recovery tests must pass"
+                )
             successful_run = connection.execute(
                 """
                 SELECT 1 FROM runtime.agent_runs

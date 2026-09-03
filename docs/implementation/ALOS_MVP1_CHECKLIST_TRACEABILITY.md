@@ -6,23 +6,23 @@ mandat atau batas keamanan.
 
 | Area checklist | Bukti MVP1 yang wajib ada | Status desain |
 | --- | --- | --- |
-| Requirement natural language | Conversation + Change Request + Research Mission versioned | dirancang |
-| Source, dokumen, versi | Source Registry, SHA-256, locator, classification | baseline ada; implementasi API diperlukan |
-| Analysis/gap/conflict/citation | structured Research Brief dengan citation/evidence status | dirancang |
+| Requirement natural language | Conversation + Change Request + Research Mission versioned | H5 conversation + Change Request history implemented; Research Mission HOLD |
+| Source, dokumen, versi | Source Registry, SHA-256, locator, classification | H5 local text source/version/verification/citation implemented |
+| Analysis/gap/conflict/citation | structured Research Brief dengan citation/evidence status | H5 retrieval/citation guardrail; full Genesis analysis HOLD |
 | Blueprint dan Agent Contract | JSON Schema, draft/version/digest/parent restriction | H2–H4 implemented; Designer tetap DRAFT |
-| Prompt/model/tool/permission/risk/KPI | definitions registry versioned + contract snapshot | dirancang |
-| Validate/test/diff | test case/test run registry positive, negative, regression | H4 local implementation; contract diff HOLD |
+| Prompt/model/tool/permission/risk/KPI | definitions registry versioned + contract snapshot | H5 Tool/Permission Registry approval API + contract snapshot; Prompt Config Registry HOLD |
+| Validate/test/diff | test case/test run registry positive, negative, regression | H5 five-category test gate; contract diff HOLD |
 | Human review/approval | independent reviewer, decision digest, audit | H4 local implementation; staging reviewer provisioning HOLD |
 | Staging/release/lifecycle | deterministic transition + release proposal + activation | H4 local implementation; VPS staging HOLD |
 | Shared runtime | one executor untuk semua logical agent | H3 local DRAFT fixture implementation |
 | Suspend/kill/rollback | deny-first check, rollback record, recovery test | H4 local implementation and PostgreSQL test |
-| Audit trail | append-only event untuk command/transition/run | H1–H4 writers implemented |
-| Token/provider/model/latency/cost | usage ledger + persistent cap + provider adapter | H3 Gemini local implementation; staging provider HOLD |
-| Daily Brief Agent | generated Contract/run, read-only recurring task | Contract `DAILY_BRIEF` 0.1.0 DRAFT dibuat lokal; run/schedule HOLD |
-| Evidence Checker Agent | generated Contract/run, citation/evidence test | Contract `EVIDENCE_CHECKER` 0.1.0 DRAFT dibuat lokal; run/evidence fixture HOLD |
-| Permit/Overdue Monitor Agent | generated Contract/run, schedule/escalation test | Contract `PERMIT_OVERDUE_MONITOR` 0.1.0 DRAFT dibuat lokal; run/schedule HOLD |
-| Enam konteks divisi | scoped fixtures, RBAC/UAT matrix | six division seed ada; UAT diperlukan |
-| Negative/security/recovery tests | denial, malformed output, provider failure, cap, kill, rollback | sebagian test gateway; suite diperlukan |
+| Audit trail | append-only event untuk command/transition/run | H5 writer + authorized read-only API implemented |
+| Token/provider/model/latency/cost | usage ledger + persistent cap + provider adapter | H3–H5 Gemini local + ledger/cap/observability API; staging provider HOLD |
+| Daily Brief Agent | generated Contract/run, read-only recurring task | `DAILY_BRIEF` DRAFT lokal; H5 shared-runtime validation fixture PASS; schedule HOLD |
+| Evidence Checker Agent | generated Contract/run, citation/evidence test | `EVIDENCE_CHECKER` DRAFT lokal; H5 source/citation validation PASS |
+| Permit/Overdue Monitor Agent | generated Contract/run, schedule/escalation test | `PERMIT_OVERDUE_MONITOR` DRAFT lokal; H5 shared-runtime validation fixture PASS; schedule HOLD |
+| Enam konteks divisi | scoped fixtures, RBAC/UAT matrix | H5 18 synthetic runtime run PASS; human UAT tetap diperlukan |
+| Negative/security/recovery tests | denial, malformed output, provider failure, cap, kill, rollback | H5 local automated suite PASS |
 
 ## Definisi evidence PASS
 

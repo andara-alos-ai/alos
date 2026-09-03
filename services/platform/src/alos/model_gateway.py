@@ -54,11 +54,12 @@ class ModelUsage(BaseModel):
 class ModelRequest(BaseModel):
     """A provider-agnostic generation request.
 
-    The application chooses the provider and model through Settings. Callers
-    cannot override those routing decisions on an individual request.
+    The application selects the provider and resolves an optional model route
+    from server-side Settings. External API callers cannot override either.
     """
 
     correlation_id: UUID = Field(default_factory=uuid4)
+    model: str | None = Field(default=None, min_length=1, max_length=200)
     instructions: str = Field(min_length=1, max_length=50_000)
     input_text: str = Field(min_length=1, max_length=200_000)
     data_classification: DataClassification = "INTERNAL"
@@ -196,9 +197,13 @@ class FakeModelGateway:
 
 
 def _is_retryable(error: ModelGatewayError) -> bool:
-    return error.code in {"TIMEOUT", "GEMINI_TRANSPORT"} or error.code in {
-        "GEMINI_HTTP_500",
-        "GEMINI_HTTP_502",
-        "GEMINI_HTTP_503",
-        "GEMINI_HTTP_504",
+    transient_codes = {"TIMEOUT", "GEMINI_TRANSPORT", "OPENAI_TRANSPORT"}
+    transient_statuses = {500, 502, 503, 504}
+    if error.code in transient_codes:
+        return True
+    provider_status_codes = {
+        f"{provider}_HTTP_{status}"
+        for provider in ("GEMINI", "OPENAI")
+        for status in transient_statuses
     }
+    return error.code in provider_status_codes

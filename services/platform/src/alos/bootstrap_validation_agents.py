@@ -15,8 +15,8 @@ from alos.agents.registry import (
     AgentDraftBuilder,
     AgentNotFoundError,
     AgentRegistryRepository,
-    GeminiAgentDraftGenerator,
     LocalBootstrapRequest,
+    ModelGatewayAgentDraftGenerator,
 )
 from alos.agents.validation_catalog import validation_agent_requests
 from alos.config import get_settings
@@ -31,7 +31,7 @@ def bootstrap_validation_agents() -> list[dict[str, str]]:
         raise RuntimeError("validation-agent bootstrap requires the local Gemini Model Gateway")
     repository = AgentRegistryRepository(settings.database_url)
     context = repository.bootstrap_local_context(LocalBootstrapRequest(), uuid4())
-    builder = AgentDraftBuilder(GeminiAgentDraftGenerator(settings))
+    builder = AgentDraftBuilder(ModelGatewayAgentDraftGenerator(settings))
     results: list[dict[str, str]] = []
     for request in validation_agent_requests(context.workspace_id):
         try:

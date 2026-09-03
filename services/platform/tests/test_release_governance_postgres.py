@@ -58,7 +58,7 @@ def _settings(database_url: str) -> Settings:
         llm_api_key="test-only-key",
         llm_model="gemini-3.7-flash",
         llm_max_output_tokens=256,
-        llm_daily_request_limit=10,
+        llm_daily_request_limit=20,
         llm_daily_output_token_limit=3_000,
         llm_daily_cost_cap_usd=Decimal("1.00"),
     )
@@ -151,7 +151,7 @@ def _complete_release(
         correlation_id=uuid4(),
     )
     first_case = None
-    for category in ("POSITIVE", "NEGATIVE", "REGRESSION"):
+    for category in ("POSITIVE", "NEGATIVE", "REGRESSION", "SECURITY", "RECOVERY"):
         case = repository.register_test_case(
             request.change_request_id,
             ReleaseTestCaseRequest(
@@ -190,7 +190,7 @@ def _complete_release(
         return result
 
     runner = AgentTestRunner(repository, execute_fixture)
-    for category in ("POSITIVE", "NEGATIVE", "REGRESSION"):
+    for category in ("POSITIVE", "NEGATIVE", "REGRESSION", "SECURITY", "RECOVERY"):
         result = runner.execute(
             request.change_request_id,
             f"FIXTURE_{category}",
@@ -315,9 +315,9 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
         runtime = AgentRuntime(
             AgentRuntimeRepository(temporary_url, settings),
             GuardedModelGateway(
-                    RetryingModelGateway(FakeModelGateway([_response()] * 7), max_retries=1),
+                    RetryingModelGateway(FakeModelGateway([_response()] * 12), max_retries=1),
                     settings,
-                    UsageBudget(request_limit=7, output_token_limit=2_000),
+                    UsageBudget(request_limit=12, output_token_limit=4_000),
                 ),
                 settings,
             )

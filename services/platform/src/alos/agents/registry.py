@@ -1,9 +1,9 @@
-"""H2 Agent Registry and Gemini-backed draft builder.
+"""H2 Agent Registry and Model Gateway-backed draft builder.
 
-The builder may ask Gemini to draft plain-language purpose and prompt text, but
-all security-relevant fields are supplied by the human/API and validated by
-ALOS before persistence. Every create, update, and retirement writes an
-append-only audit event. Drafts never activate an agent.
+The builder may ask the configured Model Gateway to draft plain-language
+purpose and prompt text, but all security-relevant fields are supplied by the
+human/API and validated by ALOS before persistence. Every create, update, and
+retirement writes an append-only audit event. Drafts never activate an agent.
 """
 
 from __future__ import annotations
@@ -22,13 +22,13 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from alos.config import Settings
-from alos.gemini_gateway import GeminiModelGateway
 from alos.model_gateway import (
     GuardedModelGateway,
     ModelGatewayError,
     ModelRequest,
     UsageBudget,
 )
+from alos.model_gateway_factory import create_model_gateway
 from alos.persistence.database import psycopg_url
 
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
@@ -183,16 +183,16 @@ class AgentDraftGenerator(Protocol):
         """Return a safe, limited Gemini drafting result."""
 
 
-class GeminiAgentDraftGenerator:
-    """Use Gemini locally to draft text only, behind the shared Model Gateway."""
+class ModelGatewayAgentDraftGenerator:
+    """Draft contract text through the configured shared Model Gateway only."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
     def generate(self, request: AgentBuilderRequest) -> GeneratedAgentFields:
-        if self._settings.llm_provider != "gemini":
-            raise AgentRegistryError("H2 Builder requires the local Gemini provider")
-        delegate = GeminiModelGateway(self._settings)
+        if self._settings.llm_provider not in {"gemini", "openai"}:
+            raise AgentRegistryError("Genesis Builder requires a configured Model Gateway provider")
+        delegate, close_gateway = create_model_gateway(self._settings)
         output_limit = min(_BUILDER_MAX_OUTPUT_TOKENS, self._settings.llm_max_output_tokens)
         gateway = GuardedModelGateway(
             delegate,
@@ -225,9 +225,9 @@ class GeminiAgentDraftGenerator:
                 )
             )
         except ModelGatewayError as error:
-            raise AgentRegistryError(f"Gemini draft request failed: {error.code}") from error
+            raise AgentRegistryError(f"Genesis draft request failed: {error.code}") from error
         finally:
-            delegate.close()
+            close_gateway()
         try:
             return GeneratedAgentFields.model_validate_json(_strip_code_fence(response.output_text))
         except ValueError as error:

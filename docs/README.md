@@ -24,6 +24,10 @@ terukur untuk produk ALOS.
    pembuktian dan vertical slice pertama.
 7. [Checklist traceability](implementation/ALOS_MVP1_CHECKLIST_TRACEABILITY.md)
    — checklist penerimaan MVP1 beserta bukti yang harus dihasilkan.
+8. [H5 backend stability report](implementation/H5_BACKEND_STABILITY_REPORT.md)
+   — status backend lokal, evidence quality gate, dan limitation yang masih HOLD.
+9. [OpenAI staging gateway](implementation/OPENAI_STAGING_GATEWAY.md) —
+   konfigurasi provider, routing model, dan urutan validasi VPS staging.
 
 ## Status dokumen yang sudah ada
 

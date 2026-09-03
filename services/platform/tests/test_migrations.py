@@ -12,4 +12,6 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "003_h2_agent_registry.sql",
         "004_h3_runtime_budget.sql",
         "005_h4_release_governance.sql",
+        "006_h5_source_evidence.sql",
+        "007_h5_tool_permission_approvals.sql",
     ]

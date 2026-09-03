@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from alos.agents.registry import (
@@ -12,13 +12,36 @@ from alos.agents.registry import (
     AgentRegistryError,
     AgentRegistryRecord,
     AgentRegistryRepository,
-    GeminiAgentDraftGenerator,
     LocalBootstrapRequest,
+    ModelGatewayAgentDraftGenerator,
 )
+from alos.audit.reader import AuditEventRecord, AuditReader
 from alos.config import get_settings
-from alos.gemini_gateway import GeminiModelGateway
+from alos.genesis.history import (
+    GenesisArtifactRecord,
+    GenesisConversationRecord,
+    GenesisConversationRequest,
+    GenesisHistoryError,
+    GenesisHistoryRepository,
+    GenesisMessageRecord,
+    GenesisMessageRequest,
+)
 from alos.identity import DivisionCode, HumanRole
-from alos.model_gateway import GuardedModelGateway, RetryingModelGateway, UsageBudget
+from alos.model_gateway import (
+    GuardedModelGateway,
+    ModelGatewayPolicyError,
+    RetryingModelGateway,
+    UsageBudget,
+)
+from alos.model_gateway_factory import create_model_gateway
+from alos.permissions.registry import (
+    PermissionConflictError,
+    PermissionNotFoundError,
+    PermissionPolicyRecord,
+    PermissionPolicyRequest,
+    PermissionRegistryError,
+    PermissionRegistryRepository,
+)
 from alos.persistence.database import database_is_ready
 from alos.release.governance import (
     AgentTestRunner,
@@ -39,18 +62,38 @@ from alos.release.governance import (
 from alos.runtime.service import (
     AgentRunRequest,
     AgentRunResult,
+    AgentRunSummary,
     AgentRuntime,
     AgentRuntimeBlocked,
     AgentRuntimeError,
     AgentRuntimeRepository,
     WorkspaceBudget,
     WorkspaceBudgetRequest,
+    WorkspaceUsageSummary,
 )
 from alos.security.tokens import (
     ActorContext,
     LocalTokenRequest,
     get_current_actor,
     issue_local_token,
+)
+from alos.sources.registry import (
+    EvidenceCitation,
+    SourceConflictError,
+    SourceNotFoundError,
+    SourceRegistrationRequest,
+    SourceRegistryError,
+    SourceRegistryRepository,
+    SourceVerificationRequest,
+    SourceVersionRecord,
+)
+from alos.tools.registry import (
+    ToolConflictError,
+    ToolDefinitionRecord,
+    ToolDefinitionRequest,
+    ToolNotFoundError,
+    ToolRegistryError,
+    ToolRegistryRepository,
 )
 
 app = FastAPI(title="ALOS", version="0.2.0")
@@ -66,6 +109,7 @@ class AgentDesignerRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     requirement: str = Field(min_length=20, max_length=10_000)
     parent_agent_key: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
+    conversation_id: UUID | None = None
 
     def to_builder_request(self) -> AgentBuilderRequest:
         return AgentBuilderRequest(
@@ -77,7 +121,11 @@ class AgentDesignerRequest(BaseModel):
             risk_level="LOW",
             input_schema={"type": "object"},
             output_schema={"type": "object"},
-            model_policy={"provider": "gemini", "usage": "local_test"},
+            model_policy={
+                "provider": get_settings().llm_provider,
+                "model_route": "light",
+                "usage": "controlled_draft",
+            },
             tool_keys=[],
             permission_keys=[],
             approval_required=True,
@@ -94,14 +142,15 @@ def get_agent_registry_repository() -> AgentRegistryRepository:
 
 def get_agent_draft_builder() -> AgentDraftBuilder:
     settings = get_settings()
-    return AgentDraftBuilder(GeminiAgentDraftGenerator(settings))
+    return AgentDraftBuilder(ModelGatewayAgentDraftGenerator(settings))
 
 
 def get_agent_runtime() -> AgentRuntime:
     settings = get_settings()
-    if settings.llm_provider != "gemini":
-        raise AgentRuntimeBlocked("H3 local Runtime requires the Gemini Model Gateway")
-    delegate = GeminiModelGateway(settings)
+    try:
+        delegate, close_gateway = create_model_gateway(settings)
+    except ModelGatewayPolicyError as error:
+        raise AgentRuntimeBlocked(str(error)) from error
     gateway = GuardedModelGateway(
         RetryingModelGateway(delegate, settings.llm_max_retries),
         settings,
@@ -114,12 +163,32 @@ def get_agent_runtime() -> AgentRuntime:
         AgentRuntimeRepository(settings.database_url, settings),
         gateway,
         settings,
-        close_gateway=delegate.close,
+        close_gateway=close_gateway,
     )
 
 
 def get_release_repository() -> ReleaseGovernanceRepository:
     return ReleaseGovernanceRepository(get_settings().database_url)
+
+
+def get_source_registry_repository() -> SourceRegistryRepository:
+    return SourceRegistryRepository(get_settings().database_url)
+
+
+def get_audit_reader() -> AuditReader:
+    return AuditReader(get_settings().database_url)
+
+
+def get_genesis_history_repository() -> GenesisHistoryRepository:
+    return GenesisHistoryRepository(get_settings().database_url)
+
+
+def get_tool_registry_repository() -> ToolRegistryRepository:
+    return ToolRegistryRepository(get_settings().database_url)
+
+
+def get_permission_registry_repository() -> PermissionRegistryRepository:
+    return PermissionRegistryRepository(get_settings().database_url)
 
 
 def require_registry_editor(actor: ActorContext) -> None:
@@ -148,6 +217,34 @@ def registry_http_error(error: AgentRegistryError) -> HTTPException:
 
 def runtime_http_error(error: AgentRuntimeError) -> HTTPException:
     if isinstance(error, AgentRuntimeBlocked):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+def source_http_error(error: SourceRegistryError) -> HTTPException:
+    if isinstance(error, SourceNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+    if isinstance(error, SourceConflictError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+def genesis_http_error(error: GenesisHistoryError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+def tool_http_error(error: ToolRegistryError) -> HTTPException:
+    if isinstance(error, ToolNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+    if isinstance(error, ToolConflictError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+def permission_http_error(error: PermissionRegistryError) -> HTTPException:
+    if isinstance(error, PermissionNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+    if isinstance(error, PermissionConflictError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
@@ -265,6 +362,194 @@ def bootstrap_local_release_review_team(workspace_id: UUID) -> dict[str, object]
         raise release_http_error(error) from error
 
 
+@app.post("/api/v1/genesis/conversations", response_model=GenesisConversationRecord)
+def create_genesis_conversation(
+    request: GenesisConversationRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisConversationRecord:
+    require_workspace_access(actor, request.workspace_id)
+    try:
+        return get_genesis_history_repository().create_conversation(
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+
+
+@app.get(
+    "/api/v1/genesis/conversations/{conversation_id}", response_model=GenesisConversationRecord
+)
+def get_genesis_conversation(
+    conversation_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisConversationRecord:
+    try:
+        return get_genesis_history_repository().get_conversation(
+            conversation_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+
+
+@app.post(
+    "/api/v1/genesis/conversations/{conversation_id}/messages", response_model=GenesisMessageRecord
+)
+def add_genesis_message(
+    conversation_id: UUID,
+    request: GenesisMessageRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisMessageRecord:
+    try:
+        return get_genesis_history_repository().add_human_message(
+            conversation_id,
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+
+
+@app.get(
+    "/api/v1/genesis/conversations/{conversation_id}/messages",
+    response_model=list[GenesisMessageRecord],
+)
+def list_genesis_messages(
+    conversation_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> list[GenesisMessageRecord]:
+    try:
+        return get_genesis_history_repository().list_messages(
+            conversation_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+
+
+@app.get(
+    "/api/v1/genesis/conversations/{conversation_id}/artifacts",
+    response_model=list[GenesisArtifactRecord],
+)
+def list_genesis_artifacts(
+    conversation_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> list[GenesisArtifactRecord]:
+    try:
+        return get_genesis_history_repository().list_artifacts(
+            conversation_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+
+
+@app.post("/api/v1/tools", response_model=ToolDefinitionRecord)
+def register_tool_draft(
+    request: ToolDefinitionRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> ToolDefinitionRecord:
+    """A maker can only register a read-only Tool Registry draft."""
+    require_registry_editor(actor)
+    try:
+        return get_tool_registry_repository().create_draft(
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except ToolRegistryError as error:
+        raise tool_http_error(error) from error
+
+
+@app.get("/api/v1/tools", response_model=list[ToolDefinitionRecord])
+def list_tools(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> list[ToolDefinitionRecord]:
+    require_registry_editor(actor)
+    return get_tool_registry_repository().list_tools(actor.organization_id)
+
+
+@app.post("/api/v1/tools/{tool_key}/approve", response_model=ToolDefinitionRecord)
+def approve_tool(
+    tool_key: str,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> ToolDefinitionRecord:
+    if not {HumanRole.DIRECTOR, HumanRole.QA_SECURITY}.intersection(actor.roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="tool approval authority required"
+        )
+    try:
+        return get_tool_registry_repository().approve(
+            tool_key,
+            organization_id=actor.organization_id,
+            approver_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except ToolRegistryError as error:
+        raise tool_http_error(error) from error
+
+
+@app.post("/api/v1/permission-policies", response_model=PermissionPolicyRecord)
+def register_permission_policy_draft(
+    request: PermissionPolicyRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> PermissionPolicyRecord:
+    require_registry_editor(actor)
+    require_workspace_access(actor, request.workspace_id)
+    try:
+        return get_permission_registry_repository().create_draft(
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except PermissionRegistryError as error:
+        raise permission_http_error(error) from error
+
+
+@app.get("/api/v1/permission-policies", response_model=list[PermissionPolicyRecord])
+def list_permission_policies(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    agent_key: str | None = Query(default=None, pattern=r"^[A-Z][A-Z0-9_]{2,79}$"),
+) -> list[PermissionPolicyRecord]:
+    require_registry_editor(actor)
+    return get_permission_registry_repository().list_policies(
+        actor.organization_id, agent_key=agent_key
+    )
+
+
+@app.post(
+    "/api/v1/permission-policies/{permission_policy_id}/approve",
+    response_model=PermissionPolicyRecord,
+)
+def approve_permission_policy(
+    permission_policy_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> PermissionPolicyRecord:
+    if not {HumanRole.DIRECTOR, HumanRole.QA_SECURITY}.intersection(actor.roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="permission approval authority required"
+        )
+    try:
+        return get_permission_registry_repository().approve(
+            permission_policy_id,
+            organization_id=actor.organization_id,
+            approver_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except PermissionRegistryError as error:
+        raise permission_http_error(error) from error
+
+
 @app.post("/api/v1/agents/drafts")
 def create_agent_draft(
     request: AgentBuilderRequest,
@@ -297,6 +582,26 @@ def design_agent_draft(
     require_workspace_access(actor, request.workspace_id)
     correlation_id = uuid4()
     try:
+        history = get_genesis_history_repository()
+        requirement_record = None
+        if request.conversation_id is not None:
+            conversation = history.get_conversation(
+                request.conversation_id,
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+            )
+            if conversation.workspace_id != request.workspace_id:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Genesis conversation belongs to a different workspace",
+                )
+            requirement_record = history.record_requirement(
+                request.conversation_id,
+                request.requirement,
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+                correlation_id=correlation_id,
+            )
         contract = get_agent_draft_builder().build(request.to_builder_request(), actor.user_id)
         result = get_agent_registry_repository().create_draft(
             contract,
@@ -305,6 +610,34 @@ def design_agent_draft(
             correlation_id=correlation_id,
             reason="Genesis Designer created a natural-language Agent Contract draft",
         )
+        artifact_ids: dict[str, str] = {}
+        if request.conversation_id is not None:
+            blueprint_artifact = history.record_system_artifact(
+                request.conversation_id,
+                "BLUEPRINT",
+                {
+                    "requirement": request.requirement,
+                    "agent_key": request.agent_key,
+                    "risk_level": contract.risk_level,
+                    "approval_required": contract.approval_required,
+                    "forbidden_actions": contract.forbidden_actions,
+                },
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+                correlation_id=correlation_id,
+            )
+            contract_artifact = history.record_system_artifact(
+                request.conversation_id,
+                "CONTRACT",
+                contract.model_dump(mode="json"),
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+                correlation_id=correlation_id,
+            )
+            artifact_ids = {
+                "blueprint_artifact_id": str(blueprint_artifact.artifact_id),
+                "contract_artifact_id": str(contract_artifact.artifact_id),
+            }
         return {
             "blueprint": {
                 "requirement": request.requirement,
@@ -314,9 +647,20 @@ def design_agent_draft(
                 "forbidden_actions": contract.forbidden_actions,
             },
             "draft": result.model_dump(mode="json"),
+            "genesis": {
+                "conversation_id": str(request.conversation_id)
+                if request.conversation_id is not None
+                else None,
+                "change_request_id": str(requirement_record.change_request_id)
+                if requirement_record is not None
+                else None,
+                **artifact_ids,
+            },
         }
     except AgentRegistryError as error:
         raise registry_http_error(error) from error
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
 
 
 @app.put("/api/v1/agents/{agent_key}/draft")
@@ -368,6 +712,71 @@ def get_agent(
         raise registry_http_error(error) from error
 
 
+@app.post("/api/v1/sources", response_model=SourceVersionRecord)
+def register_source_version(
+    request: SourceRegistrationRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> SourceVersionRecord:
+    """Register a textual source version; it is not retrievable until human verification."""
+    require_registry_editor(actor)
+    require_workspace_access(actor, request.workspace_id)
+    try:
+        return get_source_registry_repository().register(
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except SourceRegistryError as error:
+        raise source_http_error(error) from error
+
+
+@app.post("/api/v1/sources/{source_key}/verify", response_model=SourceVersionRecord)
+def verify_source_version(
+    source_key: str,
+    request: SourceVerificationRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> SourceVersionRecord:
+    """An explicit human gate makes a source eligible for Runtime evidence retrieval."""
+    if not {HumanRole.DIRECTOR, HumanRole.DIVISION_OWNER, HumanRole.IT_LEAD}.intersection(
+        actor.roles
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="source verification authority required"
+        )
+    require_workspace_access(actor, request.workspace_id)
+    try:
+        return get_source_registry_repository().verify(
+            request.workspace_id,
+            source_key,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+            reason=request.reason,
+        )
+    except SourceRegistryError as error:
+        raise source_http_error(error) from error
+
+
+@app.get(
+    "/api/v1/workspaces/{workspace_id}/sources/evidence", response_model=list[EvidenceCitation]
+)
+def search_source_evidence(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    query: str = Query(default="", max_length=2_000),
+    limit: int = Query(default=12, ge=1, le=50),
+) -> list[EvidenceCitation]:
+    """Show deterministic source citations that an approved read-only tool can retrieve."""
+    require_workspace_access(actor, workspace_id)
+    try:
+        return get_source_registry_repository().search_evidence(
+            workspace_id, query, organization_id=actor.organization_id, limit=limit
+        )
+    except SourceRegistryError as error:
+        raise source_http_error(error) from error
+
+
 @app.post("/api/v1/agents/{agent_key}/retire")
 def retire_agent(
     agent_key: str,
@@ -407,6 +816,59 @@ def run_agent(
         )
     except AgentRuntimeError as error:
         raise runtime_http_error(error) from error
+
+
+@app.get("/api/v1/workspaces/{workspace_id}/runs", response_model=list[AgentRunSummary])
+def list_workspace_runs(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[AgentRunSummary]:
+    """Read-only execution telemetry for the future operations dashboard."""
+    require_workspace_access(actor, workspace_id)
+    try:
+        return AgentRuntimeRepository(get_settings().database_url, get_settings()).list_runs(
+            workspace_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            limit=limit,
+        )
+    except AgentRuntimeError as error:
+        raise runtime_http_error(error) from error
+
+
+@app.get(
+    "/api/v1/workspaces/{workspace_id}/usage/daily", response_model=WorkspaceUsageSummary
+)
+def get_workspace_usage(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> WorkspaceUsageSummary:
+    """Read the same persisted daily ledger used by the cost guardrail."""
+    require_workspace_access(actor, workspace_id)
+    try:
+        return AgentRuntimeRepository(get_settings().database_url, get_settings()).usage_summary(
+            workspace_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except AgentRuntimeError as error:
+        raise runtime_http_error(error) from error
+
+
+@app.get("/api/v1/audit-events", response_model=list[AuditEventRecord])
+def list_audit_events(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[AuditEventRecord]:
+    """Only designated control roles may inspect the organization audit trail."""
+    if not {HumanRole.DIRECTOR, HumanRole.IT_LEAD, HumanRole.QA_SECURITY}.intersection(
+        actor.roles
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="audit reader role required"
+        )
+    return get_audit_reader().list_events(actor.organization_id, limit=limit)
 
 
 @app.get("/api/v1/workspaces/{workspace_id}/budget", response_model=WorkspaceBudget)
