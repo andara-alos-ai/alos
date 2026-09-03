@@ -18,9 +18,9 @@ mandat atau batas keamanan.
 | Suspend/kill/rollback | deny-first check, rollback record, recovery test | schema baseline ada; enforcement diperlukan |
 | Audit trail | append-only event untuk command/transition/run | table/trigger ada; writer/query diperlukan |
 | Token/provider/model/latency/cost | usage ledger + persistent cap + provider adapter | schema/test guard ada; integration diperlukan |
-| Daily Brief Agent | generated Contract/run, read-only recurring task | belum dibuat |
-| Evidence Checker Agent | generated Contract/run, citation/evidence test | belum dibuat |
-| Permit/Overdue Monitor Agent | generated Contract/run, schedule/escalation test | belum dibuat |
+| Daily Brief Agent | generated Contract/run, read-only recurring task | contract DRAFT tersedia via seed (`alos.genesis.seed`); review/aktivasi & run record menyusul |
+| Evidence Checker Agent | generated Contract/run, citation/evidence test | contract DRAFT tersedia via seed (`alos.genesis.seed`); review/aktivasi & run record menyusul |
+| Permit/Overdue Monitor Agent | generated Contract/run, schedule/escalation test | contract DRAFT tersedia via seed (`alos.genesis.seed`); review/aktivasi & run record menyusul |
 | Enam konteks divisi | scoped fixtures, RBAC/UAT matrix | six division seed ada; UAT diperlukan |
 | Negative/security/recovery tests | denial, malformed output, provider failure, cap, kill, rollback | sebagian test gateway; suite diperlukan |
 
