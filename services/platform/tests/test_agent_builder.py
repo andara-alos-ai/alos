@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from alos.agents.registry import (
     AgentBuilderRequest,
     AgentDraftBuilder,
+    DeterministicAgentDraftGenerator,
     GeneratedAgentFields,
 )
 from alos.agents.validation_catalog import validation_agent_requests
@@ -40,7 +41,7 @@ def _request(**changes: object) -> AgentBuilderRequest:
     return AgentBuilderRequest.model_validate(values)
 
 
-def test_builder_keeps_human_security_controls_outside_gemini() -> None:
+def test_builder_keeps_human_security_controls_outside_draft_generator() -> None:
     request = _request(risk_level="HIGH", approval_required=True)
 
     contract = AgentDraftBuilder(StubDraftGenerator()).build(request, uuid4())
@@ -51,6 +52,22 @@ def test_builder_keeps_human_security_controls_outside_gemini() -> None:
     assert contract.tool_keys == []
     assert contract.permission_keys == ["sources.read"]
     assert contract.prompt_template == "Return cited evidence only. Do not take actions."
+
+
+def test_deterministic_genesis_builder_never_requires_a_model_gateway() -> None:
+    request = _request(
+        objective="Prepare a read-only operational brief from registered evidence for IT review."
+    )
+
+    contract = AgentDraftBuilder(DeterministicAgentDraftGenerator()).build(request, uuid4())
+
+    assert contract.purpose == request.objective
+    assert "Do not take external actions." in contract.prompt_template
+    assert request.forbidden_actions[0] in contract.prompt_template
+    assert contract.evidence_requirements == [
+        "Use only registered or explicitly supplied evidence.",
+        "Cite evidence for every material conclusion.",
+    ]
 
 
 def test_generated_fields_normalizes_a_single_non_security_evidence_statement() -> None:

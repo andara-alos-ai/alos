@@ -1,8 +1,8 @@
 """Create source-enabled successor drafts for the three MVP1 validation agents.
 
 The command is deliberately local/test only and idempotent.  It never creates
-tools, permissions, approvals, releases, or active agents. Gemini receives
-only the generic agent requirements from ``validation_catalog``.
+ tools, permissions, approvals, releases, or active agents. Genesis compiles
+ only the generic agent requirements from ``validation_catalog`` locally.
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from alos.agents.registry import (
     AgentDraftBuilder,
     AgentNotFoundError,
     AgentRegistryRepository,
+    DeterministicAgentDraftGenerator,
     LocalBootstrapRequest,
-    ModelGatewayAgentDraftGenerator,
 )
 from alos.agents.validation_catalog import validation_agent_requests
 from alos.config import get_settings
@@ -26,11 +26,9 @@ def refresh_validation_agents() -> list[dict[str, str]]:
     settings = get_settings()
     if settings.environment not in {"local", "test"}:
         raise RuntimeError("validation-agent refresh is limited to local/test")
-    if settings.llm_provider != "gemini":
-        raise RuntimeError("validation-agent refresh requires the local Gemini Model Gateway")
     repository = AgentRegistryRepository(settings.database_url)
     context = repository.bootstrap_local_context(LocalBootstrapRequest(), uuid4())
-    builder = AgentDraftBuilder(ModelGatewayAgentDraftGenerator(settings))
+    builder = AgentDraftBuilder(DeterministicAgentDraftGenerator())
     results: list[dict[str, str]] = []
     for request in validation_agent_requests(context.workspace_id):
         try:

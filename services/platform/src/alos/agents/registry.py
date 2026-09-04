@@ -1,9 +1,8 @@
-"""H2 Agent Registry and Model Gateway-backed draft builder.
+"""H2 Agent Registry and deterministic Genesis draft builder.
 
-The builder may ask the configured Model Gateway to draft plain-language
-purpose and prompt text, but all security-relevant fields are supplied by the
-human/API and validated by ALOS before persistence. Every create, update, and
-retirement writes an append-only audit event. Drafts never activate an agent.
+The Builder compiles human-controlled inputs into a safe DRAFT without calling
+an external model. Every create, update, and retirement writes an append-only
+audit event. Drafts never activate an agent.
 """
 
 from __future__ import annotations
@@ -21,19 +20,10 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from alos.config import Settings
-from alos.model_gateway import (
-    GuardedModelGateway,
-    ModelGatewayError,
-    ModelRequest,
-    UsageBudget,
-)
-from alos.model_gateway_factory import create_model_gateway
 from alos.persistence.database import psycopg_url
 
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 DataClassification = Literal["PUBLIC", "INTERNAL"]
-_BUILDER_MAX_OUTPUT_TOKENS = 900
 _DRAFT_LIFECYCLE = "DRAFT"
 
 
@@ -81,7 +71,7 @@ class AgentBuilderRequest(BaseModel):
 
 
 class GeneratedAgentFields(BaseModel):
-    """The strictly limited text Gemini is permitted to draft for an agent."""
+    """The strictly limited text Genesis compiles for an agent."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -180,60 +170,32 @@ class LocalBootstrapContext(BaseModel):
 
 class AgentDraftGenerator(Protocol):
     def generate(self, request: AgentBuilderRequest) -> GeneratedAgentFields:
-        """Return a safe, limited Gemini drafting result."""
+        """Return safe, non-security Contract text for a human-controlled request."""
 
 
-class ModelGatewayAgentDraftGenerator:
-    """Draft contract text through the configured shared Model Gateway only."""
-
-    def __init__(self, settings: Settings) -> None:
-        self._settings = settings
+class DeterministicAgentDraftGenerator:
+    """Compile Genesis DRAFT text locally so Registry changes never spend model budget."""
 
     def generate(self, request: AgentBuilderRequest) -> GeneratedAgentFields:
-        if self._settings.llm_provider not in {"gemini", "openai"}:
-            raise AgentRegistryError("Genesis Builder requires a configured Model Gateway provider")
-        delegate, close_gateway = create_model_gateway(self._settings)
-        output_limit = min(_BUILDER_MAX_OUTPUT_TOKENS, self._settings.llm_max_output_tokens)
-        gateway = GuardedModelGateway(
-            delegate,
-            self._settings,
-            UsageBudget(request_limit=1, output_token_limit=output_limit),
+        objective = request.objective.strip()
+        forbidden_actions = "\n".join(
+            f"- {action.strip()}" for action in request.forbidden_actions if action.strip()
         )
-        try:
-            response = gateway.generate(
-                ModelRequest(
-                    instructions=(
-                        "You draft text for an internal ALOS Agent Contract. Return JSON only, "
-                        "without markdown, with exactly purpose, prompt_template, and "
-                        "evidence_requirements. Do not choose a model, tools, permissions, "
-                        "risk level, owner, lifecycle, approval, or perform any action. "
-                        "The agent must stay read-only and require cited evidence."
-                    ),
-                    input_text=json.dumps(
-                        {
-                            "agent_key": request.agent_key,
-                            "name": request.name,
-                            "objective": request.objective,
-                            "risk_level": request.risk_level,
-                            "forbidden_actions": request.forbidden_actions,
-                            "kpis": request.kpis,
-                        },
-                        ensure_ascii=False,
-                    ),
-                    data_classification=request.data_classification,
-                    max_output_tokens=output_limit,
-                )
-            )
-        except ModelGatewayError as error:
-            raise AgentRegistryError(f"Genesis draft request failed: {error.code}") from error
-        finally:
-            close_gateway()
-        try:
-            return GeneratedAgentFields.model_validate_json(_strip_code_fence(response.output_text))
-        except ValueError as error:
-            raise AgentRegistryError(
-                "Gemini draft did not match the required contract text format"
-            ) from error
+        return GeneratedAgentFields(
+            purpose=objective,
+            prompt_template=(
+                f"You are the ALOS Agent {request.name}.\n\n"
+                f"Objective:\n{objective}\n\n"
+                "Operate only within the approved input, output schema, tools, and permissions. "
+                "Do not take external actions. Use registered evidence and cite it in every "
+                "material conclusion. Return only the requested structured output.\n\n"
+                f"Forbidden actions:\n{forbidden_actions}"
+            ),
+            evidence_requirements=[
+                "Use only registered or explicitly supplied evidence.",
+                "Cite evidence for every material conclusion.",
+            ],
+        )
 
 
 class AgentDraftBuilder:
@@ -796,10 +758,3 @@ def _digest(value: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-
-
-def _strip_code_fence(value: str) -> str:
-    stripped = value.strip()
-    if stripped.startswith("```") and stripped.endswith("```"):
-        return stripped.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    return stripped

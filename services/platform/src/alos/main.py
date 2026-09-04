@@ -12,8 +12,8 @@ from alos.agents.registry import (
     AgentRegistryError,
     AgentRegistryRecord,
     AgentRegistryRepository,
+    DeterministicAgentDraftGenerator,
     LocalBootstrapRequest,
-    ModelGatewayAgentDraftGenerator,
 )
 from alos.audit.reader import AuditEventRecord, AuditReader
 from alos.config import get_settings
@@ -164,8 +164,7 @@ def get_identity_authentication_repository() -> IdentityAuthenticationRepository
 
 
 def get_agent_draft_builder() -> AgentDraftBuilder:
-    settings = get_settings()
-    return AgentDraftBuilder(ModelGatewayAgentDraftGenerator(settings))
+    return AgentDraftBuilder(DeterministicAgentDraftGenerator())
 
 
 def get_agent_runtime() -> AgentRuntime:

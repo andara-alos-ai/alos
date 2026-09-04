@@ -1,8 +1,8 @@
 """Create the three local MVP1 validation Agent Contract records once.
 
 This is intentionally idempotent: existing agent keys are reported and never
-overwritten. Gemini is only used to draft safe text fields; the catalog holds
-all deterministic controls.
+ overwritten. Genesis compiles safe text locally; the catalog holds all
+ deterministic controls.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from alos.agents.registry import (
     AgentDraftBuilder,
     AgentNotFoundError,
     AgentRegistryRepository,
+    DeterministicAgentDraftGenerator,
     LocalBootstrapRequest,
-    ModelGatewayAgentDraftGenerator,
 )
 from alos.agents.validation_catalog import validation_agent_requests
 from alos.config import get_settings
@@ -27,11 +27,9 @@ def bootstrap_validation_agents() -> list[dict[str, str]]:
     settings = get_settings()
     if settings.environment not in {"local", "test"}:
         raise RuntimeError("validation-agent bootstrap is limited to local/test")
-    if settings.llm_provider != "gemini":
-        raise RuntimeError("validation-agent bootstrap requires the local Gemini Model Gateway")
     repository = AgentRegistryRepository(settings.database_url)
     context = repository.bootstrap_local_context(LocalBootstrapRequest(), uuid4())
-    builder = AgentDraftBuilder(ModelGatewayAgentDraftGenerator(settings))
+    builder = AgentDraftBuilder(DeterministicAgentDraftGenerator())
     results: list[dict[str, str]] = []
     for request in validation_agent_requests(context.workspace_id):
         try:
