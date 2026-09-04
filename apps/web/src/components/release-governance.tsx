@@ -12,6 +12,7 @@ import {
   canDesignAgent,
   canMakeRelease,
   canOperateKillSwitch,
+  canReadReleaseRegistry,
   canReviewGate,
   defaultTestForm,
   designerPayload,
@@ -64,7 +65,9 @@ export function ReleaseGovernance() {
   const loadWorkspace = useCallback(async (nextWorkspaceId: string, base?: ReleaseFoundation) => {
     const foundation = base ?? await loadFoundation();
     const [agents, requests] = await Promise.all([
-      api<AgentRecord[]>(`/api/v1/agents?workspace_id=${encodeURIComponent(nextWorkspaceId)}`),
+      canReadReleaseRegistry(foundation.actor.roles)
+        ? api<AgentRecord[]>(`/api/v1/agents?workspace_id=${encodeURIComponent(nextWorkspaceId)}`)
+        : Promise.resolve([]),
       api<ReleaseRequest[]>(`/api/v1/release-requests?workspace_id=${encodeURIComponent(nextWorkspaceId)}`),
     ]);
     setData({ ...foundation, agents, requests });

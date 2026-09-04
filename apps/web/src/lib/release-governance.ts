@@ -86,6 +86,14 @@ export function canMakeRelease(roles: string[]): boolean {
   return roles.some((role) => ["DIRECTOR", "DIVISION_OWNER", "IT_LEAD"].includes(role));
 }
 
+/**
+ * Match the backend Agent Registry read authority. H4 reviewers must be able
+ * to load release evidence without receiving this broader Registry access.
+ */
+export function canReadReleaseRegistry(roles: string[]): boolean {
+  return canMakeRelease(roles);
+}
+
 export function canDesignAgent(roles: string[]): boolean {
   return roles.includes("IT_LEAD");
 }

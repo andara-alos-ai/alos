@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canReadReleaseRegistry,
   defaultTestForm,
   designerPayload,
   releaseErrorMessage,
@@ -32,5 +33,12 @@ describe("H4 Release Governance helpers", () => {
 
   it("keeps lifecycle failures distinct from generic UI errors", () => {
     expect(releaseErrorMessage("maker cannot act as checker")).toContain("Maker");
+  });
+
+  it("does not request Agent Registry data for H4-only reviewers", () => {
+    expect(canReadReleaseRegistry(["QA_SECURITY"])).toBe(false);
+    expect(canReadReleaseRegistry(["BUSINESS_REVIEWER"])).toBe(false);
+    expect(canReadReleaseRegistry(["TECHNICAL_REVIEWER"])).toBe(false);
+    expect(canReadReleaseRegistry(["IT_LEAD"])).toBe(true);
   });
 });
