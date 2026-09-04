@@ -11,6 +11,7 @@ from alos.agents.registry import (
 )
 from alos.agents.validation_catalog import validation_agent_requests
 from alos.main import AgentDesignerRequest
+from alos.sources.registry import SourceVaultPolicyRequest
 
 
 class StubDraftGenerator:
@@ -140,4 +141,36 @@ def test_validation_agent_catalog_has_three_generic_read_only_contract_inputs() 
     assert all(request.permission_keys == ["SOURCE_READ_INTERNAL"] for request in requests)
     assert all(request.model_policy["model_route"] == "light" for request in requests)
     assert all(request.model_policy["max_output_tokens"] == 1200 for request in requests)
+    assert all("provider" not in request.model_policy for request in requests)
     assert all("Do not write data" in request.forbidden_actions[0] for request in requests)
+
+
+def test_source_vault_policy_accepts_distinct_google_drive_folders() -> None:
+    allowed_root = "https://drive.google.com/drive/folders/1D66GYJVl7WZlefS8e8FO9lkL034CA9wS"
+    excluded_folder = "https://drive.google.com/drive/folders/1rf-8esLauaCNylWm6Y65oQfMU68AvTqj"
+
+    policy = SourceVaultPolicyRequest(
+        allowed_root_url=allowed_root,
+        excluded_folder_url=excluded_folder,
+        reason="Controlled H5 pilot allows only the management-approved source root.",
+    )
+
+    assert policy.allowed_root_url == allowed_root
+    assert policy.excluded_folder_url == excluded_folder
+
+
+def test_source_vault_policy_rejects_invalid_folder_boundaries() -> None:
+    allowed_root = "https://drive.google.com/drive/folders/1D66GYJVl7WZlefS8e8FO9lkL034CA9wS"
+
+    with pytest.raises(ValidationError, match="must be different"):
+        SourceVaultPolicyRequest(
+            allowed_root_url=allowed_root,
+            excluded_folder_url=allowed_root,
+            reason="A policy must preserve a separately denied folder boundary.",
+        )
+    with pytest.raises(ValidationError, match="Google Drive folder URL"):
+        SourceVaultPolicyRequest(
+            allowed_root_url="https://example.com/not-a-drive-folder",
+            excluded_folder_url=allowed_root,
+            reason="H5 requires a Drive folder boundary before registration.",
+        )

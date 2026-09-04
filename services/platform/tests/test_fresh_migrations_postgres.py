@@ -36,6 +36,8 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             "005_h4_release_governance.sql",
             "006_h5_source_evidence.sql",
             "007_h5_tool_permission_approvals.sql",
+            "008_h6_staging_authentication.sql",
+            "009_h5_source_vault_policy.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
@@ -64,6 +66,9 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             assert connection.execute(
                 "SELECT to_regclass('sources.content_chunks')"
             ).fetchone() == ("sources.content_chunks",)
+            assert connection.execute(
+                "SELECT to_regclass('sources.vault_policies')"
+            ).fetchone() == ("sources.vault_policies",)
             assert connection.execute(
                 """
                 SELECT column_name FROM information_schema.columns

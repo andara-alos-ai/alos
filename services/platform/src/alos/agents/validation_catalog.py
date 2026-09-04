@@ -28,12 +28,12 @@ def validation_agent_requests(workspace_id: UUID) -> tuple[AgentBuilderRequest, 
     """Return the human-controlled fields for the MVP1 validation agents."""
     controls: _ValidationControls = {
         "risk_level": "LOW",
-        # Gemini 3.7 Flash counts thinking tokens against the output ceiling.
-        # 1,200 keeps the three controlled local validation runs bounded while
-        # leaving enough room for a cited JSON result to complete.
+        # Provider routing remains server-side.  This contract deliberately
+        # omits a provider so the staging Model Gateway can apply its approved
+        # environment route without exposing a credential or vendor control to
+        # the browser.
         "model_policy": {
-            "provider": "gemini",
-            "usage": "local_test",
+            "usage": "controlled_pilot",
             "model_route": "light",
             "max_output_tokens": 1200,
         },

@@ -16,6 +16,7 @@ from alos.agents.registry import (
     DeterministicAgentDraftGenerator,
     LocalBootstrapRequest,
 )
+from alos.agents.validation_catalog import validation_agent_requests
 from alos.audit.reader import AuditEventRecord, AuditReader
 from alos.config import get_settings
 from alos.genesis.history import (
@@ -95,6 +96,8 @@ from alos.sources.registry import (
     SourceRegistrationRequest,
     SourceRegistryError,
     SourceRegistryRepository,
+    SourceVaultPolicyRecord,
+    SourceVaultPolicyRequest,
     SourceVerificationRequest,
     SourceVersionRecord,
 )
@@ -156,6 +159,14 @@ class ModelPolicySummary(BaseModel):
     model_standard: str
     model_critical: str
     max_output_tokens: int
+
+
+class H5PilotRequest(BaseModel):
+    """Controlled H5 setup is always workspace-scoped and human-triggered."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
 
 
 def get_agent_registry_repository() -> AgentRegistryRepository:
@@ -230,6 +241,14 @@ def require_agent_registry_editor(actor: ActorContext) -> None:
     if HumanRole.IT_LEAD not in actor.roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="IT Lead registry authority required"
+        )
+
+
+def require_h5_pilot_editor(actor: ActorContext) -> None:
+    """H5 can create only controlled DRAFTs and is owned by the IT Lead."""
+    if HumanRole.IT_LEAD not in actor.roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="IT Lead H5 pilot authority required"
         )
 
 
@@ -819,6 +838,221 @@ def get_agent(
         return record
     except AgentRegistryError as error:
         raise registry_http_error(error) from error
+
+
+@app.post("/api/v1/h5/validation-agents/drafts")
+def create_h5_validation_agent_drafts(
+    request: H5PilotRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> dict[str, object]:
+    """Create only the three reviewed H5 pilot contracts as Registry DRAFTs.
+
+    This endpoint does not approve a tool or policy, call a model, or release
+    an agent. Repeating it is safe when the current draft already matches.
+    """
+    require_h5_pilot_editor(actor)
+    require_workspace_access(actor, request.workspace_id)
+    registry = get_agent_registry_repository()
+    builder = get_agent_draft_builder()
+    results: list[dict[str, object]] = []
+    try:
+        for builder_request in validation_agent_requests(request.workspace_id):
+            contract = builder.build(builder_request, actor.user_id)
+            try:
+                existing = registry.get_agent(actor.organization_id, builder_request.agent_key)
+            except AgentNotFoundError:
+                created = registry.create_draft(
+                    contract,
+                    organization_id=actor.organization_id,
+                    actor_user_id=actor.user_id,
+                    correlation_id=uuid4(),
+                    reason="H5 controlled pilot created a validation Agent Contract draft",
+                )
+                results.append({"status": "CREATED_DRAFT", **created.model_dump(mode="json")})
+                continue
+            if existing.workspace_id != request.workspace_id:
+                raise AgentConflictError("validation agent exists in a different workspace")
+            latest = existing.versions[0]
+            if (
+                latest.lifecycle_status == "DRAFT"
+                and latest.contract_snapshot == contract.model_dump(mode="json")
+            ):
+                results.append(
+                    {
+                        "status": "ALREADY_CURRENT_DRAFT",
+                        "agent_key": existing.agent_key,
+                        "semantic_version": latest.semantic_version,
+                        "agent_version_id": str(latest.agent_version_id),
+                    }
+                )
+                continue
+            updated = registry.update_draft(
+                contract,
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+                correlation_id=uuid4(),
+                reason="H5 controlled pilot created a successor validation Agent Contract draft",
+            )
+            results.append({"status": "CREATED_SUCCESSOR_DRAFT", **updated.model_dump(mode="json")})
+    except AgentRegistryError as error:
+        raise registry_http_error(error) from error
+    return {"workspace_id": str(request.workspace_id), "agents": results}
+
+
+@app.post("/api/v1/h5/validation-controls/drafts")
+def create_h5_validation_control_drafts(
+    request: H5PilotRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> dict[str, object]:
+    """Prepare unapproved read-only Tool and Permission Policy DRAFTs for H5."""
+    require_h5_pilot_editor(actor)
+    require_workspace_access(actor, request.workspace_id)
+    registry = get_agent_registry_repository()
+    tool_repository = get_tool_registry_repository()
+    permission_repository = get_permission_registry_repository()
+    results: list[dict[str, object]] = []
+    try:
+        tool = next(
+            (
+                record
+                for record in tool_repository.list_tools(actor.organization_id)
+                if record.tool_key == "SOURCE_REGISTRY_SEARCH"
+            ),
+            None,
+        )
+        if tool is None:
+            tool = tool_repository.create_draft(
+                ToolDefinitionRequest(
+                    tool_key="SOURCE_REGISTRY_SEARCH",
+                    name="Source Registry Search",
+                    risk_level="LOW",
+                    manifest={
+                        "access_mode": "READ_ONLY",
+                        "runtime_handler": "SOURCE_REGISTRY_SEARCH",
+                    },
+                ),
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+                correlation_id=uuid4(),
+            )
+            results.append({"control": tool.tool_key, "status": "TOOL_DRAFT_CREATED"})
+        else:
+            results.append({"control": tool.tool_key, "status": f"TOOL_{tool.lifecycle_status}"})
+
+        for builder_request in validation_agent_requests(request.workspace_id):
+            agent = registry.get_agent(actor.organization_id, builder_request.agent_key)
+            if agent.workspace_id != request.workspace_id:
+                raise AgentConflictError("validation agent exists in a different workspace")
+            latest = agent.versions[0]
+            if latest.lifecycle_status != "DRAFT":
+                raise AgentConflictError(
+                    f"{builder_request.agent_key} must have a current DRAFT before controls"
+                )
+            existing = next(
+                (
+                    policy
+                    for policy in permission_repository.list_policies(
+                        actor.organization_id, agent_key=builder_request.agent_key
+                    )
+                    if policy.agent_version_id == latest.agent_version_id
+                    and policy.permission_key == "SOURCE_READ_INTERNAL"
+                ),
+                None,
+            )
+            if existing is None:
+                policy = permission_repository.create_draft(
+                    PermissionPolicyRequest(
+                        workspace_id=request.workspace_id,
+                        agent_key=builder_request.agent_key,
+                        semantic_version=latest.semantic_version,
+                        permission_key="SOURCE_READ_INTERNAL",
+                        effect="ALLOW",
+                        resource_scope={
+                            "access_mode": "READ_ONLY",
+                            "classification": "INTERNAL",
+                        },
+                    ),
+                    organization_id=actor.organization_id,
+                    actor_user_id=actor.user_id,
+                    correlation_id=uuid4(),
+                )
+                results.append(
+                    {
+                        "control": f"{builder_request.agent_key}:SOURCE_READ_INTERNAL",
+                        "status": "PERMISSION_DRAFT_CREATED",
+                        "permission_policy_id": str(policy.permission_policy_id),
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "control": f"{builder_request.agent_key}:SOURCE_READ_INTERNAL",
+                        "status": f"PERMISSION_{existing.lifecycle_status}",
+                        "permission_policy_id": str(existing.permission_policy_id),
+                    }
+                )
+    except (AgentRegistryError, ToolRegistryError, PermissionRegistryError) as error:
+        if isinstance(error, AgentRegistryError):
+            raise registry_http_error(error) from error
+        if isinstance(error, ToolRegistryError):
+            raise tool_http_error(error) from error
+        raise permission_http_error(error) from error
+    return {"workspace_id": str(request.workspace_id), "controls": results}
+
+
+@app.put(
+    "/api/v1/workspaces/{workspace_id}/source-vault", response_model=SourceVaultPolicyRecord
+)
+def configure_source_vault(
+    workspace_id: UUID,
+    request: SourceVaultPolicyRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> SourceVaultPolicyRecord:
+    """Set the H5 source boundary; this is metadata, not a Drive connection."""
+    require_h5_pilot_editor(actor)
+    require_workspace_access(actor, workspace_id)
+    try:
+        return get_source_registry_repository().configure_vault_policy(
+            workspace_id,
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except SourceRegistryError as error:
+        raise source_http_error(error) from error
+
+
+@app.get(
+    "/api/v1/workspaces/{workspace_id}/source-vault", response_model=SourceVaultPolicyRecord
+)
+def get_source_vault(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> SourceVaultPolicyRecord:
+    require_workspace_access(actor, workspace_id)
+    policy = get_source_registry_repository().get_vault_policy(
+        workspace_id, organization_id=actor.organization_id
+    )
+    if policy is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Source Vault is not configured"
+        )
+    return policy
+
+
+@app.get(
+    "/api/v1/workspaces/{workspace_id}/sources", response_model=list[SourceVersionRecord]
+)
+def list_source_versions(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> list[SourceVersionRecord]:
+    """Read source metadata and verification state without exposing source content."""
+    require_workspace_access(actor, workspace_id)
+    return get_source_registry_repository().list_source_versions(
+        workspace_id, organization_id=actor.organization_id
+    )
 
 
 @app.post("/api/v1/sources", response_model=SourceVersionRecord)

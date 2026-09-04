@@ -209,7 +209,7 @@ function GenesisDashboard({ actor }: { actor: SessionActor }) {
         <aside className="alos-genesis-side">
           <DataPanel eyebrow="PERCAKAPAN TERBARU" title="Belum ada percakapan" type="list" />
           <DataPanel eyebrow="AGEN AKTIF" title="Belum ada Agent aktif" type="list" />
-          <article className="alos-panel alos-quick-prompt"><PanelTitle eyebrow="QUICK PROMPTS" title="Mulai dengan aman" /><button disabled type="button">Tampilkan daftar data yang tersedia <AppIcon name="chevron" /></button><button disabled type="button">Buat DRAFT kebutuhan Agent <AppIcon name="chevron" /></button></article>
+          <article className="alos-panel alos-quick-prompt"><PanelTitle eyebrow="QUICK PROMPTS" title="Mulai dengan aman" /><Link className="alos-pilot-link" href="/h5">Buka Source Vault &amp; H5 Pilot <AppIcon name="chevron" /></Link><button disabled type="button">Buat DRAFT kebutuhan Agent <AppIcon name="chevron" /></button></article>
         </aside>
       </div>
     </section>
