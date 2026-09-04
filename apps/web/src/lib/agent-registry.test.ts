@@ -8,6 +8,7 @@ import {
   emptyAgentRunForm,
   registryConflictMessage,
   runPayloadFromForm,
+  runtimeBlockedMessage,
   type AgentRecord,
 } from "./agent-registry";
 
@@ -46,6 +47,13 @@ describe("Agent Registry Builder helpers", () => {
     expect(registryConflictMessage("unexpected server detail")).toBe(
       "Perubahan ditolak: agent key, parent, atau level hierarchy tidak valid.",
     );
+  });
+
+  it("renders a runtime budget block without conflating it with an Agent conflict", () => {
+    expect(runtimeBlockedMessage("daily request budget cap reached")).toBe(
+      "Limit request harian workspace telah tercapai.",
+    );
+    expect(runtimeBlockedMessage("unexpected runtime detail")).toContain("kontrol runtime");
   });
 
   it("excludes itself and level-two Agents from parent options", () => {

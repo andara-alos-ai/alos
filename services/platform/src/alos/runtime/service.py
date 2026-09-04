@@ -24,6 +24,12 @@ from alos.persistence.database import psycopg_url
 from alos.sources.registry import SourceRegistryRepository
 
 RunStatus = Literal["SUCCEEDED", "FAILED", "BLOCKED"]
+H3_FIXTURE_ENVIRONMENTS = frozenset({"local", "test", "staging"})
+
+
+def h3_fixture_runtime_enabled(environment: str) -> bool:
+    """Allow bounded H3 fixture runs in staging, never production."""
+    return environment in H3_FIXTURE_ENVIRONMENTS
 
 
 class AgentRuntimeError(RuntimeError):
@@ -634,8 +640,11 @@ class AgentRuntimeRepository:
         workspace_id: UUID,
         agent_key: str,
     ) -> _ExecutionVersion:
-        if self._settings.environment not in {"local", "test"}:
-            raise AgentRuntimeBlocked("local runtime execution is disabled outside local/test")
+        if not h3_fixture_runtime_enabled(self._settings.environment):
+            raise AgentRuntimeBlocked(
+                "fixture runtime execution is disabled outside local/test/staging"
+            )
+        allow_active_version = self._settings.environment in {"local", "test"}
         row = connection.execute(
             """
             SELECT contract.agent_contract_id, version.agent_version_id, contract.agent_key,
@@ -649,7 +658,7 @@ class AgentRuntimeRepository:
                 WHERE agent_contract_id = contract.agent_contract_id
                   AND (
                       lifecycle_status = 'DRAFT'
-                      OR agent_version_id = registry.active_version_id
+                      OR (%s AND agent_version_id = registry.active_version_id)
                   )
                 ORDER BY CASE WHEN lifecycle_status = 'DRAFT' THEN 0 ELSE 1 END,
                          created_at DESC, agent_version_id DESC
@@ -659,10 +668,10 @@ class AgentRuntimeRepository:
               AND contract.workspace_id = %s
               AND contract.agent_key = %s
             """,
-            (organization_id, workspace_id, agent_key),
+            (allow_active_version, organization_id, workspace_id, agent_key),
         ).fetchone()
         if row is None:
-            raise AgentRuntimeBlocked("a local DRAFT or ACTIVE Agent Contract was not found")
+            raise AgentRuntimeBlocked("an eligible DRAFT Agent Contract was not found")
         kill_switch = connection.execute(
             """
             SELECT 1 FROM governance.kill_switches

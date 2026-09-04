@@ -142,6 +142,18 @@ export function registryConflictMessage(detail?: string): string {
   return messages[detail ?? ""] ?? "Perubahan ditolak: agent key, parent, atau level hierarchy tidak valid.";
 }
 
+export function runtimeBlockedMessage(detail?: string): string {
+  const messages: Record<string, string> = {
+    "daily request budget cap reached": "Limit request harian workspace telah tercapai.",
+    "daily output token budget cap reached": "Limit output token harian workspace telah tercapai.",
+    "daily cost budget cap reached": "Hard cost cap harian workspace telah tercapai.",
+    "an active workspace cost limit is required": "Limit harian workspace belum aktif.",
+    "an eligible DRAFT Agent Contract was not found": "Agent DRAFT aktif tidak ditemukan pada workspace ini.",
+    "fixture runtime execution is disabled outside local/test/staging": "Fixture Runtime tidak diizinkan pada environment ini.",
+  };
+  return messages[detail ?? ""] ?? "Fixture Test diblokir oleh kontrol runtime. Tidak ada provider atau tool yang dijalankan.";
+}
+
 export function latestVersion(agent: AgentRecord): AgentVersion | undefined {
   return agent.versions[0];
 }

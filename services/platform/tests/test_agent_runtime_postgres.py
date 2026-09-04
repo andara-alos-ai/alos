@@ -36,10 +36,10 @@ pytestmark = [
 ]
 
 
-def _settings(database_url: str) -> Settings:
+def _settings(database_url: str, *, environment: str = "test") -> Settings:
     return Settings(
         _env_file=None,
-        environment="test",
+        environment=environment,
         database_url=database_url,
         auth_signing_secret="a" * 32,
         llm_provider="openai",
@@ -109,7 +109,7 @@ def test_runtime_persists_usage_and_blocks_tools_and_budget() -> None:
     try:
         repository_root = Path(__file__).resolve().parents[3]
         apply_migrations(temporary_url, repository_root / "infra" / "database")
-        settings = _settings(temporary_url)
+        settings = _settings(temporary_url, environment="staging")
         registry = AgentRegistryRepository(temporary_url)
         context = registry.bootstrap_local_context(LocalBootstrapRequest(), uuid4())
         with psycopg.connect(temporary_url) as connection:

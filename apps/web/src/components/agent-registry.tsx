@@ -15,6 +15,7 @@ import {
   latestVersion,
   registryConflictMessage,
   runPayloadFromForm,
+  runtimeBlockedMessage,
   type AgentDraftForm,
   type AgentDraftResult,
   type AgentRecord,
@@ -212,7 +213,7 @@ export function AgentRegistry() {
       if (runError instanceof Error && !(runError instanceof ApiError)) {
         setError(runError.message);
       } else {
-        handleApiError(runError, setError, router);
+        handleRuntimeApiError(runError, setError, router);
       }
     } finally {
       setRunning(false);
@@ -463,5 +464,17 @@ function handleApiError(error: unknown, setError: (message: string) => void, rou
     setError(registryConflictMessage(error.detail));
   } else {
     setError("Permintaan tidak dapat diproses. Periksa isian lalu coba lagi.");
+  }
+}
+
+function handleRuntimeApiError(error: unknown, setError: (message: string) => void, router: ReturnType<typeof useRouter>) {
+  if (error instanceof ApiError && error.status === 401) {
+    router.replace("/login");
+  } else if (error instanceof ApiError && error.status === 403) {
+    setError("Akun Anda tidak memiliki otoritas IT Lead atau akses ke workspace ini.");
+  } else if (error instanceof ApiError && error.status === 409) {
+    setError(runtimeBlockedMessage(error.detail));
+  } else {
+    setError("Fixture Test tidak dapat diproses. Periksa input JSON lalu coba lagi.");
   }
 }
