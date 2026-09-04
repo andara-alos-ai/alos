@@ -87,11 +87,11 @@ export function canMakeRelease(roles: string[]): boolean {
 }
 
 /**
- * Match the backend Agent Registry read authority. H4 reviewers must be able
- * to load release evidence without receiving this broader Registry access.
+ * Match the backend Agent Registry read authority. Only the IT Lead may load
+ * contracts; H4 reviewers and the Director load release evidence without it.
  */
 export function canReadReleaseRegistry(roles: string[]): boolean {
-  return canMakeRelease(roles);
+  return roles.includes("IT_LEAD");
 }
 
 export function canDesignAgent(roles: string[]): boolean {

@@ -39,6 +39,7 @@ describe("H4 Release Governance helpers", () => {
     expect(canReadReleaseRegistry(["QA_SECURITY"])).toBe(false);
     expect(canReadReleaseRegistry(["BUSINESS_REVIEWER"])).toBe(false);
     expect(canReadReleaseRegistry(["TECHNICAL_REVIEWER"])).toBe(false);
+    expect(canReadReleaseRegistry(["DIRECTOR"])).toBe(false);
     expect(canReadReleaseRegistry(["IT_LEAD"])).toBe(true);
   });
 });
