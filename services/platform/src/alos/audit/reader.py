@@ -35,21 +35,27 @@ class AuditReader:
     def __init__(self, database_url: str) -> None:
         self._database_url = psycopg_url(database_url)
 
-    def list_events(self, organization_id: UUID, *, limit: int = 100) -> list[AuditEventRecord]:
+    def list_events(
+        self, organization_id: UUID, *, limit: int = 100, workspace_id: UUID | None = None
+    ) -> list[AuditEventRecord]:
         if limit < 1 or limit > 500:
             raise ValueError("audit listing limit must be between 1 and 500")
         with self._connection() as connection:
-            rows = connection.execute(
-                """
+            query = """
                 SELECT audit_event_id, actor_kind, actor_user_id, system_actor, action, entity_type,
                        entity_id, correlation_id, reason, metadata, occurred_at
                 FROM audit.events
                 WHERE organization_id = %s
+            """
+            parameters: tuple[object, ...] = (organization_id,)
+            if workspace_id is not None:
+                query += " AND metadata ->> 'workspace_id' = %s"
+                parameters += (str(workspace_id),)
+            query += """
                 ORDER BY occurred_at DESC, audit_event_id DESC
                 LIMIT %s
-                """,
-                (organization_id, limit),
-            ).fetchall()
+            """
+            rows = connection.execute(query, (*parameters, limit)).fetchall()
         return [AuditEventRecord(**row) for row in rows]
 
     @contextmanager

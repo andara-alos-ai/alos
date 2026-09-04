@@ -3,7 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 import jwt
-from fastapi import Header, HTTPException, status
+from fastapi import Cookie, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from alos.config import Settings, get_settings
@@ -23,12 +23,11 @@ class ActorContext(LocalTokenRequest):
     expires_at: datetime
 
 
-def issue_local_token(request: LocalTokenRequest, settings: Settings) -> str:
-    if settings.environment not in {"local", "test"}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="local token issuance is disabled outside local/test",
-        )
+SESSION_COOKIE_NAME = "alos_session"
+
+
+def issue_access_token(request: LocalTokenRequest, settings: Settings) -> str:
+    """Issue a signed token only after an approved authentication path established scope."""
     now = datetime.now(UTC)
     expires_at = now + timedelta(seconds=settings.auth_token_ttl_seconds)
     claims = {
@@ -47,6 +46,15 @@ def issue_local_token(request: LocalTokenRequest, settings: Settings) -> str:
         settings.auth_signing_secret.get_secret_value(),
         algorithm="HS256",
     )
+
+
+def issue_local_token(request: LocalTokenRequest, settings: Settings) -> str:
+    if settings.environment not in {"local", "test"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="local token issuance is disabled outside local/test",
+        )
+    return issue_access_token(request, settings)
 
 
 def decode_access_token(token: str, settings: Settings) -> ActorContext:
@@ -82,10 +90,16 @@ def decode_access_token(token: str, settings: Settings) -> ActorContext:
 
 def get_current_actor(
     authorization: Annotated[str | None, Header()] = None,
+    session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None,
 ) -> ActorContext:
-    if authorization is None or not authorization.startswith("Bearer "):
+    token = (
+        authorization.removeprefix("Bearer ")
+        if authorization is not None and authorization.startswith("Bearer ")
+        else session_token
+    )
+    if token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="bearer token required",
+            detail="authentication required",
         )
-    return decode_access_token(authorization.removeprefix("Bearer "), get_settings())
+    return decode_access_token(token, get_settings())

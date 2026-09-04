@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from alos.agents.registry import (
@@ -27,6 +27,13 @@ from alos.genesis.history import (
     GenesisMessageRequest,
 )
 from alos.identity import DivisionCode, HumanRole
+from alos.identity.authentication import (
+    AuthenticationError,
+    AuthenticationPrincipal,
+    IdentityAuthenticationRepository,
+    PasswordLoginRequest,
+    WorkspaceSummary,
+)
 from alos.model_gateway import (
     GuardedModelGateway,
     ModelGatewayPolicyError,
@@ -72,9 +79,11 @@ from alos.runtime.service import (
     WorkspaceUsageSummary,
 )
 from alos.security.tokens import (
+    SESSION_COOKIE_NAME,
     ActorContext,
     LocalTokenRequest,
     get_current_actor,
+    issue_access_token,
     issue_local_token,
 )
 from alos.sources.registry import (
@@ -136,8 +145,22 @@ class AgentDesignerRequest(BaseModel):
         )
 
 
+class ModelPolicySummary(BaseModel):
+    """Safe server-side model routing information; credentials are never represented here."""
+
+    provider: str
+    model_light: str
+    model_standard: str
+    model_critical: str
+    max_output_tokens: int
+
+
 def get_agent_registry_repository() -> AgentRegistryRepository:
     return AgentRegistryRepository(get_settings().database_url)
+
+
+def get_identity_authentication_repository() -> IdentityAuthenticationRepository:
+    return IdentityAuthenticationRepository(get_settings().database_url)
 
 
 def get_agent_draft_builder() -> AgentDraftBuilder:
@@ -300,9 +323,81 @@ def create_local_token(request: LocalTokenRequest) -> dict[str, str]:
     return {"access_token": issue_local_token(request, get_settings()), "token_type": "bearer"}
 
 
+@app.post("/api/v1/auth/login", response_model=AuthenticationPrincipal)
+def login(request: PasswordLoginRequest, response: Response) -> AuthenticationPrincipal:
+    """Create an HttpOnly, same-site browser session without returning its token to JavaScript."""
+    try:
+        principal = get_identity_authentication_repository().authenticate(request)
+    except AuthenticationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid email or password",
+        ) from error
+    settings = get_settings()
+    token = issue_access_token(
+        LocalTokenRequest(
+            user_id=principal.user_id,
+            organization_id=principal.organization_id,
+            roles=principal.roles,
+            division_codes=principal.division_codes,
+            workspace_ids=principal.workspace_ids,
+        ),
+        settings,
+    )
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        max_age=settings.auth_token_ttl_seconds,
+        httponly=True,
+        secure=settings.environment in {"staging", "production"},
+        samesite="lax",
+        path="/api",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return principal
+
+
+@app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(response: Response) -> Response:
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        httponly=True,
+        secure=get_settings().environment in {"staging", "production"},
+        samesite="lax",
+        path="/api",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.get("/api/v1/whoami")
 def whoami(actor: Annotated[ActorContext, Depends(get_current_actor)]) -> ActorContext:
     return actor
+
+
+@app.get("/api/v1/workspaces", response_model=list[WorkspaceSummary])
+def list_workspaces(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> list[WorkspaceSummary]:
+    return get_identity_authentication_repository().list_workspaces(
+        organization_id=actor.organization_id, user_id=actor.user_id
+    )
+
+
+@app.get("/api/v1/governance/model-policy", response_model=ModelPolicySummary)
+def get_model_policy(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> ModelPolicySummary:
+    """Model names are operational policy, while API credentials remain server-only secrets."""
+    del actor
+    settings = get_settings()
+    return ModelPolicySummary(
+        provider=settings.llm_provider,
+        model_light=settings.model_for_route("light"),
+        model_standard=settings.model_for_route("standard"),
+        model_critical=settings.model_for_route("critical"),
+        max_output_tokens=settings.llm_max_output_tokens,
+    )
 
 
 @app.post("/api/v1/local/bootstrap")
@@ -860,6 +955,7 @@ def get_workspace_usage(
 def list_audit_events(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
     limit: int = Query(default=100, ge=1, le=500),
+    workspace_id: UUID | None = None,
 ) -> list[AuditEventRecord]:
     """Only designated control roles may inspect the organization audit trail."""
     if not {HumanRole.DIRECTOR, HumanRole.IT_LEAD, HumanRole.QA_SECURITY}.intersection(
@@ -868,7 +964,11 @@ def list_audit_events(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="audit reader role required"
         )
-    return get_audit_reader().list_events(actor.organization_id, limit=limit)
+    if workspace_id is not None:
+        require_workspace_access(actor, workspace_id)
+    return get_audit_reader().list_events(
+        actor.organization_id, limit=limit, workspace_id=workspace_id
+    )
 
 
 @app.get("/api/v1/workspaces/{workspace_id}/budget", response_model=WorkspaceBudget)
@@ -876,10 +976,6 @@ def get_workspace_budget(
     workspace_id: UUID,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> WorkspaceBudget:
-    if not {HumanRole.DIRECTOR, HumanRole.IT_LEAD}.intersection(actor.roles):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="budget authority required"
-        )
     require_workspace_access(actor, workspace_id)
     try:
         return AgentRuntimeRepository(get_settings().database_url, get_settings()).get_budget_limit(
