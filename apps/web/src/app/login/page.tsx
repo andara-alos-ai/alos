@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -55,11 +56,6 @@ export default function LoginPage() {
         </div>
         <footer className="hero-footer">
           <p>“Teknologi hari ini,<br />untuk kehidupan yang lebih baik esok.”</p>
-          <div className="hero-metrics" aria-label="ALOS snapshot">
-            <span><strong>6</strong>Divisi</span>
-            <span><strong>50+</strong>Tim members</span>
-            <span><strong>100+</strong>Proyek berjalan</span>
-          </div>
         </footer>
       </aside>
 
@@ -74,7 +70,7 @@ export default function LoginPage() {
           <form className="login-form" onSubmit={submit}>
             <label htmlFor="email">Email</label>
             <div className="login-input-wrap">
-              <span aria-hidden="true" className="input-icon">✉</span>
+              <span aria-hidden="true" className="input-icon"><MailIcon /></span>
               <input
                 autoComplete="username"
                 id="email"
@@ -88,7 +84,7 @@ export default function LoginPage() {
             </div>
             <label htmlFor="password">Password</label>
             <div className="login-input-wrap">
-              <span aria-hidden="true" className="input-icon">▣</span>
+              <span aria-hidden="true" className="input-icon"><LockIcon /></span>
               <input
                 autoComplete="current-password"
                 id="password"
@@ -114,7 +110,7 @@ export default function LoginPage() {
               {submitting ? "Memverifikasi…" : "Masuk"}<span aria-hidden="true">→</span>
             </button>
           </form>
-          <div className="access-note"><span aria-hidden="true">i</span><p><strong>Belum memiliki akses?</strong>Hubungi administrator ALOS pada divisi IT perusahaan.</p></div>
+          <div className="access-note"><span aria-hidden="true" className="access-note-icon"><InfoIcon /></span><p><strong>Belum memiliki akses?</strong>Hubungi administrator ALOS pada divisi IT perusahaan.</p></div>
         </div>
         <footer className="login-footer">Kebijakan Privasi <span /> Syarat & Ketentuan <span /> Bantuan<br /><small>© 2026 PT. Andara Rejo Makmur. All rights reserved.</small></footer>
       </section>
@@ -125,12 +121,24 @@ export default function LoginPage() {
 function Brand({ lockup }: { lockup: "dark" | "light" }) {
   return (
     <div className={`brand-lockup brand-${lockup}`}>
-      <span aria-hidden="true" className="brand-mark">A</span>
-      <span><strong>ALOS</strong><small>Integrated Business Platform<br />PT. Andara Rejo Makmur</small></span>
+      <Image alt="ALOS" className="brand-logo" height={128} priority src="/alos-logo-mark.png" width={128} />
+      <span className="brand-copy"><strong>ALOS</strong><small>Andara Leverage Operating Sistem</small><small>PT. Andara Rejo Makmur</small></span>
     </div>
   );
 }
 
 function Feature({ icon, text, title }: { icon: string; text: string; title: string }) {
   return <li><span aria-hidden="true" className="feature-icon">{icon}</span><p><strong>{title}</strong><small>{text}</small></p></li>;
+}
+
+function MailIcon() {
+  return <svg fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="20"><rect height="15" rx="2" width="20" x="2" y="4" /><path d="m3 6 9 7 9-7" /></svg>;
+}
+
+function LockIcon() {
+  return <svg fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="20"><rect height="11" rx="2" width="15" x="4.5" y="10" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></svg>;
+}
+
+function InfoIcon() {
+  return <svg fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="20"><circle cx="12" cy="12" r="9" /><path d="M12 10v5M12 7h.01" /></svg>;
 }
