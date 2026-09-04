@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  canEditAgentRegistry,
+  draftPayloadFromForm,
+  eligibleParents,
+  emptyAgentDraftForm,
+  type AgentRecord,
+} from "./agent-registry";
+
+const agents: AgentRecord[] = [
+  {
+    agent_contract_id: "root-id",
+    agent_key: "PROPERTY_ROOT",
+    name: "Property Root",
+    workspace_id: "workspace-1",
+    parent_agent_key: null,
+    agent_level: 0,
+    risk_level: "LOW",
+    versions: [],
+  },
+  {
+    agent_contract_id: "leaf-id",
+    agent_key: "PROPERTY_LEAF",
+    name: "Property Leaf",
+    workspace_id: "workspace-1",
+    parent_agent_key: "PROPERTY_ROOT",
+    agent_level: 2,
+    risk_level: "LOW",
+    versions: [],
+  },
+];
+
+describe("Agent Registry Builder helpers", () => {
+  it("grants the Registry only to IT Lead", () => {
+    expect(canEditAgentRegistry(["IT_LEAD"])).toBe(true);
+    expect(canEditAgentRegistry(["DIRECTOR"])).toBe(false);
+    expect(canEditAgentRegistry(["DIVISION_OWNER", "QA_SECURITY"])).toBe(false);
+  });
+
+  it("excludes itself and level-two Agents from parent options", () => {
+    expect(eligibleParents(agents, "PROPERTY_ROOT").map((agent) => agent.agent_key)).toEqual([]);
+    expect(eligibleParents(agents).map((agent) => agent.agent_key)).toEqual(["PROPERTY_ROOT"]);
+  });
+
+  it("builds a bounded payload without exposing a provider model or credential", () => {
+    const form = {
+      ...emptyAgentDraftForm(),
+      agentKey: "PROPERTY_DAILY_BRIEF",
+      name: "Property Daily Brief",
+      objective: "Create a read-only operational property brief based on registered internal sources.",
+      toolKeys: "SOURCE_REGISTRY_SEARCH, SOURCE_READ_INTERNAL",
+      permissionKeys: "SOURCE_READ_INTERNAL",
+    };
+
+    expect(draftPayloadFromForm(form, "workspace-1")).toMatchObject({
+      workspace_id: "workspace-1",
+      agent_key: "PROPERTY_DAILY_BRIEF",
+      model_policy: { model_route: "light", usage: "controlled_draft" },
+      tool_keys: ["SOURCE_REGISTRY_SEARCH", "SOURCE_READ_INTERNAL"],
+    });
+  });
+
+  it("blocks a high-risk draft if human approval is disabled", () => {
+    expect(() => draftPayloadFromForm({
+      ...emptyAgentDraftForm(),
+      agentKey: "RISK_CHECK",
+      name: "Risk Check",
+      objective: "Provide a sufficiently detailed objective for controlled risk validation.",
+      riskLevel: "HIGH",
+      approvalRequired: false,
+    }, "workspace-1")).toThrow("wajib memerlukan persetujuan manusia");
+  });
+});

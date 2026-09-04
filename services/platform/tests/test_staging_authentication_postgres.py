@@ -131,6 +131,27 @@ def test_staging_password_session_and_governance_api(monkeypatch: pytest.MonkeyP
             "COST_LIMIT_UPDATED",
         }
 
+        it_lead = repository.bootstrap_it_lead(
+            email="it.lead@andaraimperialhub.com",
+            password="An independent IT Lead staging password",
+            display_name="ALOS IT Lead",
+            workspace_key="ALOS_GOVERNANCE",
+            settings=settings,
+        )
+        it_login = client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": "it.lead@andaraimperialhub.com",
+                "password": "An independent IT Lead staging password",
+            },
+        )
+        assert it_login.status_code == 200
+        assert it_login.json()["roles"] == ["IT_LEAD"]
+        it_workspaces = client.get("/api/v1/workspaces")
+        assert it_workspaces.status_code == 200
+        assert it_workspaces.json()[0]["workspace_id"] == str(it_lead.workspace_id)
+        assert it_workspaces.json()[0]["access_level"] == "EDITOR"
+
         local_token = client.post(
             "/api/v1/auth/local-token",
             json={

@@ -223,6 +223,14 @@ def require_registry_editor(actor: ActorContext) -> None:
         )
 
 
+def require_agent_registry_editor(actor: ActorContext) -> None:
+    """Agent Contracts are created and changed only by the IT Lead."""
+    if HumanRole.IT_LEAD not in actor.roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="IT Lead registry authority required"
+        )
+
+
 def require_workspace_access(actor: ActorContext, workspace_id: UUID) -> None:
     if workspace_id not in actor.workspace_ids:
         raise HTTPException(
@@ -413,7 +421,7 @@ def bootstrap_local_registry_context(request: LocalBootstrapRequest) -> dict[str
             LocalTokenRequest(
                 user_id=context.user_id,
                 organization_id=context.organization_id,
-                roles=[HumanRole.DIRECTOR],
+                roles=[HumanRole.IT_LEAD],
                 division_codes=[DivisionCode.IT],
                 workspace_ids=[context.workspace_id],
             ),
@@ -650,7 +658,7 @@ def create_agent_draft(
     request: AgentBuilderRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> dict[str, object]:
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     correlation_id = uuid4()
     try:
@@ -673,7 +681,7 @@ def design_agent_draft(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> dict[str, object]:
     """Genesis Designer is allowed to create a draft only, never an active agent."""
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     correlation_id = uuid4()
     try:
@@ -764,7 +772,7 @@ def update_agent_draft(
     request: AgentBuilderRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> dict[str, object]:
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     if request.agent_key != agent_key:
         raise HTTPException(
@@ -788,10 +796,12 @@ def update_agent_draft(
 @app.get("/api/v1/agents", response_model=list[AgentRegistryRecord])
 def list_agents(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
+    workspace_id: UUID,
 ) -> list[AgentRegistryRecord]:
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
+    require_workspace_access(actor, workspace_id)
     try:
-        return get_agent_registry_repository().list_agents(actor.organization_id)
+        return get_agent_registry_repository().list_agents(actor.organization_id, workspace_id)
     except AgentRegistryError as error:
         raise registry_http_error(error) from error
 
@@ -800,9 +810,11 @@ def list_agents(
 def get_agent(
     agent_key: str, actor: Annotated[ActorContext, Depends(get_current_actor)]
 ) -> AgentRegistryRecord:
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
     try:
-        return get_agent_registry_repository().get_agent(actor.organization_id, agent_key)
+        record = get_agent_registry_repository().get_agent(actor.organization_id, agent_key)
+        require_workspace_access(actor, record.workspace_id)
+        return record
     except AgentRegistryError as error:
         raise registry_http_error(error) from error
 
@@ -877,10 +889,7 @@ def retire_agent(
     agent_key: str,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> dict[str, object]:
-    if not {HumanRole.DIRECTOR, HumanRole.IT_LEAD}.intersection(actor.roles):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="retirement authority required"
-        )
+    require_agent_registry_editor(actor)
     try:
         result = get_agent_registry_repository().retire(
             agent_key,

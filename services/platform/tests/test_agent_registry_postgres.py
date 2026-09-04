@@ -14,9 +14,12 @@ from alos.agents.registry import (
     AgentRegistryRepository,
     GeneratedAgentFields,
 )
+from alos.audit.reader import AuditReader
 from alos.config import get_settings
+from alos.identity.models import DivisionCode, HumanRole
 from alos.persistence.database import psycopg_url
 from alos.persistence.migrations import apply_migrations
+from alos.security.tokens import LocalTokenRequest, issue_local_token
 
 pytestmark = [
     pytest.mark.postgres,
@@ -76,6 +79,7 @@ def test_registry_builder_api_versions_audits_and_rejects_circular_parent(
         builder = AgentDraftBuilder(StubDraftGenerator())
         monkeypatch.setattr(main, "get_agent_registry_repository", lambda: repository)
         monkeypatch.setattr(main, "get_agent_draft_builder", lambda: builder)
+        monkeypatch.setattr(main, "get_audit_reader", lambda: AuditReader(temporary_url))
 
         client = TestClient(main.app)
         bootstrap = client.post("/api/v1/local/bootstrap", json={})
@@ -83,6 +87,22 @@ def test_registry_builder_api_versions_audits_and_rejects_circular_parent(
         context = bootstrap.json()
         headers = {"Authorization": f"Bearer {context['access_token']}"}
         workspace_id = context["workspace_id"]
+        director_headers = {
+            "Authorization": "Bearer "
+            + issue_local_token(
+                LocalTokenRequest(
+                    user_id=context["user_id"],
+                    organization_id=context["organization_id"],
+                    roles=[HumanRole.DIRECTOR],
+                    division_codes=[DivisionCode.IT],
+                    workspace_ids=[workspace_id],
+                ),
+                get_settings(),
+            )
+        }
+
+        denied = client.get(f"/api/v1/agents?workspace_id={workspace_id}", headers=director_headers)
+        assert denied.status_code == 403
 
         root = client.post(
             "/api/v1/agents/drafts",
@@ -125,9 +145,26 @@ def test_registry_builder_api_versions_audits_and_rejects_circular_parent(
             "0.2.0",
         }
 
+        listed = client.get(f"/api/v1/agents?workspace_id={workspace_id}", headers=headers)
+        assert listed.status_code == 200
+        assert {agent["agent_key"] for agent in listed.json()} == {
+            "PROPERTY_RESEARCH",
+            "PROPERTY_LEAD_SCAN",
+        }
+
         retired = client.post("/api/v1/agents/PROPERTY_LEAD_SCAN/retire", headers=headers)
         assert retired.status_code == 200
         assert retired.json()["lifecycle_status"] == "RETIRED"
+
+        workspace_audit = client.get(
+            f"/api/v1/audit-events?workspace_id={workspace_id}&limit=20", headers=headers
+        )
+        assert workspace_audit.status_code == 200
+        assert {event["action"] for event in workspace_audit.json()} >= {
+            "AGENT_DRAFT_CREATED",
+            "AGENT_DRAFT_UPDATED",
+            "AGENT_RETIRED",
+        }
 
         with psycopg.connect(temporary_url) as connection:
             rows = connection.execute(

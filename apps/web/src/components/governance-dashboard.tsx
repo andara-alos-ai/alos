@@ -180,6 +180,7 @@ export function GovernanceDashboard() {
         </div>
         <div className="header-actions">
           <span className="role-badge">{data.actor.roles.join(" · ")}</span>
+          {data.actor.roles.includes("IT_LEAD") ? <a className="secondary-button button-link" href="/agents">Agent Registry</a> : null}
           <button className="secondary-button" onClick={() => void logout()} type="button">Keluar</button>
         </div>
       </header>

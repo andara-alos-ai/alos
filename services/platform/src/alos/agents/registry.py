@@ -166,8 +166,8 @@ class LocalBootstrapRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    email: str = Field(default="director@alos.local", min_length=3, max_length=320)
-    display_name: str = Field(default="ALOS Director", min_length=1, max_length=200)
+    email: str = Field(default="it-lead@alos.local", min_length=3, max_length=320)
+    display_name: str = Field(default="ALOS IT Lead", min_length=1, max_length=200)
     workspace_key: str = Field(default="H2_REGISTRY", pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
     workspace_name: str = Field(default="ALOS H2 Agent Registry", min_length=1, max_length=200)
 
@@ -331,10 +331,10 @@ class AgentRegistryRepository:
             connection.execute(
                 """
                 INSERT INTO identity.role_assignments (user_id, division_id, role_code)
-                SELECT %s, %s, 'DIRECTOR'
+                SELECT %s, %s, 'IT_LEAD'
                 WHERE NOT EXISTS (
                     SELECT 1 FROM identity.role_assignments
-                    WHERE user_id = %s AND role_code = 'DIRECTOR' AND revoked_at IS NULL
+                    WHERE user_id = %s AND role_code = 'IT_LEAD' AND revoked_at IS NULL
                 )
                 """,
                 (user_id, division["division_id"], user_id),
@@ -348,7 +348,10 @@ class AgentRegistryRepository:
                 entity_id=workspace_id,
                 correlation_id=correlation_id,
                 reason="Local H2 Registry bootstrap",
-                metadata={"workspace_key": request.workspace_key},
+                metadata={
+                    "workspace_id": str(workspace_id),
+                    "workspace_key": request.workspace_key,
+                },
             )
             return LocalBootstrapContext(
                 organization_id=organization_id,
@@ -419,7 +422,11 @@ class AgentRegistryRepository:
                 entity_id=contract_row["agent_contract_id"],
                 correlation_id=correlation_id,
                 reason=reason,
-                metadata={"agent_key": contract.agent_key, "semantic_version": "0.1.0"},
+                metadata={
+                    "workspace_id": str(contract.workspace_id),
+                    "agent_key": contract.agent_key,
+                    "semantic_version": "0.1.0",
+                },
             )
             return AgentDraftResult(
                 agent_contract_id=contract_row["agent_contract_id"],
@@ -502,7 +509,11 @@ class AgentRegistryRepository:
                 entity_id=existing["agent_contract_id"],
                 correlation_id=correlation_id,
                 reason=reason,
-                metadata={"agent_key": contract.agent_key, "semantic_version": semantic_version},
+                metadata={
+                    "workspace_id": str(contract.workspace_id),
+                    "agent_key": contract.agent_key,
+                    "semantic_version": semantic_version,
+                },
             )
             return AgentDraftResult(
                 agent_contract_id=existing["agent_contract_id"],
@@ -528,7 +539,7 @@ class AgentRegistryRepository:
             self._require_actor(connection, organization_id, actor_user_id)
             agent = connection.execute(
                 """
-                SELECT agent_contract_id, agent_level FROM agents.contracts
+                SELECT agent_contract_id, agent_level, workspace_id FROM agents.contracts
                 WHERE organization_id = %s AND agent_key = %s
                 FOR UPDATE
                 """,
@@ -573,7 +584,11 @@ class AgentRegistryRepository:
                 entity_id=agent["agent_contract_id"],
                 correlation_id=correlation_id,
                 reason=reason,
-                metadata={"agent_key": agent_key, "semantic_version": semantic_version},
+                metadata={
+                    "workspace_id": str(agent["workspace_id"]),
+                    "agent_key": agent_key,
+                    "semantic_version": semantic_version,
+                },
             )
             return AgentDraftResult(
                 agent_contract_id=agent["agent_contract_id"],
@@ -586,14 +601,17 @@ class AgentRegistryRepository:
                 correlation_id=correlation_id,
             )
 
-    def list_agents(self, organization_id: UUID) -> list[AgentRegistryRecord]:
+    def list_agents(
+        self, organization_id: UUID, workspace_id: UUID
+    ) -> list[AgentRegistryRecord]:
         with self._connection() as connection:
             rows = connection.execute(
                 """
                 SELECT agent_key FROM agents.contracts
-                WHERE organization_id = %s ORDER BY agent_key
+                WHERE organization_id = %s AND workspace_id = %s
+                ORDER BY agent_key
                 """,
-                (organization_id,),
+                (organization_id, workspace_id),
             ).fetchall()
             return [self._get_agent(connection, organization_id, row["agent_key"]) for row in rows]
 

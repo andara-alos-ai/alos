@@ -347,6 +347,133 @@ class IdentityAuthenticationRepository:
                 user_id=user_id, workspace_id=workspace_id, workspace_key=workspace["workspace_key"]
             )
 
+    def bootstrap_it_lead(
+        self,
+        *,
+        email: str,
+        password: str,
+        display_name: str,
+        workspace_key: str,
+        settings: Settings,
+    ) -> BootstrapResult:
+        """Create a separate IT Lead login without changing the Director account."""
+        if settings.environment not in {"staging", "production"}:
+            raise BootstrapError("IT Lead bootstrap is restricted to staging or production")
+        normalized_email = normalize_email(email)
+        if not display_name.strip() or not workspace_key.strip():
+            raise BootstrapError("display name and workspace key are required")
+        password_hash = hash_password(password)
+        with self._transaction() as connection:
+            organization = connection.execute(
+                "SELECT organization_id FROM identity.organizations WHERE code = 'ALOS'"
+            ).fetchone()
+            if organization is None:
+                raise BootstrapError("ALOS organization seed is unavailable")
+            organization_id = organization["organization_id"]
+            division = connection.execute(
+                """
+                SELECT division_id FROM identity.divisions
+                WHERE organization_id = %s AND code = 'IT'
+                """,
+                (organization_id,),
+            ).fetchone()
+            if division is None:
+                raise BootstrapError("IT division seed is unavailable")
+            workspace = connection.execute(
+                """
+                SELECT workspace_id, workspace_key
+                FROM workspace.workspaces
+                WHERE organization_id = %s AND workspace_key = %s AND status = 'ACTIVE'
+                """,
+                (organization_id, workspace_key.strip().upper()),
+            ).fetchone()
+            if workspace is None:
+                raise BootstrapError(
+                    "an active governance workspace is required before IT Lead bootstrap"
+                )
+            existing = connection.execute(
+                """
+                SELECT user_id FROM identity.users
+                WHERE organization_id = %s AND email = %s
+                """,
+                (organization_id, normalized_email),
+            ).fetchone()
+            if existing is not None:
+                other_role = connection.execute(
+                    """
+                    SELECT 1 FROM identity.role_assignments
+                    WHERE user_id = %s AND role_code <> 'IT_LEAD' AND revoked_at IS NULL
+                    """,
+                    (existing["user_id"],),
+                ).fetchone()
+                if other_role is not None:
+                    raise BootstrapError(
+                        "email already has a non-IT Lead role; bootstrap a separate IT account"
+                    )
+            user = connection.execute(
+                """
+                INSERT INTO identity.users (organization_id, email, display_name)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (organization_id, email)
+                DO UPDATE SET display_name = EXCLUDED.display_name, status = 'ACTIVE'
+                RETURNING user_id
+                """,
+                (organization_id, normalized_email, display_name.strip()),
+            ).fetchone()
+            if user is None:
+                raise BootstrapError("IT Lead user could not be created")
+            user_id = user["user_id"]
+            connection.execute(
+                """
+                INSERT INTO identity.role_assignments (user_id, division_id, role_code)
+                SELECT %s, %s, 'IT_LEAD'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM identity.role_assignments
+                    WHERE user_id = %s AND role_code = 'IT_LEAD' AND revoked_at IS NULL
+                )
+                """,
+                (user_id, division["division_id"], user_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO workspace.memberships (workspace_id, user_id, access_level)
+                VALUES (%s, %s, 'EDITOR')
+                ON CONFLICT (workspace_id, user_id)
+                DO UPDATE SET access_level = 'EDITOR'
+                """,
+                (workspace["workspace_id"], user_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO identity.user_credentials (user_id, password_hash, failed_attempt_count,
+                                                        locked_until, password_changed_at)
+                VALUES (%s, %s, 0, NULL, now())
+                ON CONFLICT (user_id)
+                DO UPDATE SET password_hash = EXCLUDED.password_hash, failed_attempt_count = 0,
+                              locked_until = NULL, password_changed_at = now()
+                """,
+                (user_id, password_hash),
+            )
+            self._append_audit(
+                connection,
+                organization_id=organization_id,
+                actor_user_id=user_id,
+                action="IT_LEAD_CREDENTIAL_BOOTSTRAPPED",
+                entity_type="USER",
+                entity_id=user_id,
+                correlation_id=uuid4(),
+                reason="Staging IT Lead password was set through the interactive VPS bootstrap",
+                metadata={
+                    "workspace_id": str(workspace["workspace_id"]),
+                    "workspace_key": workspace["workspace_key"],
+                },
+            )
+            return BootstrapResult(
+                user_id=user_id,
+                workspace_id=workspace["workspace_id"],
+                workspace_key=workspace["workspace_key"],
+            )
+
     @staticmethod
     def _record_failed_login(connection: psycopg.Connection[Any], user_id: UUID) -> None:
         connection.execute(
