@@ -1,3 +1,4 @@
+from hashlib import sha256
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -57,6 +58,7 @@ from alos.release.governance import (
     ReasonRequest,
     ReleaseGovernanceError,
     ReleaseGovernanceRepository,
+    ReleaseRequestDetail,
     ReleaseRequestInput,
     ReleaseRequestRecord,
     ReviewRequest,
@@ -114,17 +116,18 @@ class AgentDesignerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: UUID
-    agent_key: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
-    name: str = Field(min_length=1, max_length=200)
+    agent_key: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
+    name: str | None = Field(default=None, min_length=1, max_length=200)
     requirement: str = Field(min_length=20, max_length=10_000)
     parent_agent_key: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
     conversation_id: UUID | None = None
 
     def to_builder_request(self) -> AgentBuilderRequest:
+        digest = sha256(self.requirement.encode("utf-8")).hexdigest().upper()
         return AgentBuilderRequest(
             workspace_id=self.workspace_id,
-            agent_key=self.agent_key,
-            name=self.name,
+            agent_key=self.agent_key or f"GENESIS_{digest[:12]}",
+            name=self.name or f"Genesis Draft {digest[:8]}",
             objective=self.requirement,
             parent_agent_key=self.parent_agent_key,
             risk_level="LOW",
@@ -719,7 +722,7 @@ def design_agent_draft(
                 "BLUEPRINT",
                 {
                     "requirement": request.requirement,
-                    "agent_key": request.agent_key,
+                    "agent_key": result.agent_key,
                     "risk_level": contract.risk_level,
                     "approval_required": contract.approval_required,
                     "forbidden_actions": contract.forbidden_actions,
@@ -743,7 +746,7 @@ def design_agent_draft(
         return {
             "blueprint": {
                 "requirement": request.requirement,
-                "agent_key": request.agent_key,
+                "agent_key": result.agent_key,
                 "risk_level": contract.risk_level,
                 "approval_required": contract.approval_required,
                 "forbidden_actions": contract.forbidden_actions,
@@ -1036,6 +1039,39 @@ def create_release_request(
             organization_id=actor.organization_id,
             maker_user_id=actor.user_id,
             correlation_id=uuid4(),
+        )
+    except ReleaseGovernanceError as error:
+        raise release_http_error(error) from error
+
+
+@app.get("/api/v1/release-requests", response_model=list[ReleaseRequestRecord])
+def list_release_requests(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[ReleaseRequestRecord]:
+    require_workspace_access(actor, workspace_id)
+    try:
+        return get_release_repository().list_release_requests(
+            workspace_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            limit=limit,
+        )
+    except ReleaseGovernanceError as error:
+        raise release_http_error(error) from error
+
+
+@app.get("/api/v1/release-requests/{change_request_id}", response_model=ReleaseRequestDetail)
+def get_release_request_detail(
+    change_request_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> ReleaseRequestDetail:
+    try:
+        return get_release_repository().get_release_request_detail(
+            change_request_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
         )
     except ReleaseGovernanceError as error:
         raise release_http_error(error) from error

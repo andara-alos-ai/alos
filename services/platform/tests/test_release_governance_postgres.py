@@ -150,6 +150,15 @@ def _complete_release(
         maker_user_id=maker_user_id,
         correlation_id=uuid4(),
     )
+    with pytest.raises(LifecycleConflictError, match="release request already exists"):
+        repository.create_release_request(
+            "PROPERTY_RELEASE_FIXTURE",
+            workspace_id,
+            "A duplicate request for the same immutable draft version must be rejected.",
+            organization_id=organization_id,
+            maker_user_id=maker_user_id,
+            correlation_id=uuid4(),
+        )
     first_case = None
     for category in ("POSITIVE", "NEGATIVE", "REGRESSION", "SECURITY", "RECOVERY"):
         case = repository.register_test_case(
@@ -362,6 +371,28 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
             technical_reviewer_id=technical_reviewer_id,
             approver_user_id=approver_user_id,
         )
+
+        detail = release_repository.get_release_request_detail(
+            version_two_request,
+            organization_id=context.organization_id,
+            actor_user_id=checker_user_id,
+        )
+        assert detail.state == "ACTIVE"
+        assert len(detail.test_cases) == 5
+        assert len(detail.test_runs) == 5
+        assert {event.to_state for event in detail.lifecycle_events} >= {
+            "DRAFT",
+            "TESTED",
+            "IN_REVIEW",
+            "APPROVED",
+            "RELEASED",
+            "ACTIVE",
+        }
+        assert release_repository.list_release_requests(
+            context.workspace_id,
+            organization_id=context.organization_id,
+            actor_user_id=checker_user_id,
+        )[0].change_request_id == version_two_request
 
         assert (
             release_repository.kill_switch(

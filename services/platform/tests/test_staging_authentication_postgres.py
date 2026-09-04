@@ -12,6 +12,7 @@ from alos import main
 from alos.audit.reader import AuditReader
 from alos.config import Settings
 from alos.identity.authentication import BootstrapError, IdentityAuthenticationRepository
+from alos.identity.models import HumanRole
 from alos.persistence.database import psycopg_url
 from alos.persistence.migrations import apply_migrations
 from alos.security import tokens
@@ -162,6 +163,34 @@ def test_staging_password_session_and_governance_api(monkeypatch: pytest.MonkeyP
         assert it_workspaces.status_code == 200
         assert it_workspaces.json()[0]["workspace_id"] == str(it_lead.workspace_id)
         assert it_workspaces.json()[0]["access_level"] == "EDITOR"
+
+        checker = repository.bootstrap_release_participant(
+            email="h4-checker@example.test",
+            password="ALOS staging checker password with enough entropy",
+            display_name="ALOS H4 Checker",
+            role=HumanRole.QA_SECURITY,
+            workspace_key="ALOS_GOVERNANCE",
+            settings=settings,
+        )
+        checker_login = client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": "h4-checker@example.test",
+                "password": "ALOS staging checker password with enough entropy",
+            },
+        )
+        assert checker_login.status_code == 200
+        assert checker_login.json()["roles"] == ["QA_SECURITY"]
+        assert checker.workspace_id == it_lead.workspace_id
+        with pytest.raises(BootstrapError, match="separate account"):
+            repository.bootstrap_release_participant(
+                email="andararejomakmur10@gmail.com",
+                password="ALOS staging checker password with enough entropy",
+                display_name="Invalid Checker",
+                role=HumanRole.QA_SECURITY,
+                workspace_key="ALOS_GOVERNANCE",
+                settings=settings,
+            )
 
         local_token = client.post(
             "/api/v1/auth/local-token",

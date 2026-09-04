@@ -110,6 +110,22 @@ def test_natural_language_designer_request_stays_a_low_risk_draft_input() -> Non
     ]
 
 
+def test_natural_language_designer_can_generate_a_deterministic_draft_identity() -> None:
+    request = AgentDesignerRequest(
+        workspace_id=uuid4(),
+        requirement=(
+            "Create a read-only daily property lead brief from internal registered sources."
+        ),
+    )
+
+    first = request.to_builder_request()
+    second = request.to_builder_request()
+
+    assert first.agent_key == second.agent_key
+    assert first.agent_key.startswith("GENESIS_")
+    assert first.name.startswith("Genesis Draft ")
+
+
 def test_validation_agent_catalog_has_three_generic_read_only_contract_inputs() -> None:
     requests = validation_agent_requests(uuid4())
 

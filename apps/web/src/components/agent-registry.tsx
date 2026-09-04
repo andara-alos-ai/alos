@@ -317,6 +317,7 @@ export function AgentRegistry() {
         <div className="header-actions">
           <span className="role-badge">IT_LEAD</span>
           <Link className="secondary-button button-link" href="/">Governance</Link>
+          <Link className="secondary-button button-link" href="/releases">Release</Link>
           <button className="secondary-button" onClick={() => void logout()} type="button">Keluar</button>
         </div>
       </header>

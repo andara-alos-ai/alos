@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
@@ -82,6 +83,43 @@ class ReleaseRequestRecord(BaseModel):
     maker_user_id: UUID
     checker_user_id: UUID | None
     approver_user_id: UUID | None
+
+
+class TestRunEvidence(BaseModel):
+    test_run_id: UUID
+    test_case_id: UUID
+    test_key: str
+    category: TestCategory
+    status: Literal["PASSED", "FAILED", "BLOCKED", "ERROR"]
+    agent_run_id: UUID | None
+    correlation_id: UUID
+    completed_at: datetime | None
+
+
+class ReviewRecord(BaseModel):
+    review_gate: ReviewGate
+    decision: ReviewDecision
+    notes: str
+    created_at: datetime
+
+
+class LifecycleEventRecord(BaseModel):
+    event_sequence: int
+    from_state: ReleaseState | None
+    to_state: ReleaseState
+    reason: str
+    correlation_id: UUID
+    created_at: datetime
+
+
+class ReleaseRequestDetail(ReleaseRequestRecord):
+    requirement: str
+    test_cases: list[TestCaseRecord]
+    test_runs: list[TestRunEvidence]
+    reviews: list[ReviewRecord]
+    lifecycle_events: list[LifecycleEventRecord]
+    kill_switch_active: bool
+    rollback_targets: list[str]
 
 
 class TestExecutionResult(BaseModel):
@@ -309,6 +347,18 @@ class ReleaseGovernanceRepository:
         with self._transaction() as connection:
             self._require_workspace_actor(connection, organization_id, maker_user_id, workspace_id)
             version = self._draft_version(connection, organization_id, workspace_id, agent_key)
+            existing = connection.execute(
+                """
+                SELECT change_request_id FROM governance.agent_change_requests
+                WHERE agent_version_id = %s
+                """,
+                (version["agent_version_id"],),
+            ).fetchone()
+            if existing is not None:
+                raise LifecycleConflictError(
+                    "a release request already exists for this draft version; "
+                    "create a new draft revision"
+                )
             change = connection.execute(
                 """
                 INSERT INTO genesis.change_requests (
@@ -364,6 +414,126 @@ class ReleaseGovernanceRepository:
                 checker_user_id=None,
                 approver_user_id=None,
             )
+
+    def list_release_requests(
+        self,
+        workspace_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        limit: int = 50,
+    ) -> list[ReleaseRequestRecord]:
+        with self._connection() as connection:
+            self._require_workspace_actor(connection, organization_id, actor_user_id, workspace_id)
+            rows = connection.execute(
+                """
+                SELECT request.change_request_id, contract.agent_key, governance.agent_version_id,
+                       version.semantic_version, governance.state, governance.maker_user_id,
+                       governance.checker_user_id, governance.approver_user_id
+                FROM genesis.change_requests AS request
+                JOIN governance.agent_change_requests AS governance
+                  ON governance.change_request_id = request.change_request_id
+                JOIN agents.contracts AS contract
+                  ON contract.agent_contract_id = governance.agent_contract_id
+                JOIN agents.versions AS version
+                  ON version.agent_version_id = governance.agent_version_id
+                WHERE request.organization_id = %s AND request.workspace_id = %s
+                ORDER BY request.created_at DESC, request.change_request_id DESC
+                LIMIT %s
+                """,
+                (organization_id, workspace_id, limit),
+            ).fetchall()
+        return [ReleaseRequestRecord(**row) for row in rows]
+
+    def get_release_request_detail(
+        self,
+        change_request_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+    ) -> ReleaseRequestDetail:
+        with self._connection() as connection:
+            context = self._context(connection, change_request_id)
+            if context["organization_id"] != organization_id:
+                raise ReleaseGovernanceError("release request was not found")
+            self._require_context_actor(connection, context, actor_user_id)
+            test_cases = connection.execute(
+                """
+                SELECT test_case_id, test_key, category, input_fixture, expected_assertions
+                FROM governance.test_cases
+                WHERE agent_version_id = %s
+                ORDER BY category, test_key
+                """,
+                (context["agent_version_id"],),
+            ).fetchall()
+            test_runs = connection.execute(
+                """
+                SELECT test_run.test_run_id, test_run.test_case_id, test_case.test_key,
+                       test_case.category, test_run.status,
+                       nullif(test_run.result ->> 'agent_run_id', '')::uuid AS agent_run_id,
+                       test_run.correlation_id, test_run.completed_at
+                FROM governance.test_runs AS test_run
+                JOIN governance.test_cases AS test_case
+                  ON test_case.test_case_id = test_run.test_case_id
+                WHERE test_run.agent_version_id = %s
+                ORDER BY test_run.completed_at DESC NULLS LAST, test_run.test_run_id DESC
+                """,
+                (context["agent_version_id"],),
+            ).fetchall()
+            reviews = connection.execute(
+                """
+                SELECT review_gate, decision, notes, created_at
+                FROM governance.reviews
+                WHERE change_request_id = %s
+                ORDER BY created_at ASC, review_id ASC
+                """,
+                (change_request_id,),
+            ).fetchall()
+            lifecycle_events = connection.execute(
+                """
+                SELECT event_sequence, from_state, to_state, reason, correlation_id, created_at
+                FROM governance.agent_lifecycle_events
+                WHERE change_request_id = %s
+                ORDER BY event_sequence ASC
+                """,
+                (change_request_id,),
+            ).fetchall()
+            kill_switch_active = connection.execute(
+                """
+                SELECT 1 FROM governance.kill_switches
+                WHERE organization_id = %s AND agent_contract_id = %s AND active
+                """,
+                (organization_id, context["agent_contract_id"]),
+            ).fetchone() is not None
+            rollback_targets = connection.execute(
+                """
+                SELECT semantic_version FROM agents.versions
+                WHERE agent_contract_id = %s AND agent_version_id <> %s
+                  AND lifecycle_status IN ('ACTIVE', 'SUSPENDED', 'RELEASED')
+                ORDER BY created_at DESC, agent_version_id DESC
+                """,
+                (context["agent_contract_id"], context["agent_version_id"]),
+            ).fetchall()
+        return ReleaseRequestDetail(
+            **context,
+            test_cases=[
+                TestCaseRecord(
+                    test_case_id=row["test_case_id"],
+                    agent_key=context["agent_key"],
+                    agent_version_id=context["agent_version_id"],
+                    test_key=row["test_key"],
+                    category=row["category"],
+                    input_fixture=row["input_fixture"],
+                    expected_assertions=row["expected_assertions"],
+                )
+                for row in test_cases
+            ],
+            test_runs=[TestRunEvidence(**row) for row in test_runs],
+            reviews=[ReviewRecord(**row) for row in reviews],
+            lifecycle_events=[LifecycleEventRecord(**row) for row in lifecycle_events],
+            kill_switch_active=kill_switch_active,
+            rollback_targets=[row["semantic_version"] for row in rollback_targets],
+        )
 
     def register_test_case(
         self,
@@ -1088,6 +1258,7 @@ class ReleaseGovernanceRepository:
         row = connection.execute(
             """
             SELECT request.change_request_id, request.organization_id, request.workspace_id,
+                   request.requirement,
                    governance.agent_contract_id, governance.agent_version_id,
                    governance.maker_user_id,
                    governance.checker_user_id, governance.approver_user_id, governance.state,

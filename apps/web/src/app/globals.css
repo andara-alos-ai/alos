@@ -192,13 +192,29 @@ th { color: #aac0d5; font-weight: 700; }
 .tool-decisions strong { color: #8be5c4; font-size: .74rem; }
 .runtime-blocked .tool-decisions strong { color: #f2c870; }
 .registry-audit-panel { margin-top: 14px; }
+.release-shell { margin: 0 auto; max-width: 1480px; padding: 28px; }
+.release-grid { align-items: start; display: grid; gap: 14px; grid-template-columns: 350px minmax(0, 1fr); margin-top: 20px; }
+.release-content { display: grid; gap: 14px; }
+.release-list-panel { position: sticky; top: 16px; }
+.designer-panel { border-color: #2a5f55; }
+.release-start-panel { border-color: #34506f; }
+.compact-fields { margin-top: 14px; }
+.lifecycle-panel { border-color: #4c6686; }
+.lifecycle-track { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 20px; }
+.lifecycle-track span { background: #182a3e; border: 1px solid #34506f; border-radius: 99px; color: #aac1d5; font-size: .72rem; font-weight: 700; padding: 6px 9px; }
+.lifecycle-track span.active { background: #185746; border-color: #5ac8a2; color: #e2fff4; }
+.test-registry-panel { border-color: #315f57; }
+.review-panel { border-color: #4a5876; }
+.safety-controls-panel { border-color: #7d5a43; }
+.lifecycle-evidence-panel { border-color: #3a5572; }
 @media (max-width: 850px) {
   .dashboard-shell { padding: 18px; }
   .dashboard-header, .workspace-bar { align-items: flex-start; flex-direction: column; }
   .header-actions { align-self: stretch; justify-content: space-between; }
   .workspace-bar select { min-width: min(100%, 300px); }
-  .metric-grid, .dashboard-grid, .budget-form, .registry-layout, .two-column-fields { grid-template-columns: 1fr; }
-  .registry-shell { padding: 18px; }
+  .metric-grid, .dashboard-grid, .budget-form, .registry-layout, .release-grid, .two-column-fields { grid-template-columns: 1fr; }
+  .registry-shell, .release-shell { padding: 18px; }
+  .release-list-panel { position: static; }
   .builder-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 12px; }
 }
 @media (max-width: 540px) {
