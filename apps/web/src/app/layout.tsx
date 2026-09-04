@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ALOS",
-  description: "Genesis AI Executive Operating Layer",
+  title: "ALOS | Andara Leverage Operating System",
+  description: "ALOS operating dashboard for PT Andara Rejo Makmur",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

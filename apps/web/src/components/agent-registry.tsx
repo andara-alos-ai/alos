@@ -292,7 +292,7 @@ export function AgentRegistry() {
         <p className="eyebrow">ALOS / AGENT REGISTRY</p>
         <h1>Akses khusus IT Lead</h1>
         <p>Registry Agent hanya dapat dibuka dan diubah oleh akun dengan peran IT_LEAD.</p>
-        <Link className="secondary-button button-link" href="/">Kembali ke Governance Dashboard</Link>
+        <Link className="secondary-button button-link" href="/governance">Kembali ke Governance Dashboard</Link>
       </main>
     );
   }
@@ -301,7 +301,7 @@ export function AgentRegistry() {
     return (
       <main className="loading-shell">
         <p>{error || "Sesi Registry tidak tersedia."}</p>
-        <a className="text-link" href="/login">Ke halaman login</a>
+        <Link className="text-link" href="/login">Ke halaman login</Link>
       </main>
     );
   }
@@ -316,7 +316,7 @@ export function AgentRegistry() {
         </div>
         <div className="header-actions">
           <span className="role-badge">IT_LEAD</span>
-          <Link className="secondary-button button-link" href="/">Governance</Link>
+          <Link className="secondary-button button-link" href="/governance">Governance</Link>
           <Link className="secondary-button button-link" href="/releases">Release</Link>
           <button className="secondary-button" onClick={() => void logout()} type="button">Keluar</button>
         </div>

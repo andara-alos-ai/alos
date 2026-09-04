@@ -266,7 +266,7 @@ export function ReleaseGovernance() {
     <main className="release-shell">
       <header className="dashboard-header registry-header">
         <div><p className="eyebrow">ALOS / H4 RELEASE</p><h1>Release Governance</h1><p className="muted">Lifecycle berotorisasi: DRAFT → RUN → TEST → REVIEW → APPROVED → ACTIVE.</p></div>
-        <div className="header-actions"><span className="role-badge">{data.actor.roles.join(" · ")}</span><Link className="secondary-button button-link" href="/">Governance</Link><Link className="secondary-button button-link" href="/agents">Registry</Link><button className="secondary-button" onClick={() => void logout()} type="button">Keluar</button></div>
+        <div className="header-actions"><span className="role-badge">{data.actor.roles.join(" · ")}</span><Link className="secondary-button button-link" href="/governance">Governance</Link><Link className="secondary-button button-link" href="/agents">Registry</Link><button className="secondary-button" onClick={() => void logout()} type="button">Keluar</button></div>
       </header>
 
       <section className="workspace-bar registry-workspace" aria-label="Pemilihan workspace H4">
