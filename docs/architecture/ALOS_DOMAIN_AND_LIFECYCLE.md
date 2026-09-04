@@ -86,6 +86,16 @@ Requirement
 - Rollback selalu memilih version released sebelumnya, mencatat reason/actor,
   dan tidak menimpa contract snapshot.
 
+## Status implementasi local saat ini
+
+H2–H4 telah membuktikan `DRAFT → TESTED → IN_REVIEW → APPROVED → RELEASED →
+ACTIVE → SUSPENDED → ROLLED_BACK` di PostgreSQL sementara dengan evidence
+append-only, maker/checker/reviewer/approver terpisah, serta kill switch.
+Shared Runtime local memprioritaskan fixture `DRAFT` untuk release testing dan
+menjalankan versi `ACTIVE` pada Agent Registry bila tidak ada draft tertunda.
+Scheduler dan execution active pada staging tetap menunggu provider policy dan
+identity reviewer produksi.
+
 ## Vertical slice property R&D untuk MVP1
 
 1. Dirut memasukkan requirement contoh: mencari peluang property berdasarkan

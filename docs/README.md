@@ -12,12 +12,22 @@ terukur untuk produk ALOS.
    modul, serta kepemilikan file.
 3. [Domain dan lifecycle](architecture/ALOS_DOMAIN_AND_LIFECYCLE.md) — entitas
    universal, state machine, dan hubungan antar-domain.
-4. [Security dan human approval](governance/ALOS_SECURITY_AND_HUMAN_APPROVAL.md)
+4. Architecture Decision Records — keputusan arsitektur yang diterima dan
+   alasan konsekuensinya:
+   [ADR-001](architecture/ADR-001-modular-monolith.md),
+   [ADR-002](architecture/ADR-002-agent-contract-and-human-lifecycle.md),
+   [ADR-003](architecture/ADR-003-deterministic-controls-and-model-gateway.md),
+   dan [ADR-004](architecture/ADR-004-local-validation-boundary.md).
+5. [Security dan human approval](governance/ALOS_SECURITY_AND_HUMAN_APPROVAL.md)
    — batas deterministik dan keputusan yang selalu dipegang manusia.
-5. [Delivery plan](implementation/ALOS_MVP1_DELIVERY_PLAN.md) — lima hari
+6. [Delivery plan](implementation/ALOS_MVP1_DELIVERY_PLAN.md) — lima hari
    pembuktian dan vertical slice pertama.
-6. [Checklist traceability](implementation/ALOS_MVP1_CHECKLIST_TRACEABILITY.md)
+7. [Checklist traceability](implementation/ALOS_MVP1_CHECKLIST_TRACEABILITY.md)
    — checklist penerimaan MVP1 beserta bukti yang harus dihasilkan.
+8. [H5 backend stability report](implementation/H5_BACKEND_STABILITY_REPORT.md)
+   — status backend lokal, evidence quality gate, dan limitation yang masih HOLD.
+9. [OpenAI staging gateway](implementation/OPENAI_STAGING_GATEWAY.md) —
+   konfigurasi provider, routing model, dan urutan validasi VPS staging.
 
 ## Status dokumen yang sudah ada
 

@@ -54,11 +54,12 @@ class ModelUsage(BaseModel):
 class ModelRequest(BaseModel):
     """A provider-agnostic generation request.
 
-    The application chooses the provider and model through Settings. Callers
-    cannot override those routing decisions on an individual request.
+    The application selects the provider and resolves an optional model route
+    from server-side Settings. External API callers cannot override either.
     """
 
     correlation_id: UUID = Field(default_factory=uuid4)
+    model: str | None = Field(default=None, min_length=1, max_length=200)
     instructions: str = Field(min_length=1, max_length=50_000)
     input_text: str = Field(min_length=1, max_length=200_000)
     data_classification: DataClassification = "INTERNAL"
@@ -77,6 +78,25 @@ class ModelResponse(BaseModel):
 class ModelGateway(Protocol):
     def generate(self, request: ModelRequest) -> ModelResponse:
         """Return one structured generation result or raise a safe failure."""
+
+
+class RetryingModelGateway:
+    """Retry only transient provider failures; policy and content failures never retry."""
+
+    def __init__(self, delegate: ModelGateway, max_retries: int) -> None:
+        if max_retries < 0 or max_retries > 3:
+            raise ValueError("max_retries must be between 0 and 3")
+        self._delegate = delegate
+        self._max_retries = max_retries
+
+    def generate(self, request: ModelRequest) -> ModelResponse:
+        for attempt in range(self._max_retries + 1):
+            try:
+                return self._delegate.generate(request)
+            except ModelGatewayError as error:
+                if attempt >= self._max_retries or not _is_retryable(error):
+                    raise
+        raise AssertionError("retry loop must return or raise")
 
 
 @dataclass
@@ -174,3 +194,16 @@ class FakeModelGateway:
             usage=ModelUsage(input_tokens=1, output_tokens=1),
             latency_milliseconds=1,
         )
+
+
+def _is_retryable(error: ModelGatewayError) -> bool:
+    transient_codes = {"TIMEOUT", "GEMINI_TRANSPORT", "OPENAI_TRANSPORT"}
+    transient_statuses = {500, 502, 503, 504}
+    if error.code in transient_codes:
+        return True
+    provider_status_codes = {
+        f"{provider}_HTTP_{status}"
+        for provider in ("GEMINI", "OPENAI")
+        for status in transient_statuses
+    }
+    return error.code in provider_status_codes

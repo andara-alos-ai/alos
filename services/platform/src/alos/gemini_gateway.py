@@ -65,14 +65,14 @@ class GeminiModelGateway:
                     "x-goog-api-key": self._api_key,
                 },
                 json={
-                    "model": self._settings.llm_model,
+                    "model": request.model or self._settings.llm_model,
                     "input": request.input_text,
                     "system_instruction": request.instructions,
                     "store": False,
                     "generation_config": {
                         "max_output_tokens": request.max_output_tokens,
                         "thinking_level": _gemini_thinking_level(
-                            self._settings.llm_model,
+                            request.model or self._settings.llm_model,
                             self._settings.llm_reasoning_effort,
                         ),
                     },
@@ -111,7 +111,7 @@ class GeminiModelGateway:
 
         return ModelResponse(
             provider="gemini",
-            model=str(payload.get("model") or self._settings.llm_model),
+            model=str(payload.get("model") or request.model or self._settings.llm_model),
             output_text=output_text,
             usage=ModelUsage(
                 input_tokens=_token_count(usage, "total_input_tokens"),

@@ -43,18 +43,26 @@ Set policy awal berikut pada file secret:
 
 ```dotenv
 ALOS_LLM_PROVIDER=openai
-ALOS_LLM_MODEL=gpt-5.6-terra
+ALOS_LLM_MODEL=gpt-5.6-luna
+ALOS_LLM_MODEL_LIGHT=gpt-5.6-luna
+ALOS_LLM_MODEL_STANDARD=gpt-5.6-terra
+ALOS_LLM_MODEL_CRITICAL=gpt-5.6-sol
 ALOS_LLM_STORE_RESPONSES=false
-ALOS_LLM_REASONING_EFFORT=medium
-ALOS_LLM_MAX_OUTPUT_TOKENS=3000
-ALOS_LLM_DAILY_REQUEST_LIMIT=50
-ALOS_LLM_DAILY_OUTPUT_TOKEN_LIMIT=100000
+ALOS_LLM_REASONING_EFFORT=low
+ALOS_LLM_MAX_OUTPUT_TOKENS=1200
+ALOS_LLM_DAILY_REQUEST_LIMIT=2
+ALOS_LLM_DAILY_OUTPUT_TOKEN_LIMIT=2400
+ALOS_LLM_DAILY_COST_CAP_USD=5.00
 ```
 
 `store=false` menghindari penyimpanan response state yang dikontrol aplikasi
 provider, tetapi bukan pengganti review data governance. OpenAI menjelaskan
 bahwa Responses API dan abuse-monitoring memiliki kontrol retensi tersendiri;
 gunakan data sintetis sampai organisasi menyetujui klasifikasi dan retensi data.
+
+`light`, `standard`, dan `critical` adalah route Contract, bukan nama model
+yang dapat ditentukan agent. Backend memetakan route tersebut ke Luna, Terra,
+dan Sol melalui environment VPS di atas.
 
 ## Deploy staging
 
