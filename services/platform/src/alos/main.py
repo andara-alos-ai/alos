@@ -908,7 +908,9 @@ def run_agent(
     request: AgentRunRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> AgentRunResult:
-    require_registry_editor(actor)
+    # H3 is limited to IT Lead-controlled fixture execution. Broader runtime
+    # authority is introduced only after lifecycle/review gates are complete.
+    require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     try:
         return get_agent_runtime().execute(

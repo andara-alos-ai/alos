@@ -23,7 +23,6 @@ from alos.persistence.migrations import apply_migrations
 from alos.runtime.service import (
     AgentRunRequest,
     AgentRuntime,
-    AgentRuntimeBlocked,
     AgentRuntimeRepository,
     WorkspaceBudgetRequest,
 )
@@ -43,9 +42,12 @@ def _settings(database_url: str) -> Settings:
         environment="test",
         database_url=database_url,
         auth_signing_secret="a" * 32,
-        llm_provider="gemini",
+        llm_provider="openai",
         llm_api_key="test-only-key",
-        llm_model="gemini-3.7-flash",
+        llm_model="gpt-5.6-luna",
+        llm_model_light="gpt-5.6-luna",
+        llm_model_standard="gpt-5.6-terra",
+        llm_model_critical="gpt-5.6-sol",
         llm_max_output_tokens=300,
         llm_daily_request_limit=1,
         llm_daily_output_token_limit=1_000,
@@ -74,7 +76,7 @@ def _contract(workspace_id: object, owner_user_id: object) -> AgentContract:
                 "citations": {"type": "array"},
             },
         },
-        model_policy={"provider": "gemini", "max_output_tokens": 300},
+        model_policy={"provider": "openai", "max_output_tokens": 300},
         tool_keys=["FIXTURE_SOURCE_READ"],
         permission_keys=[],
         evidence_requirements=["fixture reference"],
@@ -88,12 +90,12 @@ def _contract(workspace_id: object, owner_user_id: object) -> AgentContract:
 
 def _response() -> ModelResponse:
     return ModelResponse(
-        provider="gemini",
-        model="gemini-3.7-flash",
+        provider="openai",
+        model="gpt-5.6-luna",
         output_text='{"summary":"Fixture result","citations":["FIXTURE-PROPERTY-001"]}',
         usage=ModelUsage(input_tokens=12, output_tokens=20),
         latency_milliseconds=10,
-        estimated_cost_usd=Decimal("0"),
+        estimated_cost_usd=Decimal("0.000027"),
     )
 
 
@@ -178,16 +180,17 @@ def test_runtime_persists_usage_and_blocks_tools_and_budget() -> None:
         assert blocked.status == "BLOCKED"
         assert blocked.tool_decisions[0].decision == "BLOCKED"
 
-        with pytest.raises(AgentRuntimeBlocked, match="daily request budget cap"):
-            runtime.execute(
-                "FIXTURE_RUNTIME",
-                AgentRunRequest(
-                    workspace_id=context.workspace_id,
-                    input={"query": "property opportunity"},
-                ),
-                organization_id=context.organization_id,
-                actor_user_id=context.user_id,
-            )
+        request_budget_blocked = runtime.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "property opportunity"},
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+        assert request_budget_blocked.status == "BLOCKED"
+        assert request_budget_blocked.tool_decisions[0].tool_key == "BUDGET_POLICY"
 
         updated_budget = AgentRuntimeRepository(temporary_url, settings).set_budget_limit(
             context.workspace_id,
@@ -223,6 +226,29 @@ def test_runtime_persists_usage_and_blocks_tools_and_budget() -> None:
             == "SUCCEEDED"
         )
 
+        AgentRuntimeRepository(temporary_url, settings).set_budget_limit(
+            context.workspace_id,
+            WorkspaceBudgetRequest(
+                daily_request_limit=3,
+                daily_output_token_limit=1_000,
+                daily_cost_cap_usd=Decimal("0"),
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        cost_blocked = runtime_after_budget.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "property opportunity"},
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+        assert cost_blocked.status == "BLOCKED"
+        assert cost_blocked.tool_decisions[0].tool_key == "BUDGET_POLICY"
+
         with psycopg.connect(temporary_url) as connection:
             ledger_count = connection.execute(
                 "SELECT count(*) FROM observability.usage_ledger"
@@ -237,6 +263,9 @@ def test_runtime_persists_usage_and_blocks_tools_and_budget() -> None:
             assert connection.execute(
                 "SELECT action FROM audit.events WHERE action = 'COST_LIMIT_UPDATED'"
             ).fetchone() == ("COST_LIMIT_UPDATED",)
+            assert connection.execute(
+                "SELECT decision FROM runtime.tool_calls WHERE tool_key = 'BUDGET_POLICY'"
+            ).fetchone() == ("BLOCKED",)
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:
             connection.execute(

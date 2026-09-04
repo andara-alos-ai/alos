@@ -84,6 +84,10 @@ class AgentRunResult(BaseModel):
     output: dict[str, Any] | None = None
     provider: str | None = None
     model: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    latency_milliseconds: int | None = None
+    estimated_cost_usd: Decimal | None = None
     tool_decisions: list[ToolDecision] = Field(default_factory=list)
     error_code: str | None = None
 
@@ -205,6 +209,10 @@ class AgentRuntime:
             output=output,
             provider=response.provider,
             model=response.model,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            latency_milliseconds=response.latency_milliseconds,
+            estimated_cost_usd=response.estimated_cost_usd,
             tool_decisions=list(prepared.tool_decisions),
         )
 
@@ -220,30 +228,13 @@ class AgentRuntime:
     ) -> Any:
         from alos.model_gateway import ModelRequest
 
-        configured_provider = contract.model_policy.get("provider")
-        if configured_provider not in {None, self._settings.llm_provider}:
-            raise AgentRuntimeBlocked("contract model provider does not match Model Gateway policy")
-        configured_limit = contract.model_policy.get("max_output_tokens", self._max_output_tokens)
-        if isinstance(configured_limit, bool) or not isinstance(configured_limit, int):
-            raise AgentRuntimeBlocked("contract output token policy is invalid")
-        output_limit = min(configured_limit, self._max_output_tokens)
-        if output_limit < 1:
-            raise AgentRuntimeBlocked("contract output token policy is invalid")
-        model_route = contract.model_policy.get("model_route", "standard")
-        if model_route not in {"light", "standard", "critical"}:
-            raise AgentRuntimeBlocked("contract model route is invalid")
+        model, output_limit = _resolve_model_policy(
+            contract, self._settings, self._max_output_tokens
+        )
         return ModelRequest(
-            model=self._settings.model_for_route(model_route),
-            instructions=(
-                f"{contract.prompt_template}\n\n"
-                "Return JSON only. Do not take actions. "
-                "The JSON must conform to this output schema: "
-                f"{json.dumps(contract.output_schema, ensure_ascii=False)}"
-            ),
-            input_text=json.dumps(
-                {"input": request.input, "read_only_fixture_context": fixture_context},
-                ensure_ascii=False,
-            ),
+            model=model,
+            instructions=_model_instructions(contract),
+            input_text=_model_input_text(request, fixture_context),
             data_classification="INTERNAL",
             max_output_tokens=output_limit,
         )
@@ -326,16 +317,41 @@ class AgentRuntimeRepository:
                     reason=tool_evaluation.reason,
                 )
             decisions, fixture_context = tool_evaluation
-            agent_run_id = self._reserve_budget_and_create_run(
-                connection,
-                execution,
-                organization_id,
-                request.workspace_id,
-                actor_user_id,
-                correlation_id,
-                input_hash,
-                max_output_tokens,
+            model, output_limit = _resolve_model_policy(
+                execution.contract, self._settings, max_output_tokens
             )
+            reserved_cost_usd = self._settings.estimate_llm_cost_usd(
+                model=model,
+                input_tokens=_conservative_input_token_bound(
+                    _model_instructions(execution.contract),
+                    _model_input_text(request, fixture_context),
+                ),
+                output_tokens=output_limit,
+            )
+            try:
+                agent_run_id = self._reserve_budget_and_create_run(
+                    connection,
+                    execution,
+                    organization_id,
+                    request.workspace_id,
+                    actor_user_id,
+                    correlation_id,
+                    input_hash,
+                    output_limit,
+                    reserved_cost_usd,
+                )
+            except AgentRuntimeBlocked as error:
+                return self._block_run(
+                    connection,
+                    execution,
+                    organization_id,
+                    request.workspace_id,
+                    actor_user_id,
+                    correlation_id,
+                    input_hash,
+                    tool_key="BUDGET_POLICY",
+                    reason=str(error),
+                )
             for decision in decisions:
                 connection.execute(
                     """
@@ -352,8 +368,12 @@ class AgentRuntimeRepository:
                 entity_type="AGENT_RUN",
                 entity_id=agent_run_id,
                 correlation_id=correlation_id,
-                reason="Human requested a bounded Agent Runtime execution",
-                metadata={"agent_key": execution.agent_key, "version": execution.semantic_version},
+                reason="Human requested a bounded read-only fixture Agent Runtime execution",
+                metadata={
+                    "agent_key": execution.agent_key,
+                    "version": execution.semantic_version,
+                    "execution_mode": "FIXTURE_READ_ONLY",
+                },
             )
             return _PreparedRun(
                 agent_run_id=agent_run_id,
@@ -765,6 +785,7 @@ class AgentRuntimeRepository:
         correlation_id: UUID,
         input_hash: str,
         max_output_tokens: int,
+        reserved_cost_usd: Decimal,
     ) -> UUID:
         connection.execute(
             "SELECT pg_advisory_xact_lock(hashtext(%s))",
@@ -805,7 +826,7 @@ class AgentRuntimeRepository:
             raise AgentRuntimeBlocked("daily request budget cap reached")
         if output_total + max_output_tokens > limit["daily_output_token_limit"]:
             raise AgentRuntimeBlocked("daily output token budget cap reached")
-        if cost_total > Decimal(str(limit["daily_cost_cap_usd"])):
+        if cost_total + reserved_cost_usd > Decimal(str(limit["daily_cost_cap_usd"])):
             raise AgentRuntimeBlocked("daily cost budget cap reached")
         run = connection.execute(
             """
@@ -829,10 +850,17 @@ class AgentRuntimeRepository:
         connection.execute(
             """
             INSERT INTO runtime.budget_reservations (
-                agent_run_id, organization_id, workspace_id, reserved_output_tokens
-            ) VALUES (%s, %s, %s, %s)
+                agent_run_id, organization_id, workspace_id, reserved_output_tokens,
+                reserved_cost_usd
+            ) VALUES (%s, %s, %s, %s, %s)
             """,
-            (run["agent_run_id"], organization_id, workspace_id, max_output_tokens),
+            (
+                run["agent_run_id"],
+                organization_id,
+                workspace_id,
+                max_output_tokens,
+                reserved_cost_usd,
+            ),
         )
         return cast(UUID, run["agent_run_id"])
 
@@ -1026,6 +1054,53 @@ class AgentRuntimeRepository:
                 Jsonb(metadata),
             ),
         )
+
+
+def _resolve_model_policy(
+    contract: AgentContract, settings: Settings, maximum_output_tokens: int
+) -> tuple[str, int]:
+    """Resolve the bounded, server-owned model selection used for reservation and execution."""
+    configured_provider = contract.model_policy.get("provider")
+    if configured_provider not in {None, settings.llm_provider}:
+        raise AgentRuntimeBlocked("contract model provider does not match Model Gateway policy")
+    configured_limit = contract.model_policy.get("max_output_tokens", maximum_output_tokens)
+    if isinstance(configured_limit, bool) or not isinstance(configured_limit, int):
+        raise AgentRuntimeBlocked("contract output token policy is invalid")
+    output_limit = min(configured_limit, maximum_output_tokens)
+    if output_limit < 1:
+        raise AgentRuntimeBlocked("contract output token policy is invalid")
+    model_route = contract.model_policy.get("model_route", "standard")
+    if model_route not in {"light", "standard", "critical"}:
+        raise AgentRuntimeBlocked("contract model route is invalid")
+    route = cast(Literal["light", "standard", "critical"], model_route)
+    return settings.model_for_route(route), output_limit
+
+
+def _model_instructions(contract: AgentContract) -> str:
+    return (
+        f"{contract.prompt_template}\n\n"
+        "Return JSON only. Do not take actions. "
+        "The JSON must conform to this output schema: "
+        f"{json.dumps(contract.output_schema, ensure_ascii=False)}"
+    )
+
+
+def _model_input_text(
+    request: AgentRunRequest, fixture_context: tuple[dict[str, Any], ...] | list[dict[str, Any]]
+) -> str:
+    return json.dumps(
+        {"input": request.input, "read_only_fixture_context": fixture_context},
+        ensure_ascii=False,
+    )
+
+
+def _conservative_input_token_bound(instructions: str, input_text: str) -> int:
+    """Upper-bound text tokens by UTF-8 bytes before a provider call.
+
+    This intentionally over-reserves budget; a token cannot represent an empty
+    byte sequence, so it cannot understate the user-controlled textual input.
+    """
+    return len((instructions + input_text).encode("utf-8"))
 
 
 def _parse_and_validate_output(value: str, schema: dict[str, Any]) -> dict[str, Any]:

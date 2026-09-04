@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -71,6 +72,7 @@ def test_openai_gateway_uses_stateless_responses_and_maps_usage() -> None:
     assert response.output_text == '{"result":"fixture"}'
     assert response.usage.input_tokens == 12
     assert response.usage.output_tokens == 9
+    assert response.estimated_cost_usd == Decimal("0.000014")
 
 
 def test_openai_gateway_extracts_output_text_from_message_content() -> None:

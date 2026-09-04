@@ -176,6 +176,21 @@ th { color: #aac0d5; font-weight: 700; }
 .review-list dd { margin: 0; overflow-wrap: anywhere; }
 .agent-detail-panel h3 { font-size: .88rem; margin: 24px 0 10px; }
 .contract-snapshot { background: #071421; border: 1px solid #213850; border-radius: 8px; color: #c7dbeb; font-size: .73rem; line-height: 1.5; margin: 0; max-height: 430px; overflow: auto; padding: 13px; white-space: pre-wrap; }
+.runtime-test-panel { border-color: #2a5f55; }
+.runtime-test-fields { margin-top: 18px; }
+.runtime-test-fields .field-note { display: block; margin-top: 2px; }
+.runtime-result { border: 1px solid #2b536d; border-left-width: 4px; border-radius: 8px; display: grid; gap: 12px; margin-top: 20px; padding: 15px; }
+.runtime-result > div { display: flex; flex-wrap: wrap; gap: 9px; }
+.runtime-result > div span { color: #afc4d8; }
+.runtime-succeeded { border-left-color: #72d6b3; }
+.runtime-blocked { border-left-color: #e0b25b; }
+.runtime-failed { border-left-color: #e8899d; }
+.runtime-metrics { margin-top: 0; }
+.runtime-output { max-height: 300px; }
+.tool-decisions { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.tool-decisions li { color: #b8cbdd; font-size: .82rem; line-height: 1.45; }
+.tool-decisions strong { color: #8be5c4; font-size: .74rem; }
+.runtime-blocked .tool-decisions strong { color: #f2c870; }
 .registry-audit-panel { margin-top: 14px; }
 @media (max-width: 850px) {
   .dashboard-shell { padding: 18px; }

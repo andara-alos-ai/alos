@@ -5,6 +5,8 @@ import {
   draftPayloadFromForm,
   eligibleParents,
   emptyAgentDraftForm,
+  emptyAgentRunForm,
+  runPayloadFromForm,
   type AgentRecord,
 } from "./agent-registry";
 
@@ -70,5 +72,17 @@ describe("Agent Registry Builder helpers", () => {
       riskLevel: "HIGH",
       approvalRequired: false,
     }, "workspace-1")).toThrow("wajib memerlukan persetujuan manusia");
+  });
+
+  it("builds a fixture-only run payload without a model, secret, or prompt", () => {
+    expect(runPayloadFromForm({
+      ...emptyAgentRunForm(),
+      input: '{"query":"property opportunity"}',
+      requestedToolKeys: "FIXTURE_SOURCE_READ, SOURCE_REGISTRY_SEARCH",
+    }, "workspace-1")).toEqual({
+      workspace_id: "workspace-1",
+      input: { query: "property opportunity" },
+      requested_tool_keys: ["FIXTURE_SOURCE_READ", "SOURCE_REGISTRY_SEARCH"],
+    });
   });
 });

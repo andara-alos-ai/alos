@@ -51,6 +51,34 @@ export type AgentDraftResult = {
   correlation_id: string;
 };
 
+export type ToolDecision = {
+  tool_key: string;
+  decision: "ALLOWED" | "BLOCKED";
+  reason: string;
+};
+
+export type AgentRunResult = {
+  agent_run_id: string;
+  agent_key: string;
+  semantic_version: string;
+  status: "SUCCEEDED" | "FAILED" | "BLOCKED";
+  correlation_id: string;
+  output: JsonObject | null;
+  provider: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  latency_milliseconds: number | null;
+  estimated_cost_usd: string | null;
+  tool_decisions: ToolDecision[];
+  error_code: string | null;
+};
+
+export type AgentRunForm = {
+  input: string;
+  requestedToolKeys: string;
+};
+
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
 export type DataClassification = "PUBLIC" | "INTERNAL" | "CONFIDENTIAL" | "RESTRICTED";
@@ -128,6 +156,18 @@ export function emptyAgentDraftForm(): AgentDraftForm {
     dataClassification: "INTERNAL",
     forbiddenActions: "Jangan menulis data, menghubungi pihak eksternal, membelanjakan dana, atau mengubah produksi.",
     kpis: '[\n  { "name": "quality", "target": 1 }\n]',
+  };
+}
+
+export function emptyAgentRunForm(): AgentRunForm {
+  return { input: "{}", requestedToolKeys: "" };
+}
+
+export function runPayloadFromForm(form: AgentRunForm, workspaceId: string) {
+  return {
+    workspace_id: workspaceId,
+    input: parseJsonObject(form.input, "Input fixture"),
+    requested_tool_keys: splitKeys(form.requestedToolKeys),
   };
 }
 

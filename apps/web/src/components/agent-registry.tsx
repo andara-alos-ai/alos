@@ -10,11 +10,15 @@ import {
   draftPayloadFromForm,
   eligibleParents,
   emptyAgentDraftForm,
+  emptyAgentRunForm,
   formFromAgent,
   latestVersion,
+  runPayloadFromForm,
   type AgentDraftForm,
   type AgentDraftResult,
   type AgentRecord,
+  type AgentRunForm,
+  type AgentRunResult,
 } from "@/lib/agent-registry";
 import {
   ApiError,
@@ -52,9 +56,12 @@ export function AgentRegistry() {
   const [selectedAgentKey, setSelectedAgentKey] = useState("");
   const [editingAgentKey, setEditingAgentKey] = useState("");
   const [form, setForm] = useState<AgentDraftForm>(emptyAgentDraftForm);
+  const [runForm, setRunForm] = useState<AgentRunForm>(emptyAgentRunForm);
+  const [latestRun, setLatestRun] = useState<AgentRunResult | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [forbidden, setForbidden] = useState(false);
@@ -122,6 +129,8 @@ export function AgentRegistry() {
     setSelectedAgentKey("");
     setEditingAgentKey("");
     setForm(emptyAgentDraftForm());
+    setRunForm(emptyAgentRunForm());
+    setLatestRun(null);
     try {
       await loadWorkspace(nextWorkspaceId, data ? foundationOf(data) : undefined);
     } catch (loadError: unknown) {
@@ -135,6 +144,8 @@ export function AgentRegistry() {
     setEditingAgentKey("");
     setSelectedAgentKey("");
     setForm(emptyAgentDraftForm());
+    setRunForm(emptyAgentRunForm());
+    setLatestRun(null);
     setActiveStep(0);
     setError("");
     setNotice("");
@@ -149,9 +160,58 @@ export function AgentRegistry() {
     setEditingAgentKey(agent.agent_key);
     setSelectedAgentKey(agent.agent_key);
     setForm(formFromAgent(agent));
+    setLatestRun(null);
     setActiveStep(0);
     setError("");
     setNotice("");
+  }
+
+  function selectAgent(agent: AgentRecord) {
+    const version = latestVersion(agent);
+    setSelectedAgentKey(agent.agent_key);
+    setRunForm({
+      input: "{}",
+      requestedToolKeys: version?.contract_snapshot.tool_keys.join(", ") ?? "",
+    });
+    setLatestRun(null);
+  }
+
+  async function runFixture() {
+    if (!data || !selectedAgent || !selectedVersion || !workspaceId) {
+      return;
+    }
+    if (selectedVersion.lifecycle_status !== "DRAFT") {
+      setError("H3 Test Run hanya tersedia untuk Agent dengan versi DRAFT aktif.");
+      return;
+    }
+    setRunning(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api<AgentRunResult>(
+        `/api/v1/agents/${encodeURIComponent(selectedAgent.agent_key)}/runs`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(runPayloadFromForm(runForm, workspaceId)),
+        },
+      );
+      setLatestRun(result);
+      await loadWorkspace(workspaceId, foundationOf(data));
+      setNotice(
+        result.status === "SUCCEEDED"
+          ? `Fixture run ${result.agent_key} berhasil dan telah diaudit.`
+          : `Fixture run diblokir secara aman dan telah diaudit (${result.error_code ?? "POLICY"}).`,
+      );
+    } catch (runError: unknown) {
+      if (runError instanceof Error && !(runError instanceof ApiError)) {
+        setError(runError.message);
+      } else {
+        handleApiError(runError, setError, router);
+      }
+    } finally {
+      setRunning(false);
+    }
   }
 
   async function saveDraft() {
@@ -286,7 +346,7 @@ export function AgentRegistry() {
                 <li key={agent.agent_contract_id}>
                   <button
                     className={selectedAgentKey === agent.agent_key ? "agent-row selected" : "agent-row"}
-                    onClick={() => setSelectedAgentKey(agent.agent_key)}
+                    onClick={() => selectAgent(agent)}
                     type="button"
                   >
                     <span className="agent-level">L{agent.agent_level}</span>
@@ -340,13 +400,37 @@ export function AgentRegistry() {
             {!selectedAgent ? <p className="empty-state">Pilih Agent dari daftar untuk melihat Contract, versi, dan prompt hasil Genesis.</p> : null}
             {selectedAgent && selectedVersion ? <><div className="agent-detail-actions"><button disabled={selectedVersion.lifecycle_status !== "DRAFT"} onClick={() => startEdit(selectedAgent)} type="button">Ubah DRAFT</button><button className="danger-button" disabled={saving || selectedVersion.lifecycle_status === "RETIRED"} onClick={() => void retire(selectedAgent)} type="button">Pensiunkan</button></div><dl className="review-list"><div><dt>Parent</dt><dd>{selectedAgent.parent_agent_key ?? "Root Agent"}</dd></div><div><dt>Versi terbaru</dt><dd>{selectedVersion.semantic_version} · {selectedVersion.lifecycle_status}</dd></div><div><dt>Digest</dt><dd className="digest-value">{selectedVersion.digest}</dd></div><div><dt>Risk</dt><dd>{selectedAgent.risk_level}</dd></div></dl><h3>Riwayat versi</h3><div className="table-wrap"><table><thead><tr><th>Versi</th><th>Lifecycle</th><th>Digest</th></tr></thead><tbody>{selectedAgent.versions.map((version) => <tr key={version.agent_version_id}><td>{version.semantic_version}</td><td>{version.lifecycle_status}</td><td className="digest-value">{version.digest.slice(0, 16)}…</td></tr>)}</tbody></table></div><h3>Contract snapshot terbaru</h3><pre className="contract-snapshot">{JSON.stringify(selectedVersion.contract_snapshot, null, 2)}</pre></> : null}
           </article>
+
+          <article className="panel runtime-test-panel">
+            <div className="panel-heading">
+              <div><p className="eyebrow">H3 FIXTURE TEST RUN</p><h2>Jalankan DRAFT dengan aman</h2></div>
+              <span className="permission-ok">IT Lead only</span>
+            </div>
+            {!selectedAgent || !selectedVersion ? <p className="empty-state">Pilih Agent DRAFT untuk menyiapkan fixture run Gate B.</p> : null}
+            {selectedAgent && selectedVersion && selectedVersion.lifecycle_status !== "DRAFT" ? <p className="safe-note">Versi {selectedVersion.semantic_version} berstatus {selectedVersion.lifecycle_status}. Buat atau pilih DRAFT aktif untuk Test Run.</p> : null}
+            {selectedAgent && selectedVersion?.lifecycle_status === "DRAFT" ? <>
+              <p className="field-note">Mode ini hanya membaca fixture atau tool read-only yang sudah di-allowlist. Tidak ada perubahan data, side effect, API key, atau credential yang dikirim ke browser.</p>
+              <div className="builder-fields two-column-fields runtime-test-fields">
+                <label>Input fixture (JSON)<textarea className="code-input" onChange={(event) => setRunForm((current) => ({ ...current, input: event.target.value }))} rows={7} spellCheck="false" value={runForm.input} /></label>
+                <label>Requested tool keys (pisahkan koma)<input onChange={(event) => setRunForm((current) => ({ ...current, requestedToolKeys: event.target.value }))} placeholder="Kosongkan bila Agent tidak membutuhkan tool" value={runForm.requestedToolKeys} /><span className="field-note">Tool di luar allowlist tetap BLOCKED dan dicatat pada audit.</span></label>
+              </div>
+              <div className="builder-actions"><button disabled={running} onClick={() => void runFixture()} type="button">{running ? "Menjalankan fixture…" : "Jalankan Fixture Test"}</button></div>
+            </> : null}
+            {latestRun ? <section className={`runtime-result runtime-${latestRun.status.toLowerCase()}`} aria-live="polite">
+              <div><strong>{latestRun.status}</strong><span>{latestRun.agent_key} · {latestRun.semantic_version}</span></div>
+              <dl className="review-list runtime-metrics"><div><dt>Correlation ID</dt><dd className="digest-value">{latestRun.correlation_id}</dd></div><div><dt>Provider / model</dt><dd>{latestRun.provider ?? "—"} / {latestRun.model ?? "—"}</dd></div><div><dt>Token</dt><dd>{latestRun.input_tokens ?? "—"} input · {latestRun.output_tokens ?? "—"} output</dd></div><div><dt>Latency / biaya</dt><dd>{latestRun.latency_milliseconds ?? "—"} ms · ${latestRun.estimated_cost_usd ?? "—"}</dd></div></dl>
+              {latestRun.tool_decisions.length > 0 ? <ul className="tool-decisions">{latestRun.tool_decisions.map((decision) => <li key={`${decision.tool_key}-${decision.decision}`}><strong>{decision.decision}</strong> {decision.tool_key} — {decision.reason}</li>)}</ul> : null}
+              {latestRun.output ? <pre className="contract-snapshot runtime-output">{JSON.stringify(latestRun.output, null, 2)}</pre> : null}
+              {latestRun.error_code ? <p className="safe-note">Kode kontrol: {latestRun.error_code}</p> : null}
+            </section> : null}
+          </article>
         </section>
       </section>
 
       <section className="panel registry-audit-panel">
-        <p className="eyebrow">GATE A EVIDENCE</p>
+        <p className="eyebrow">GATE A & B EVIDENCE</p>
         <h2>Audit Agent pada workspace ini</h2>
-        {data.audit.length === 0 ? <p className="empty-state">Belum ada AGENT_DRAFT_CREATED, AGENT_DRAFT_UPDATED, atau AGENT_RETIRED.</p> : null}
+        {data.audit.length === 0 ? <p className="empty-state">Belum ada Agent DRAFT atau fixture run yang diaudit pada workspace ini.</p> : null}
         <ol className="audit-list">{data.audit.map((event) => <li key={event.audit_event_id}><strong>{event.action}</strong><span>{event.reason}</span><time dateTime={event.occurred_at}>{formatDateTime(event.occurred_at)}</time></li>)}</ol>
       </section>
     </main>
