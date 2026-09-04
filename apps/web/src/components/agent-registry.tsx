@@ -13,6 +13,7 @@ import {
   emptyAgentRunForm,
   formFromAgent,
   latestVersion,
+  registryConflictMessage,
   runPayloadFromForm,
   type AgentDraftForm,
   type AgentDraftResult,
@@ -22,6 +23,7 @@ import {
 } from "@/lib/agent-registry";
 import {
   ApiError,
+  apiErrorDetail,
   formatDateTime,
   type AuditEvent,
   type SessionActor,
@@ -44,7 +46,8 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!response.ok) {
-    throw new ApiError(response.status);
+    const payload: unknown = await response.json().catch(() => undefined);
+    throw new ApiError(response.status, apiErrorDetail(payload));
   }
   return (await response.json()) as T;
 }
@@ -174,6 +177,8 @@ export function AgentRegistry() {
       requestedToolKeys: version?.contract_snapshot.tool_keys.join(", ") ?? "",
     });
     setLatestRun(null);
+    setError("");
+    setNotice("");
   }
 
   async function runFixture() {
@@ -455,7 +460,7 @@ function handleApiError(error: unknown, setError: (message: string) => void, rou
   } else if (error instanceof ApiError && error.status === 403) {
     setError("Akun Anda tidak memiliki otoritas IT Lead atau akses ke workspace ini.");
   } else if (error instanceof ApiError && error.status === 409) {
-    setError("Perubahan ditolak: agent key, parent, atau level hierarchy tidak valid.");
+    setError(registryConflictMessage(error.detail));
   } else {
     setError("Permintaan tidak dapat diproses. Periksa isian lalu coba lagi.");
   }

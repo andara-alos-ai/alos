@@ -132,6 +132,16 @@ export function canEditAgentRegistry(roles: string[]): boolean {
   return roles.includes("IT_LEAD");
 }
 
+export function registryConflictMessage(detail?: string): string {
+  const messages: Record<string, string> = {
+    "agent key already exists in this organization": "Agent key sudah dipakai, termasuk oleh Agent yang dipensiunkan. Gunakan key baru.",
+    "parent agent contract was not found": "Parent Agent tidak ditemukan pada organisasi ini.",
+    "agent hierarchy cannot exceed level 2": "Hierarki Agent tidak boleh melebihi level 2.",
+    "an agent contract cannot be moved between workspaces": "Workspace Agent tidak dapat diubah setelah dibuat.",
+  };
+  return messages[detail ?? ""] ?? "Perubahan ditolak: agent key, parent, atau level hierarchy tidak valid.";
+}
+
 export function latestVersion(agent: AgentRecord): AgentVersion | undefined {
   return agent.versions[0];
 }

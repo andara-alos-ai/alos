@@ -6,6 +6,7 @@ import {
   eligibleParents,
   emptyAgentDraftForm,
   emptyAgentRunForm,
+  registryConflictMessage,
   runPayloadFromForm,
   type AgentRecord,
 } from "./agent-registry";
@@ -38,6 +39,13 @@ describe("Agent Registry Builder helpers", () => {
     expect(canEditAgentRegistry(["IT_LEAD"])).toBe(true);
     expect(canEditAgentRegistry(["DIRECTOR"])).toBe(false);
     expect(canEditAgentRegistry(["DIVISION_OWNER", "QA_SECURITY"])).toBe(false);
+  });
+
+  it("renders only safe, actionable registry conflict messages", () => {
+    expect(registryConflictMessage("agent key already exists in this organization")).toContain("sudah dipakai");
+    expect(registryConflictMessage("unexpected server detail")).toBe(
+      "Perubahan ditolak: agent key, parent, atau level hierarchy tidak valid.",
+    );
   });
 
   it("excludes itself and level-two Agents from parent options", () => {
