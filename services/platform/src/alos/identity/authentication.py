@@ -354,6 +354,7 @@ class IdentityAuthenticationRepository:
         password: str,
         display_name: str,
         workspace_key: str,
+        replace_director_role: bool = False,
         settings: Settings,
     ) -> BootstrapResult:
         """Create a separate IT Lead login without changing the Director account."""
@@ -399,14 +400,18 @@ class IdentityAuthenticationRepository:
                 (organization_id, normalized_email),
             ).fetchone()
             if existing is not None:
-                other_role = connection.execute(
+                role_rows = connection.execute(
                     """
-                    SELECT 1 FROM identity.role_assignments
-                    WHERE user_id = %s AND role_code <> 'IT_LEAD' AND revoked_at IS NULL
+                    SELECT role_code FROM identity.role_assignments
+                    WHERE user_id = %s AND revoked_at IS NULL
                     """,
                     (existing["user_id"],),
-                ).fetchone()
-                if other_role is not None:
+                ).fetchall()
+                active_roles = {row["role_code"] for row in role_rows}
+                non_it_lead_roles = active_roles - {"IT_LEAD"}
+                if non_it_lead_roles and not (
+                    replace_director_role and non_it_lead_roles == {"DIRECTOR"}
+                ):
                     raise BootstrapError(
                         "email already has a non-IT Lead role; bootstrap a separate IT account"
                     )
@@ -423,6 +428,29 @@ class IdentityAuthenticationRepository:
             if user is None:
                 raise BootstrapError("IT Lead user could not be created")
             user_id = user["user_id"]
+            if existing is not None and replace_director_role and "DIRECTOR" in active_roles:
+                connection.execute(
+                    """
+                    UPDATE identity.role_assignments
+                    SET revoked_at = now()
+                    WHERE user_id = %s AND role_code = 'DIRECTOR' AND revoked_at IS NULL
+                    """,
+                    (user_id,),
+                )
+                self._append_audit(
+                    connection,
+                    organization_id=organization_id,
+                    actor_user_id=user_id,
+                    action="DIRECTOR_ROLE_CONVERTED_TO_IT_LEAD",
+                    entity_type="USER",
+                    entity_id=user_id,
+                    correlation_id=uuid4(),
+                    reason="Existing staging Director account was explicitly converted to IT Lead",
+                    metadata={
+                        "workspace_id": str(workspace["workspace_id"]),
+                        "workspace_key": workspace["workspace_key"],
+                    },
+                )
             connection.execute(
                 """
                 INSERT INTO identity.role_assignments (user_id, division_id, role_code)

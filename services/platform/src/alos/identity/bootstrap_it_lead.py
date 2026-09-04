@@ -14,8 +14,13 @@ def main() -> None:
     parser.add_argument("--email", required=True)
     parser.add_argument("--display-name", default="ALOS IT Lead")
     parser.add_argument("--workspace-key", default="ALOS_GOVERNANCE")
+    parser.add_argument(
+        "--replace-director-role",
+        action="store_true",
+        help="convert an existing account with only the DIRECTOR role into IT_LEAD",
+    )
     arguments = parser.parse_args()
-    password = getpass.getpass("New IT Lead password (minimum 16 characters): ")
+    password = getpass.getpass("IT Lead password (minimum 16 characters): ")
     confirmation = getpass.getpass("Confirm IT Lead password: ")
     if password != confirmation:
         parser.error("password confirmation does not match")
@@ -26,6 +31,7 @@ def main() -> None:
             password=password,
             display_name=arguments.display_name,
             workspace_key=arguments.workspace_key,
+            replace_director_role=arguments.replace_director_role,
             settings=settings,
         )
     except BootstrapError as error:
