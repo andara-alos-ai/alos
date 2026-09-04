@@ -67,6 +67,7 @@ class AgentBuilderRequest(BaseModel):
     permission_keys: list[str] = Field(default_factory=list)
     approval_required: bool = True
     timeout_seconds: int = Field(default=120, ge=1, le=3_600)
+    max_steps: int = Field(default=8, ge=1, le=100)
     data_classification: DataClassification = "INTERNAL"
     forbidden_actions: list[str] = Field(min_length=1)
     kpis: list[dict[str, Any]] = Field(min_length=1)
@@ -120,6 +121,7 @@ class AgentContract(BaseModel):
     kpis: list[dict[str, Any]]
     approval_required: bool
     timeout_seconds: int = Field(ge=1, le=3_600)
+    max_steps: int = Field(default=8, ge=1, le=100)
     prompt_template: str = Field(min_length=1, max_length=20_000)
 
     @model_validator(mode="after")
@@ -260,6 +262,7 @@ class AgentDraftBuilder:
             kpis=request.kpis,
             approval_required=request.approval_required,
             timeout_seconds=request.timeout_seconds,
+            max_steps=request.max_steps,
             prompt_template=generated.prompt_template,
         )
 
