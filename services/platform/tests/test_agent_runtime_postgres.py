@@ -164,6 +164,31 @@ def test_runtime_persists_usage_and_blocks_tools_and_budget() -> None:
             settings,
         )
 
+        missing_limit = runtime.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "property opportunity"},
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+        assert missing_limit.status == "BLOCKED"
+        assert missing_limit.tool_decisions[0].tool_key == "BUDGET_POLICY"
+
+        fixture_budget = AgentRuntimeRepository(temporary_url, settings).set_budget_limit(
+            context.workspace_id,
+            WorkspaceBudgetRequest(
+                daily_request_limit=1,
+                daily_output_token_limit=1_000,
+                daily_cost_cap_usd=Decimal("1.00"),
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        assert fixture_budget.daily_cost_cap_usd == Decimal("1.00")
+
         result = runtime.execute(
             "FIXTURE_RUNTIME",
             AgentRunRequest(
@@ -244,6 +269,31 @@ def test_runtime_persists_usage_and_blocks_tools_and_budget() -> None:
             context.workspace_id,
             WorkspaceBudgetRequest(
                 daily_request_limit=3,
+                daily_output_token_limit=1_000,
+                daily_cost_cap_usd=Decimal("1.00"),
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        in_memory_budget_blocked = runtime_after_budget.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "property opportunity"},
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+        assert in_memory_budget_blocked.status == "BLOCKED"
+        assert in_memory_budget_blocked.error_code == "REQUEST_LIMIT"
+        assert in_memory_budget_blocked.tool_decisions[-1].tool_key == "BUDGET_POLICY"
+        assert in_memory_budget_blocked.tool_decisions[-1].decision == "BLOCKED"
+
+        AgentRuntimeRepository(temporary_url, settings).set_budget_limit(
+            context.workspace_id,
+            WorkspaceBudgetRequest(
+                daily_request_limit=4,
                 daily_output_token_limit=1_000,
                 daily_cost_cap_usd=Decimal("0"),
             ),

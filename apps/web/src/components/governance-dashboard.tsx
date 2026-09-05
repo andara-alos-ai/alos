@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { formatRoleLabel } from "@/lib/dashboard-access";
 import {
   ApiError,
   type AuditEvent,
@@ -176,12 +177,13 @@ export function GovernanceDashboard() {
       <header className="dashboard-header">
         <div>
           <p className="eyebrow">ALOS / GOVERNANCE</p>
-          <h1>Control plane</h1>
-          <p className="muted">Satu shared Agent Runtime, satu PostgreSQL, dan Genesis sebagai system actor.</p>
+          <h1>Governance &amp; Agent Control</h1>
+          <p className="muted">Area kontrol untuk manusia berwenang. GENESIS adalah system actor, bukan akun pengguna atau approver.</p>
         </div>
         <div className="header-actions">
-          <span className="role-badge">{data.actor.roles.join(" · ")}</span>
+          <span className="role-badge">{formatRoleLabel(data.actor.roles)}</span>
           {data.actor.roles.includes("IT_LEAD") ? <Link className="secondary-button button-link" href="/agents">Agent Registry</Link> : null}
+          {data.actor.roles.some((role) => ["DIRECTOR", "IT_LEAD", "QA_SECURITY"].includes(role)) ? <Link className="secondary-button button-link" href="/h5">Source Vault &amp; UAT</Link> : null}
           <Link className="secondary-button button-link" href="/releases">Release</Link>
           <button className="secondary-button" onClick={() => void logout()} type="button">Keluar</button>
         </div>
@@ -286,7 +288,7 @@ export function GovernanceDashboard() {
         <article className="panel">
           <p className="eyebrow">APPEND-ONLY AUDIT</p>
           <h2>Audit trail workspace</h2>
-          {data.auditRestricted ? <p className="empty-state">Audit trail hanya tersedia untuk DIRECTOR, IT_LEAD, atau QA_SECURITY.</p> : null}
+          {data.auditRestricted ? <p className="empty-state">Audit trail hanya tersedia untuk Director, IT Lead, atau Wakil IT.</p> : null}
           {!data.auditRestricted && data.audit.length === 0 ? <p className="empty-state">Belum ada audit event untuk workspace ini.</p> : null}
           <ol className="audit-list">
             {data.audit.map((event) => (
