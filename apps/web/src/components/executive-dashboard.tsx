@@ -100,7 +100,11 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
         </nav>
 
         <div className="alos-genesis-nav">
-          <Link className={module === "genesis" ? "active" : ""} href="/genesis"><AppIcon name="genesis" />GENESIS · AI Executive <AppIcon name="chevron" /></Link>
+          <Link className={module === "genesis" ? "active" : ""} href="/genesis">
+            <AppIcon name="genesis" />
+            <span className="alos-genesis-label"><strong>GENESIS</strong><small>AI Executive</small></span>
+            <AppIcon name="chevron" />
+          </Link>
         </div>
 
         <div className="alos-sidebar-footer">
