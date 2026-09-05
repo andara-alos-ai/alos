@@ -71,6 +71,7 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
   const pageTitle = page?.title ?? profile?.homeTitle ?? "Selamat datang di ALOS";
   const pageDescription = page?.description ?? profile?.homeDescription ?? "Satu ruang kerja untuk melihat kondisi perusahaan, keputusan, dan aksi yang telah terdaftar.";
   const searchPlaceholder = page?.searchPlaceholder ?? "Cari proyek, dokumen, divisi, atau tanya GENESIS…";
+  const isFocusedWorkspace = module === "documents" || module === "genesis";
   const navigation = profile
     ? [{ href: "/", key: "executive" as const, label: profile.homeLabel, icon: "home" as const }, ...navItems]
     : navItems;
@@ -131,14 +132,14 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
           </div>
         </header>
 
-        <section className="alos-hero" aria-label="ALOS The Park Town Sukoharjo">
+        {!isFocusedWorkspace ? <section className="alos-hero" aria-label="ALOS The Park Town Sukoharjo">
           <div className="alos-hero-copy">
             <p className="alos-kicker">{module ? `ALOS / ${module.toUpperCase()}` : profile?.homeEyebrow}</p>
             <h1>{pageTitle}</h1>
             <p>{pageDescription}</p>
             {!module && <><span className="alos-hero-rule" /><em>“Keputusan terbaik dimulai dari informasi yang terstruktur dan dapat dipercaya.”</em></>}
           </div>
-        </section>
+        </section> : null}
 
         {module ? <ModuleDashboard actor={actor!} module={module} /> : <ExecutiveDashboardContent profile={profile!} />}
       </section>

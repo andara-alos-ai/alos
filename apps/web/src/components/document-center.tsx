@@ -37,16 +37,29 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const [checkNotes, setCheckNotes] = useState("Evidence dan scope telah diperiksa oleh checker independen.");
   const [reviewNotes, setReviewNotes] = useState("Review independen telah selesai.");
   const [submitting, setSubmitting] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [documentQuery, setDocumentQuery] = useState("");
 
   const visibleDocuments = useMemo(
     () => mode === "genesis" ? documents.filter((document) => document.origin === "GENESIS") : documents,
     [documents, mode],
   );
+  const filteredDocuments = useMemo(() => {
+    const query = documentQuery.trim().toLocaleLowerCase("id-ID");
+    if (!query) return visibleDocuments;
+    return visibleDocuments.filter((document) => (
+      document.title.toLocaleLowerCase("id-ID").includes(query)
+      || document.category.toLocaleLowerCase("id-ID").includes(query)
+      || document.origin.toLocaleLowerCase("id-ID").includes(query)
+    ));
+  }, [documentQuery, visibleDocuments]);
+  const documentStats = useMemo(() => ({
+    approved: documents.filter((document) => document.status === "APPROVED" || document.status === "ACTIVE").length,
+    genesis: documents.filter((document) => document.origin === "GENESIS").length,
+    review: documents.filter((document) => document.status === "IN_REVIEW").length,
+    total: documents.length,
+  }), [documents]);
   const pendingChecks = selected?.checklist.filter((item) => item.required && item.status !== "PASSED").length ?? 0;
-  const titleText = mode === "genesis" ? "Draft Dokumen dari GENESIS" : "Document Center";
-  const description = mode === "genesis"
-    ? "Genesis membuat kerangka DRAFT terhubung ke requirement. Dokumen resmi tetap berada di Document Center."
-    : "Satu repositori resmi untuk dokumen manual dan hasil Genesis, lengkap dengan versi, checklist, dan review.";
 
   const refreshDocuments = useCallback(async (nextWorkspaceId: string) => {
     setError(null);
@@ -111,8 +124,9 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     setSubmitting(true);
     setError(null);
     setNotice(null);
+    const generatedTitle = `Draft Genesis — ${requirement.trim().replace(/\s+/g, " ").slice(0, 80)}`;
     const payload = mode === "genesis"
-      ? { workspace_id: workspaceId, title, requirement, category: "GENERAL", classification: "INTERNAL" }
+      ? { workspace_id: workspaceId, title: title.trim() || generatedTitle, requirement, category: "GENERAL", classification: "INTERNAL" }
       : { workspace_id: workspaceId, title, content, category: "GENERAL", classification: "INTERNAL" };
     const endpoint = mode === "genesis" ? "/api/v1/genesis/document-drafts" : "/api/v1/documents/drafts";
     try {
@@ -127,6 +141,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       setTitle("");
       setContent("");
       setRequirement("");
+      setComposerOpen(false);
       setNotice(mode === "genesis" ? "Genesis membuat kerangka DRAFT. Lengkapi dan kirimkan untuk pemeriksaan." : "Dokumen DRAFT dibuat di repositori resmi.");
       await refreshDocuments(workspaceId);
       await selectDocument(document.document_id);
@@ -183,40 +198,81 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
 
   if (loading) return <section className="alos-content"><p>Memuat Document Center…</p></section>;
 
-  return (
-    <section className="alos-content alos-document-center" aria-label={titleText}>
-      <div className="alos-section-heading">
-        <div><p className="alos-kicker">ALOS / {mode === "genesis" ? "GENESIS ARTIFACTS" : "DOCUMENT CENTER"}</p><h2>{titleText}</h2><p>{description}</p></div>
-        {mode === "genesis" ? <Link className="alos-outline-link" href="/documents">Buka Document Center →</Link> : <span>Repositori kanonis</span>}
-      </div>
+  if (mode === "documents") {
+    return (
+      <section className="alos-content alos-document-library" aria-label="Document Center">
+        <header className="alos-workspace-heading">
+          <div><p className="alos-kicker">ALOS / DOCUMENT CENTER</p><h2>Documents</h2><p>Kelola, temukan, dan tindak lanjuti dokumen perusahaan dari satu repositori resmi.</p></div>
+          <div className="alos-workspace-actions"><select aria-label="Workspace dokumen" onChange={(event) => { const nextWorkspaceId = event.target.value; setWorkspaceId(nextWorkspaceId); void refreshDocuments(nextWorkspaceId); }} value={workspaceId}>{workspaces.map((workspace) => <option key={workspace.workspace_id} value={workspace.workspace_id}>{workspace.name}</option>)}</select><button className="alos-workspace-primary" onClick={() => setComposerOpen((open) => !open)} type="button">{composerOpen ? "Tutup form" : "+ Buat dokumen"}</button></div>
+        </header>
 
+        {error ? <p className="alos-inline-error">{error}</p> : null}
+        {notice ? <p className="alos-inline-success">{notice}</p> : null}
+
+        {composerOpen ? <article className="alos-panel alos-document-compose-panel"><div className="alos-panel-heading-row"><div><p className="alos-kicker">DOKUMEN BARU</p><h3>Buat DRAFT resmi</h3></div><span>Belum dipublikasikan</span></div>{!workspaceId ? <p className="alos-empty-copy">Akun ini belum memiliki workspace aktif untuk membuat dokumen.</p> : <form className="alos-document-form" onSubmit={createDraft}><label>Judul dokumen<input maxLength={200} minLength={3} onChange={(event) => setTitle(event.target.value)} placeholder="Contoh: SOP Brief Operasional" required value={title} /></label><label className="alos-document-full">Isi draft<textarea maxLength={50000} minLength={1} onChange={(event) => setContent(event.target.value)} placeholder="Masukkan isi awal dokumen…" required value={content} /></label><p className="alos-document-full alos-document-note">DRAFT disimpan pada repositori resmi dan tetap memerlukan checklist serta review independen.</p><button disabled={submitting} type="submit">{submitting ? "Menyimpan…" : "Simpan DRAFT"}</button></form>}</article> : null}
+
+        <div className="alos-document-metrics" aria-label="Ringkasan dokumen">
+          <DocumentMetric label="Total dokumen" value={documentStats.total} tone="success" />
+          <DocumentMetric label="Butuh review" value={documentStats.review} tone="warning" />
+          <DocumentMetric label="Draft dari Genesis" value={documentStats.genesis} tone="info" />
+          <DocumentMetric label="Disetujui" value={documentStats.approved} tone="danger" />
+        </div>
+
+        <div className="alos-document-overview">
+          <article className="alos-panel alos-document-distribution"><div className="alos-panel-heading-row"><div><p className="alos-kicker">DISTRIBUSI</p><h3>Kategori dokumen</h3></div><button className="alos-text-button" onClick={() => void refreshDocuments(workspaceId)} type="button">Muat ulang</button></div><DocumentDistribution documents={documents} /></article>
+          <article className="alos-panel alos-document-summary"><p className="alos-kicker">RINGKASAN DOKUMEN</p><h3>Repositori kanonis</h3><dl><div><dt>Workspace aktif</dt><dd>{workspaces.find((workspace) => workspace.workspace_id === workspaceId)?.name ?? "—"}</dd></div><div><dt>Dokumen manual</dt><dd>{documents.filter((document) => document.origin === "MANUAL").length || "—"}</dd></div><div><dt>Versi aktif</dt><dd>{documentStats.approved || "—"}</dd></div><div><dt>Status sumber</dt><dd>Governed</dd></div></dl></article>
+          <article className="alos-panel alos-document-important"><div className="alos-panel-heading-row"><div><p className="alos-kicker">DOKUMEN PENTING</p><h3>Terakhir diperbarui</h3></div></div><DocumentHighlights documents={documents} onSelect={selectDocument} /></article>
+        </div>
+
+        <article className="alos-panel alos-document-table-panel"><div className="alos-panel-heading-row"><div><p className="alos-kicker">DAFTAR DOKUMEN</p><h3>Repositori dokumen</h3></div><label className="alos-document-search"><span>⌕</span><input aria-label="Cari dokumen" onChange={(event) => setDocumentQuery(event.target.value)} placeholder="Cari dokumen…" value={documentQuery} /></label></div><DocumentTable documents={filteredDocuments} onSelect={selectDocument} selectedId={selected?.document.document_id ?? null} /></article>
+
+        {selected ? <section className="alos-document-detail-drawer" aria-label={`Rincian ${selected.document.title}`}><DocumentDetailPanel actor={actor} detail={selected} pendingChecks={pendingChecks} checkNotes={checkNotes} reviewNotes={reviewNotes} submitting={submitting} onCheckNotes={setCheckNotes} onReviewNotes={setReviewNotes} onCompleteCheck={completeCheck} onSubmit={submitForReview} onDecide={decide} /></section> : null}
+      </section>
+    );
+  }
+
+  return (
+    <section className="alos-content alos-genesis-workspace" aria-label="GENESIS">
+      <header className="alos-genesis-workspace-heading"><span className="alos-genesis-workspace-star">✦</span><div><p className="alos-kicker">ALOS / AI EXECUTIVE</p><h2>GENESIS</h2><p>Your AI Executive Assistant</p></div><Link className="alos-outline-link" href="/documents">Buka Document Center →</Link></header>
       {error ? <p className="alos-inline-error">{error}</p> : null}
       {notice ? <p className="alos-inline-success">{notice}</p> : null}
 
-      <article className="alos-panel alos-document-create-panel">
-        <div className="alos-panel-heading-row"><div><p className="alos-kicker">{mode === "genesis" ? "GENESIS WORKSPACE" : "DOKUMEN BARU"}</p><h3>{mode === "genesis" ? "Buat kerangka DRAFT" : "Buat DRAFT resmi"}</h3></div>
-          <select aria-label="Workspace dokumen" onChange={(event) => { const nextWorkspaceId = event.target.value; setWorkspaceId(nextWorkspaceId); void refreshDocuments(nextWorkspaceId); }} value={workspaceId}>
-            {workspaces.map((workspace) => <option key={workspace.workspace_id} value={workspace.workspace_id}>{workspace.name}</option>)}
-          </select>
-        </div>
-        {!workspaceId ? <p className="alos-empty-copy">Akun ini belum memiliki workspace aktif untuk membuat dokumen.</p> : <form className="alos-document-form" onSubmit={createDraft}>
-          <label>Judul dokumen<input maxLength={200} minLength={3} onChange={(event) => setTitle(event.target.value)} placeholder="Contoh: SOP Brief Operasional" required value={title} /></label>
-          {mode === "genesis" ? <label className="alos-document-full">Kebutuhan untuk Genesis<textarea maxLength={10000} minLength={20} onChange={(event) => setRequirement(event.target.value)} placeholder="Jelaskan kebutuhan, tujuan, dan kekurangan yang ingin dilengkapi…" required value={requirement} /></label> : <label className="alos-document-full">Isi draft<textarea maxLength={50000} minLength={1} onChange={(event) => setContent(event.target.value)} placeholder="Masukkan isi awal dokumen…" required value={content} /></label>}
-          <p className="alos-document-full alos-document-note">{mode === "genesis" ? "Genesis menyimpan kerangka dengan requirement yang diaudit. Evidence, owner, dan risiko tetap harus diperiksa manusia." : "Dokumen dibuat sebagai DRAFT dan tidak dapat langsung dipublikasikan."}</p>
-          <button disabled={submitting} type="submit">{submitting ? "Memproses…" : mode === "genesis" ? "Buat DRAFT dari Genesis" : "Buat DRAFT dokumen"}</button>
-        </form>}
-      </article>
-
-      <div className="alos-document-layout">
-        <article className="alos-panel alos-document-list-panel">
-          <div className="alos-panel-heading-row"><div><p className="alos-kicker">{mode === "genesis" ? "ARTIFAK GENESIS" : "DOKUMEN TERDAFTAR"}</p><h3>{visibleDocuments.length} Dokumen</h3></div><button className="alos-text-button" onClick={() => void refreshDocuments(workspaceId)} type="button">Muat ulang</button></div>
-          {visibleDocuments.length === 0 ? <p className="alos-empty-copy">{mode === "genesis" ? "Belum ada draft dari Genesis pada workspace ini." : "Belum ada dokumen terdaftar pada workspace ini."}</p> : <ul className="alos-document-list">{visibleDocuments.map((document) => <li key={document.document_id}><button className={selected?.document.document_id === document.document_id ? "selected" : ""} onClick={() => void selectDocument(document.document_id)} type="button"><span><strong>{document.title}</strong><small>v{document.version_number} · {document.origin === "GENESIS" ? "Genesis" : "Manual"}</small></span><em className={`alos-document-status ${document.status.toLowerCase()}`}>{document.status.replace("_", " ")}</em></button></li>)}</ul>}
+      <div className="alos-genesis-workspace-grid">
+        <article className="alos-panel alos-genesis-conversation">
+          <div className="alos-genesis-intro"><span>✦</span><div><strong>Mulai dari kebutuhan bisnis Anda</strong><p>Genesis akan menyusun kerangka DRAFT yang dapat ditelusuri. Pemeriksaan evidence, checker, dan approval tetap dilakukan manusia.</p></div></div>
+          {!workspaceId ? <p className="alos-empty-copy">Akun ini belum memiliki workspace aktif untuk membuat DRAFT.</p> : <form className="alos-genesis-draft-form" onSubmit={createDraft}><label><span>Tujuan atau kebutuhan</span><textarea aria-label="Tujuan atau kebutuhan untuk Genesis" maxLength={10000} minLength={20} onChange={(event) => setRequirement(event.target.value)} placeholder="Contoh: Buat kerangka SOP untuk menutup kekurangan bukti operasional…" required value={requirement} /></label><div><small>Hasil awal selalu DRAFT. Tidak ada publikasi, aktivasi, atau perubahan sumber otomatis.</small><button disabled={submitting} type="submit">{submitting ? "Menyusun…" : "Buat DRAFT"} <span>→</span></button></div></form>}
+          <p className="alos-genesis-disclaimer">GENESIS dapat membuat kesalahan. Verifikasi informasi penting sebelum membuat keputusan.</p>
         </article>
 
-        <DocumentDetailPanel actor={actor} detail={selected} pendingChecks={pendingChecks} checkNotes={checkNotes} reviewNotes={reviewNotes} submitting={submitting} onCheckNotes={setCheckNotes} onReviewNotes={setReviewNotes} onCompleteCheck={completeCheck} onSubmit={submitForReview} onDecide={decide} />
+        <aside className="alos-genesis-workspace-side">
+          <article className="alos-panel"><div className="alos-panel-heading-row"><div><p className="alos-kicker">PERCAKAPAN TERBARU</p><h3>Ruang kerja</h3></div></div><p className="alos-empty-copy">Percakapan akan muncul saat histori GENESIS disimpan sebagai capability terpisah.</p></article>
+          <article className="alos-panel alos-genesis-module-links"><div className="alos-panel-heading-row"><div><p className="alos-kicker">OPERASI TERKENDALI</p><h3>Modul terkait</h3></div></div><Link href="/agents"><span>Agent Registry</span><small>Kontrak dan hierarki</small><b>›</b></Link><Link href="/releases"><span>Release Governance</span><small>UAT dan approval rilis</small><b>›</b></Link><Link href="/h5"><span>Evidence &amp; Sources</span><small>Sumber terverifikasi</small><b>›</b></Link></article>
+          <article className="alos-panel alos-genesis-quick-prompts"><p className="alos-kicker">QUICK PROMPTS</p><h3>Mulai dengan cepat</h3>{["Ringkas kekurangan evidence dari dokumen operasional", "Susun draft SOP untuk proses yang belum terdokumentasi", "Daftarkan kebutuhan data untuk target divisi", "Buat brief untuk agent read-only"].map((prompt) => <button key={prompt} onClick={() => setRequirement(prompt)} type="button"><span>{prompt}</span><b>›</b></button>)}</article>
+        </aside>
       </div>
+
+      <section className="alos-genesis-artifacts"><div className="alos-section-heading"><div><p className="alos-kicker">DRAFT &amp; EVIDENCE</p><h2>Artefak GENESIS</h2></div><span>{visibleDocuments.length ? `${visibleDocuments.length} DRAFT tercatat` : "Belum ada DRAFT"}</span></div>{visibleDocuments.length === 0 ? <article className="alos-panel"><div className="alos-empty-message"><span>○</span><p>Belum ada DRAFT dari GENESIS pada workspace ini. Kirimkan kebutuhan di atas untuk membuat kerangka pertama.</p></div></article> : <article className="alos-panel"><DocumentTable documents={visibleDocuments} onSelect={selectDocument} selectedId={selected?.document.document_id ?? null} /></article>}{selected ? <div className="alos-document-detail-drawer"><DocumentDetailPanel actor={actor} detail={selected} pendingChecks={pendingChecks} checkNotes={checkNotes} reviewNotes={reviewNotes} submitting={submitting} onCheckNotes={setCheckNotes} onReviewNotes={setReviewNotes} onCompleteCheck={completeCheck} onSubmit={submitForReview} onDecide={decide} /></div> : null}</section>
     </section>
   );
+}
+
+function DocumentMetric({ label, tone, value }: { label: string; tone: "success" | "warning" | "info" | "danger"; value: number }) {
+  return <article className={`alos-document-metric ${tone}`}><span aria-hidden="true">{tone === "success" ? "▣" : tone === "warning" ? "!" : tone === "info" ? "◫" : "✓"}</span><div><strong>{value || "—"}</strong><p>{label}</p><small>{value ? "Data dari repositori aktif" : "Belum ada data"}</small></div></article>;
+}
+
+function DocumentDistribution({ documents }: { documents: DocumentRecord[] }) {
+  const categories = Array.from(new Set(documents.map((document) => document.category))).slice(0, 4);
+  return <div className="alos-document-distribution-body"><div className="alos-document-donut"><strong>{documents.length || "—"}</strong><span>Dokumen</span></div><div>{categories.length === 0 ? <p>Belum ada kategori terdaftar.</p> : categories.map((category) => <p key={category}><i />{category}<strong>{documents.filter((document) => document.category === category).length}</strong></p>)}</div></div>;
+}
+
+function DocumentHighlights({ documents, onSelect }: { documents: DocumentRecord[]; onSelect: (documentId: string) => void }) {
+  if (documents.length === 0) return <p className="alos-empty-copy">Belum ada dokumen yang dapat ditampilkan.</p>;
+  return <ul className="alos-document-highlights">{documents.slice(0, 5).map((document) => <li key={document.document_id}><button onClick={() => void onSelect(document.document_id)} type="button"><span><strong>{document.title}</strong><small>{document.category} · v{document.version_number}</small></span><em className={`alos-document-status ${document.status.toLowerCase()}`}>{document.status.replace("_", " ")}</em></button></li>)}</ul>;
+}
+
+function DocumentTable({ documents, onSelect, selectedId }: { documents: DocumentRecord[]; onSelect: (documentId: string) => void; selectedId: string | null }) {
+  if (documents.length === 0) return <div className="alos-empty-message compact"><span>○</span><p>Belum ada dokumen yang sesuai pada workspace ini.</p></div>;
+  return <div className="alos-document-table-wrap"><table><thead><tr><th>Nama dokumen</th><th>Sumber</th><th>Versi</th><th>Terakhir diperbarui</th><th>Status</th></tr></thead><tbody>{documents.map((document) => <tr className={selectedId === document.document_id ? "selected" : ""} key={document.document_id}><td><button onClick={() => void onSelect(document.document_id)} type="button">{document.title}</button><small>{document.category} · {document.classification}</small></td><td>{document.origin === "GENESIS" ? "GENESIS" : "Manual"}</td><td>v{document.version_number}</td><td>{formatDocumentDate(document.updated_at)}</td><td><em className={`alos-document-status ${document.status.toLowerCase()}`}>{document.status.replace("_", " ")}</em></td></tr>)}</tbody></table></div>;
 }
 
 type DocumentDetailPanelProps = {
