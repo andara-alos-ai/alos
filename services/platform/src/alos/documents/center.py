@@ -172,6 +172,31 @@ class DocumentCenterRepository:
             audit_actor_kind="SYSTEM",
         )
 
+    def create_genesis_analysis_draft(
+        self,
+        request: DocumentDraftRequest,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+        conversation_id: UUID,
+    ) -> DocumentRecord:
+        """Store a source-bound Genesis analysis as a canonical DRAFT only."""
+        return self._create_draft(
+            request,
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            origin="GENESIS",
+            genesis_conversation_id=conversation_id,
+            generated_by_system=True,
+            audit_actor_kind="SYSTEM",
+            system_audit_action="GENESIS_DOCUMENT_ANALYSIS_DRAFT_CREATED",
+            system_audit_reason=(
+                "Genesis prepared a source-bound analysis draft that remains DRAFT"
+            ),
+        )
+
     def list_documents(
         self,
         workspace_id: UUID,
@@ -444,6 +469,10 @@ class DocumentCenterRepository:
         genesis_conversation_id: UUID | None,
         generated_by_system: bool,
         audit_actor_kind: Literal["HUMAN", "SYSTEM"],
+        system_audit_action: str = "GENESIS_DOCUMENT_DRAFT_CREATED",
+        system_audit_reason: str = (
+            "Genesis prepared a governed document skeleton that remains DRAFT"
+        ),
     ) -> DocumentRecord:
         with self._transaction() as connection:
             workspace = self._require_workspace_actor(
@@ -500,11 +529,11 @@ class DocumentCenterRepository:
                 self._append_system_audit(
                     connection,
                     organization_id=organization_id,
-                    action="GENESIS_DOCUMENT_DRAFT_CREATED",
+                    action=system_audit_action,
                     entity_type="DOCUMENT",
                     entity_id=row["document_id"],
                     correlation_id=correlation_id,
-                    reason="Genesis prepared a governed document skeleton that remains DRAFT",
+                    reason=system_audit_reason,
                     metadata=metadata,
                 )
             else:

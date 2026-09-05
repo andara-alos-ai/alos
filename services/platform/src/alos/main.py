@@ -31,6 +31,12 @@ from alos.documents.center import (
     DocumentReviewDecisionRequest,
     GenesisDocumentDraftRequest,
 )
+from alos.genesis.document_analysis import (
+    GenesisDocumentAnalysisError,
+    GenesisDocumentAnalysisRequest,
+    GenesisDocumentAnalysisResult,
+    GenesisDocumentAnalysisService,
+)
 from alos.genesis.history import (
     GenesisArtifactRecord,
     GenesisConversationRecord,
@@ -264,6 +270,12 @@ def get_document_center_repository() -> DocumentCenterRepository:
     return DocumentCenterRepository(get_settings().database_url)
 
 
+def get_genesis_document_analysis_service() -> GenesisDocumentAnalysisService:
+    return GenesisDocumentAnalysisService(
+        get_document_center_repository(), get_genesis_history_repository()
+    )
+
+
 def get_tool_registry_repository() -> ToolRegistryRepository:
     return ToolRegistryRepository(get_settings().database_url)
 
@@ -319,6 +331,15 @@ def require_document_checker(actor: ActorContext) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="document checker role required",
+        )
+
+
+def require_genesis_director(actor: ActorContext) -> None:
+    """Genesis source analysis begins with the Director in the first rollout."""
+    if HumanRole.DIRECTOR not in actor.roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Director authority required for Genesis document analysis",
         )
 
 
@@ -660,6 +681,32 @@ def list_genesis_artifacts(
         )
     except GenesisHistoryError as error:
         raise genesis_http_error(error) from error
+
+
+@app.post(
+    "/api/v1/genesis/document-analysis",
+    response_model=GenesisDocumentAnalysisResult,
+)
+def create_genesis_document_analysis(
+    request: GenesisDocumentAnalysisRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisDocumentAnalysisResult:
+    """Bind one approved internal document to a reviewable Genesis analysis DRAFT."""
+    require_genesis_director(actor)
+    require_workspace_access(actor, request.workspace_id)
+    try:
+        return get_genesis_document_analysis_service().create_analysis(
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except GenesisDocumentAnalysisError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
 
 
 @app.post("/api/v1/documents/drafts", response_model=DocumentRecord)
