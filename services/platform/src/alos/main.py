@@ -1,4 +1,5 @@
-from typing import Annotated
+from hashlib import sha256
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
@@ -12,9 +13,10 @@ from alos.agents.registry import (
     AgentRegistryError,
     AgentRegistryRecord,
     AgentRegistryRepository,
+    DeterministicAgentDraftGenerator,
     LocalBootstrapRequest,
-    ModelGatewayAgentDraftGenerator,
 )
+from alos.agents.validation_catalog import validation_agent_requests
 from alos.audit.reader import AuditEventRecord, AuditReader
 from alos.config import get_settings
 from alos.genesis.history import (
@@ -57,6 +59,7 @@ from alos.release.governance import (
     ReasonRequest,
     ReleaseGovernanceError,
     ReleaseGovernanceRepository,
+    ReleaseRequestDetail,
     ReleaseRequestInput,
     ReleaseRequestRecord,
     ReviewRequest,
@@ -93,6 +96,8 @@ from alos.sources.registry import (
     SourceRegistrationRequest,
     SourceRegistryError,
     SourceRegistryRepository,
+    SourceVaultPolicyRecord,
+    SourceVaultPolicyRequest,
     SourceVerificationRequest,
     SourceVersionRecord,
 )
@@ -114,17 +119,18 @@ class AgentDesignerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: UUID
-    agent_key: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
-    name: str = Field(min_length=1, max_length=200)
+    agent_key: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
+    name: str | None = Field(default=None, min_length=1, max_length=200)
     requirement: str = Field(min_length=20, max_length=10_000)
     parent_agent_key: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
     conversation_id: UUID | None = None
 
     def to_builder_request(self) -> AgentBuilderRequest:
+        digest = sha256(self.requirement.encode("utf-8")).hexdigest().upper()
         return AgentBuilderRequest(
             workspace_id=self.workspace_id,
-            agent_key=self.agent_key,
-            name=self.name,
+            agent_key=self.agent_key or f"GENESIS_{digest[:12]}",
+            name=self.name or f"Genesis Draft {digest[:8]}",
             objective=self.requirement,
             parent_agent_key=self.parent_agent_key,
             risk_level="LOW",
@@ -155,6 +161,43 @@ class ModelPolicySummary(BaseModel):
     max_output_tokens: int
 
 
+class H5PilotRequest(BaseModel):
+    """Controlled H5 setup is always workspace-scoped and human-triggered."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+
+
+H5_VALIDATION_AGENT_KEYS = (
+    "DAILY_BRIEF",
+    "EVIDENCE_CHECKER",
+    "PERMIT_OVERDUE_MONITOR",
+)
+
+
+class H5PermissionControlStatus(BaseModel):
+    agent_key: str
+    semantic_version: str | None
+    permission_policy: PermissionPolicyRecord | None
+
+
+class H5ControlSummary(BaseModel):
+    source_tool: ToolDefinitionRecord | None
+    permissions: list[H5PermissionControlStatus]
+    ready_for_uat: bool
+
+
+class H5ValidationRunRequest(BaseModel):
+    """A bounded source-enabled fixture run; only the shared Runtime invokes a model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    agent_key: Literal["DAILY_BRIEF", "EVIDENCE_CHECKER", "PERMIT_OVERDUE_MONITOR"]
+    input: dict[str, object] = Field(default_factory=dict)
+
+
 def get_agent_registry_repository() -> AgentRegistryRepository:
     return AgentRegistryRepository(get_settings().database_url)
 
@@ -164,8 +207,7 @@ def get_identity_authentication_repository() -> IdentityAuthenticationRepository
 
 
 def get_agent_draft_builder() -> AgentDraftBuilder:
-    settings = get_settings()
-    return AgentDraftBuilder(ModelGatewayAgentDraftGenerator(settings))
+    return AgentDraftBuilder(DeterministicAgentDraftGenerator())
 
 
 def get_agent_runtime() -> AgentRuntime:
@@ -220,6 +262,32 @@ def require_registry_editor(actor: ActorContext) -> None:
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="registry editor role required"
+        )
+
+
+def require_agent_registry_editor(actor: ActorContext) -> None:
+    """Agent Contracts are created and changed only by the IT Lead."""
+    if HumanRole.IT_LEAD not in actor.roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="IT Lead registry authority required"
+        )
+
+
+def require_h5_pilot_editor(actor: ActorContext) -> None:
+    """H5 can create only controlled DRAFTs and is owned by the IT Lead."""
+    if HumanRole.IT_LEAD not in actor.roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="IT Lead H5 pilot authority required"
+        )
+
+
+def require_h5_control_reader(actor: ActorContext) -> None:
+    """Approval evidence is visible to its makers and independent reviewers only."""
+    if not {HumanRole.DIRECTOR, HumanRole.IT_LEAD, HumanRole.QA_SECURITY}.intersection(
+        actor.roles
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="H5 control reader role required"
         )
 
 
@@ -413,7 +481,7 @@ def bootstrap_local_registry_context(request: LocalBootstrapRequest) -> dict[str
             LocalTokenRequest(
                 user_id=context.user_id,
                 organization_id=context.organization_id,
-                roles=[HumanRole.DIRECTOR],
+                roles=[HumanRole.IT_LEAD],
                 division_codes=[DivisionCode.IT],
                 workspace_ids=[context.workspace_id],
             ),
@@ -650,7 +718,7 @@ def create_agent_draft(
     request: AgentBuilderRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> dict[str, object]:
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     correlation_id = uuid4()
     try:
@@ -673,7 +741,7 @@ def design_agent_draft(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> dict[str, object]:
     """Genesis Designer is allowed to create a draft only, never an active agent."""
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     correlation_id = uuid4()
     try:
@@ -712,7 +780,7 @@ def design_agent_draft(
                 "BLUEPRINT",
                 {
                     "requirement": request.requirement,
-                    "agent_key": request.agent_key,
+                    "agent_key": result.agent_key,
                     "risk_level": contract.risk_level,
                     "approval_required": contract.approval_required,
                     "forbidden_actions": contract.forbidden_actions,
@@ -736,7 +804,7 @@ def design_agent_draft(
         return {
             "blueprint": {
                 "requirement": request.requirement,
-                "agent_key": request.agent_key,
+                "agent_key": result.agent_key,
                 "risk_level": contract.risk_level,
                 "approval_required": contract.approval_required,
                 "forbidden_actions": contract.forbidden_actions,
@@ -764,7 +832,7 @@ def update_agent_draft(
     request: AgentBuilderRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> dict[str, object]:
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     if request.agent_key != agent_key:
         raise HTTPException(
@@ -788,10 +856,12 @@ def update_agent_draft(
 @app.get("/api/v1/agents", response_model=list[AgentRegistryRecord])
 def list_agents(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
+    workspace_id: UUID,
 ) -> list[AgentRegistryRecord]:
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
+    require_workspace_access(actor, workspace_id)
     try:
-        return get_agent_registry_repository().list_agents(actor.organization_id)
+        return get_agent_registry_repository().list_agents(actor.organization_id, workspace_id)
     except AgentRegistryError as error:
         raise registry_http_error(error) from error
 
@@ -800,11 +870,341 @@ def list_agents(
 def get_agent(
     agent_key: str, actor: Annotated[ActorContext, Depends(get_current_actor)]
 ) -> AgentRegistryRecord:
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
     try:
-        return get_agent_registry_repository().get_agent(actor.organization_id, agent_key)
+        record = get_agent_registry_repository().get_agent(actor.organization_id, agent_key)
+        require_workspace_access(actor, record.workspace_id)
+        return record
     except AgentRegistryError as error:
         raise registry_http_error(error) from error
+
+
+def _h5_control_summary(organization_id: UUID, workspace_id: UUID) -> H5ControlSummary:
+    """Describe only the current H5 control chain, never a secret or contract body."""
+    tool = next(
+        (
+            record
+            for record in get_tool_registry_repository().list_tools(organization_id)
+            if record.tool_key == "SOURCE_REGISTRY_SEARCH"
+        ),
+        None,
+    )
+    agents = get_agent_registry_repository()
+    permissions = get_permission_registry_repository()
+    controls: list[H5PermissionControlStatus] = []
+    for agent_key in H5_VALIDATION_AGENT_KEYS:
+        try:
+            agent = agents.get_agent(organization_id, agent_key)
+        except AgentNotFoundError:
+            controls.append(
+                H5PermissionControlStatus(
+                    agent_key=agent_key, semantic_version=None, permission_policy=None
+                )
+            )
+            continue
+        if agent.workspace_id != workspace_id:
+            controls.append(
+                H5PermissionControlStatus(
+                    agent_key=agent_key, semantic_version=None, permission_policy=None
+                )
+            )
+            continue
+        latest = agent.versions[0]
+        policy = next(
+            (
+                record
+                for record in permissions.list_policies(organization_id, agent_key=agent_key)
+                if record.agent_version_id == latest.agent_version_id
+                and record.permission_key == "SOURCE_READ_INTERNAL"
+            ),
+            None,
+        )
+        controls.append(
+            H5PermissionControlStatus(
+                agent_key=agent_key,
+                semantic_version=latest.semantic_version,
+                permission_policy=policy,
+            )
+        )
+    ready_for_uat = (
+        tool is not None
+        and tool.lifecycle_status == "APPROVED"
+        and len(controls) == len(H5_VALIDATION_AGENT_KEYS)
+        and all(
+            control.permission_policy is not None
+            and control.permission_policy.lifecycle_status == "APPROVED"
+            and control.semantic_version is not None
+            for control in controls
+        )
+    )
+    return H5ControlSummary(
+        source_tool=tool,
+        permissions=controls,
+        ready_for_uat=ready_for_uat,
+    )
+
+
+@app.get("/api/v1/h5/validation-controls", response_model=H5ControlSummary)
+def get_h5_validation_controls(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> H5ControlSummary:
+    """Show draft/approved H5 controls to the maker and independent reviewers."""
+    require_h5_control_reader(actor)
+    require_workspace_access(actor, workspace_id)
+    return _h5_control_summary(actor.organization_id, workspace_id)
+
+
+@app.post("/api/v1/h5/validation-runs", response_model=AgentRunResult)
+def run_h5_validation_fixture(
+    request: H5ValidationRunRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> AgentRunResult:
+    """Run one approved, source-enabled H5 fixture through the shared Runtime."""
+    require_h5_pilot_editor(actor)
+    require_workspace_access(actor, request.workspace_id)
+    summary = _h5_control_summary(actor.organization_id, request.workspace_id)
+    if not summary.ready_for_uat:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="H5 Tool and all current Permission Policies require independent approval",
+        )
+    sources = get_source_registry_repository().list_source_versions(
+        request.workspace_id, organization_id=actor.organization_id
+    )
+    if not any(source.status == "VERIFIED" for source in sources):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="at least one verified source is required before an H5 validation run",
+        )
+    try:
+        return get_agent_runtime().execute(
+            request.agent_key,
+            AgentRunRequest(
+                workspace_id=request.workspace_id,
+                input=request.input,
+                requested_tool_keys=["SOURCE_REGISTRY_SEARCH"],
+            ),
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except AgentRuntimeError as error:
+        raise runtime_http_error(error) from error
+
+
+@app.post("/api/v1/h5/validation-agents/drafts")
+def create_h5_validation_agent_drafts(
+    request: H5PilotRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> dict[str, object]:
+    """Create only the three reviewed H5 pilot contracts as Registry DRAFTs.
+
+    This endpoint does not approve a tool or policy, call a model, or release
+    an agent. Repeating it is safe when the current draft already matches.
+    """
+    require_h5_pilot_editor(actor)
+    require_workspace_access(actor, request.workspace_id)
+    registry = get_agent_registry_repository()
+    builder = get_agent_draft_builder()
+    results: list[dict[str, object]] = []
+    try:
+        for builder_request in validation_agent_requests(request.workspace_id):
+            contract = builder.build(builder_request, actor.user_id)
+            try:
+                existing = registry.get_agent(actor.organization_id, builder_request.agent_key)
+            except AgentNotFoundError:
+                created = registry.create_draft(
+                    contract,
+                    organization_id=actor.organization_id,
+                    actor_user_id=actor.user_id,
+                    correlation_id=uuid4(),
+                    reason="H5 controlled pilot created a validation Agent Contract draft",
+                )
+                results.append({"status": "CREATED_DRAFT", **created.model_dump(mode="json")})
+                continue
+            if existing.workspace_id != request.workspace_id:
+                raise AgentConflictError("validation agent exists in a different workspace")
+            latest = existing.versions[0]
+            if (
+                latest.lifecycle_status == "DRAFT"
+                and latest.contract_snapshot == contract.model_dump(mode="json")
+            ):
+                results.append(
+                    {
+                        "status": "ALREADY_CURRENT_DRAFT",
+                        "agent_key": existing.agent_key,
+                        "semantic_version": latest.semantic_version,
+                        "agent_version_id": str(latest.agent_version_id),
+                    }
+                )
+                continue
+            updated = registry.update_draft(
+                contract,
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+                correlation_id=uuid4(),
+                reason="H5 controlled pilot created a successor validation Agent Contract draft",
+            )
+            results.append({"status": "CREATED_SUCCESSOR_DRAFT", **updated.model_dump(mode="json")})
+    except AgentRegistryError as error:
+        raise registry_http_error(error) from error
+    return {"workspace_id": str(request.workspace_id), "agents": results}
+
+
+@app.post("/api/v1/h5/validation-controls/drafts")
+def create_h5_validation_control_drafts(
+    request: H5PilotRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> dict[str, object]:
+    """Prepare unapproved read-only Tool and Permission Policy DRAFTs for H5."""
+    require_h5_pilot_editor(actor)
+    require_workspace_access(actor, request.workspace_id)
+    registry = get_agent_registry_repository()
+    tool_repository = get_tool_registry_repository()
+    permission_repository = get_permission_registry_repository()
+    results: list[dict[str, object]] = []
+    try:
+        tool = next(
+            (
+                record
+                for record in tool_repository.list_tools(actor.organization_id)
+                if record.tool_key == "SOURCE_REGISTRY_SEARCH"
+            ),
+            None,
+        )
+        if tool is None:
+            tool = tool_repository.create_draft(
+                ToolDefinitionRequest(
+                    tool_key="SOURCE_REGISTRY_SEARCH",
+                    name="Source Registry Search",
+                    risk_level="LOW",
+                    manifest={
+                        "access_mode": "READ_ONLY",
+                        "runtime_handler": "SOURCE_REGISTRY_SEARCH",
+                    },
+                ),
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+                correlation_id=uuid4(),
+            )
+            results.append({"control": tool.tool_key, "status": "TOOL_DRAFT_CREATED"})
+        else:
+            results.append({"control": tool.tool_key, "status": f"TOOL_{tool.lifecycle_status}"})
+
+        for builder_request in validation_agent_requests(request.workspace_id):
+            agent = registry.get_agent(actor.organization_id, builder_request.agent_key)
+            if agent.workspace_id != request.workspace_id:
+                raise AgentConflictError("validation agent exists in a different workspace")
+            latest = agent.versions[0]
+            if latest.lifecycle_status != "DRAFT":
+                raise AgentConflictError(
+                    f"{builder_request.agent_key} must have a current DRAFT before controls"
+                )
+            existing = next(
+                (
+                    policy
+                    for policy in permission_repository.list_policies(
+                        actor.organization_id, agent_key=builder_request.agent_key
+                    )
+                    if policy.agent_version_id == latest.agent_version_id
+                    and policy.permission_key == "SOURCE_READ_INTERNAL"
+                ),
+                None,
+            )
+            if existing is None:
+                policy = permission_repository.create_draft(
+                    PermissionPolicyRequest(
+                        workspace_id=request.workspace_id,
+                        agent_key=builder_request.agent_key,
+                        semantic_version=latest.semantic_version,
+                        permission_key="SOURCE_READ_INTERNAL",
+                        effect="ALLOW",
+                        resource_scope={
+                            "access_mode": "READ_ONLY",
+                            "classification": "INTERNAL",
+                        },
+                    ),
+                    organization_id=actor.organization_id,
+                    actor_user_id=actor.user_id,
+                    correlation_id=uuid4(),
+                )
+                results.append(
+                    {
+                        "control": f"{builder_request.agent_key}:SOURCE_READ_INTERNAL",
+                        "status": "PERMISSION_DRAFT_CREATED",
+                        "permission_policy_id": str(policy.permission_policy_id),
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "control": f"{builder_request.agent_key}:SOURCE_READ_INTERNAL",
+                        "status": f"PERMISSION_{existing.lifecycle_status}",
+                        "permission_policy_id": str(existing.permission_policy_id),
+                    }
+                )
+    except (AgentRegistryError, ToolRegistryError, PermissionRegistryError) as error:
+        if isinstance(error, AgentRegistryError):
+            raise registry_http_error(error) from error
+        if isinstance(error, ToolRegistryError):
+            raise tool_http_error(error) from error
+        raise permission_http_error(error) from error
+    return {"workspace_id": str(request.workspace_id), "controls": results}
+
+
+@app.put(
+    "/api/v1/workspaces/{workspace_id}/source-vault", response_model=SourceVaultPolicyRecord
+)
+def configure_source_vault(
+    workspace_id: UUID,
+    request: SourceVaultPolicyRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> SourceVaultPolicyRecord:
+    """Set the H5 source boundary; this is metadata, not a Drive connection."""
+    require_h5_pilot_editor(actor)
+    require_workspace_access(actor, workspace_id)
+    try:
+        return get_source_registry_repository().configure_vault_policy(
+            workspace_id,
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except SourceRegistryError as error:
+        raise source_http_error(error) from error
+
+
+@app.get(
+    "/api/v1/workspaces/{workspace_id}/source-vault", response_model=SourceVaultPolicyRecord
+)
+def get_source_vault(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> SourceVaultPolicyRecord:
+    require_workspace_access(actor, workspace_id)
+    policy = get_source_registry_repository().get_vault_policy(
+        workspace_id, organization_id=actor.organization_id
+    )
+    if policy is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Source Vault is not configured"
+        )
+    return policy
+
+
+@app.get(
+    "/api/v1/workspaces/{workspace_id}/sources", response_model=list[SourceVersionRecord]
+)
+def list_source_versions(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> list[SourceVersionRecord]:
+    """Read source metadata and verification state without exposing source content."""
+    require_workspace_access(actor, workspace_id)
+    return get_source_registry_repository().list_source_versions(
+        workspace_id, organization_id=actor.organization_id
+    )
 
 
 @app.post("/api/v1/sources", response_model=SourceVersionRecord)
@@ -877,10 +1277,7 @@ def retire_agent(
     agent_key: str,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> dict[str, object]:
-    if not {HumanRole.DIRECTOR, HumanRole.IT_LEAD}.intersection(actor.roles):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="retirement authority required"
-        )
+    require_agent_registry_editor(actor)
     try:
         result = get_agent_registry_repository().retire(
             agent_key,
@@ -900,7 +1297,9 @@ def run_agent(
     request: AgentRunRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> AgentRunResult:
-    require_registry_editor(actor)
+    # H3 is limited to IT Lead-controlled fixture execution. Broader runtime
+    # authority is introduced only after lifecycle/review gates are complete.
+    require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     try:
         return get_agent_runtime().execute(
@@ -1026,6 +1425,39 @@ def create_release_request(
             organization_id=actor.organization_id,
             maker_user_id=actor.user_id,
             correlation_id=uuid4(),
+        )
+    except ReleaseGovernanceError as error:
+        raise release_http_error(error) from error
+
+
+@app.get("/api/v1/release-requests", response_model=list[ReleaseRequestRecord])
+def list_release_requests(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[ReleaseRequestRecord]:
+    require_workspace_access(actor, workspace_id)
+    try:
+        return get_release_repository().list_release_requests(
+            workspace_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            limit=limit,
+        )
+    except ReleaseGovernanceError as error:
+        raise release_http_error(error) from error
+
+
+@app.get("/api/v1/release-requests/{change_request_id}", response_model=ReleaseRequestDetail)
+def get_release_request_detail(
+    change_request_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> ReleaseRequestDetail:
+    try:
+        return get_release_repository().get_release_request_detail(
+            change_request_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
         )
     except ReleaseGovernanceError as error:
         raise release_http_error(error) from error

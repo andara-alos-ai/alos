@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canChangeBudget, remainingBudget, type Budget, type Usage } from "./governance";
+import { apiErrorDetail, canChangeBudget, remainingBudget, type Budget, type Usage } from "./governance";
 
 const budget: Budget = {
   workspace_id: "workspace-1",
@@ -18,6 +18,12 @@ const usage: Usage = {
 };
 
 describe("Governance Dashboard helpers", () => {
+  it("extracts only a string API error detail", () => {
+    expect(apiErrorDetail({ detail: "safe message" })).toBe("safe message");
+    expect(apiErrorDetail({ detail: { internal: "ignored" } })).toBeUndefined();
+    expect(apiErrorDetail(null)).toBeUndefined();
+  });
+
   it("allows budget changes only for Director or IT Lead", () => {
     expect(canChangeBudget(["DIRECTOR"])).toBe(true);
     expect(canChangeBudget(["IT_LEAD"])).toBe(true);

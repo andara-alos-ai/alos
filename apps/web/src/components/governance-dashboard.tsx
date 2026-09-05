@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -162,7 +163,7 @@ export function GovernanceDashboard() {
     return (
       <main className="loading-shell">
         <p>{error || "Sesi tidak tersedia."}</p>
-        <a className="text-link" href="/login">Ke halaman login</a>
+        <Link className="text-link" href="/login">Ke halaman login</Link>
       </main>
     );
   }
@@ -180,6 +181,8 @@ export function GovernanceDashboard() {
         </div>
         <div className="header-actions">
           <span className="role-badge">{data.actor.roles.join(" · ")}</span>
+          {data.actor.roles.includes("IT_LEAD") ? <Link className="secondary-button button-link" href="/agents">Agent Registry</Link> : null}
+          <Link className="secondary-button button-link" href="/releases">Release</Link>
           <button className="secondary-button" onClick={() => void logout()} type="button">Keluar</button>
         </div>
       </header>

@@ -11,6 +11,7 @@ import hashlib
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -18,12 +19,15 @@ import psycopg
 from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from alos.persistence.database import psycopg_url
 
 SourceType = Literal["DOCX", "PDF", "TEXT", "URL"]
 SourceClassification = Literal["PUBLIC", "INTERNAL"]
+_GOOGLE_DRIVE_FOLDER_URL = re.compile(
+    r"^https://drive\.google\.com/drive/folders/([A-Za-z0-9_-]{10,})(?:[/?#].*)?$"
+)
 
 
 class SourceRegistryError(RuntimeError):
@@ -36,6 +40,42 @@ class SourceConflictError(SourceRegistryError):
 
 class SourceNotFoundError(SourceRegistryError):
     """A requested source is unavailable within the actor workspace."""
+
+
+class SourceVaultPolicyRequest(BaseModel):
+    """Human-approved source boundary for a controlled H5 pilot.
+
+    A Source Vault records an allowed Drive root and a separately denied folder.
+    It never grants the Runtime a Drive token or permission to fetch Drive.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_root_url: str = Field(min_length=20, max_length=2_000)
+    excluded_folder_url: str = Field(min_length=20, max_length=2_000)
+    reason: str = Field(min_length=10, max_length=10_000)
+
+    @model_validator(mode="after")
+    def validate_distinct_google_drive_folders(self) -> SourceVaultPolicyRequest:
+        if _google_drive_folder_id(self.allowed_root_url) is None:
+            raise ValueError("allowed_root_url must be a Google Drive folder URL")
+        if _google_drive_folder_id(self.excluded_folder_url) is None:
+            raise ValueError("excluded_folder_url must be a Google Drive folder URL")
+        if _google_drive_folder_id(self.allowed_root_url) == _google_drive_folder_id(
+            self.excluded_folder_url
+        ):
+            raise ValueError("allowed and excluded Drive folders must be different")
+        return self
+
+
+class SourceVaultPolicyRecord(BaseModel):
+    source_vault_policy_id: UUID
+    workspace_id: UUID
+    allowed_root_url: str
+    excluded_folder_url: str
+    access_mode: Literal["READ_ONLY"]
+    created_at: datetime
+    updated_at: datetime
 
 
 class SourceRegistrationRequest(BaseModel):
@@ -51,6 +91,8 @@ class SourceRegistrationRequest(BaseModel):
     version_label: str = Field(min_length=1, max_length=100)
     locator: str | None = Field(default=None, max_length=2_000)
     content: str = Field(min_length=1, max_length=200_000)
+    source_vault_policy_id: UUID | None = None
+    vault_attestation: bool = False
 
     @field_validator("content")
     @classmethod
@@ -73,6 +115,7 @@ class SourceVersionRecord(BaseModel):
     sha256: str
     locator: str | None
     citation_count: int
+    source_vault_policy_id: UUID | None = None
 
 
 class SourceVerificationRequest(BaseModel):
@@ -111,6 +154,12 @@ class SourceRegistryRepository:
         with self._transaction() as connection:
             self._require_workspace_actor(
                 connection, organization_id, actor_user_id, request.workspace_id
+            )
+            vault_policy = self._vault_policy(
+                connection, organization_id, request.workspace_id
+            )
+            self._enforce_vault_registration(
+                request, vault_policy=vault_policy, actor_user_id=actor_user_id
             )
             source = connection.execute(
                 """
@@ -160,11 +209,20 @@ class SourceRegistryRepository:
             try:
                 version = connection.execute(
                     """
-                    INSERT INTO sources.versions (source_id, version_label, sha256, locator)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO sources.versions (
+                        source_id, version_label, sha256, locator, source_vault_policy_id,
+                        vault_attested_by_user_id
+                    ) VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING source_version_id
                     """,
-                    (source["source_id"], request.version_label, content_sha, request.locator),
+                    (
+                        source["source_id"],
+                        request.version_label,
+                        content_sha,
+                        request.locator,
+                        request.source_vault_policy_id,
+                        actor_user_id if request.vault_attestation else None,
+                    ),
                 ).fetchone()
             except UniqueViolation as error:
                 raise SourceConflictError("source version label already exists") from error
@@ -201,6 +259,9 @@ class SourceRegistryRepository:
                     "version_label": request.version_label,
                     "sha256": content_sha,
                     "citation_count": len(chunks),
+                    "source_vault_policy_id": str(request.source_vault_policy_id)
+                    if request.source_vault_policy_id is not None
+                    else None,
                 },
             )
             return SourceVersionRecord(
@@ -216,6 +277,7 @@ class SourceRegistryRepository:
                 sha256=content_sha,
                 locator=request.locator,
                 citation_count=len(chunks),
+                source_vault_policy_id=request.source_vault_policy_id,
             )
 
     def verify(
@@ -239,7 +301,7 @@ class SourceRegistryRepository:
             version = connection.execute(
                 """
                 SELECT version.source_version_id, version.version_label, version.sha256,
-                       version.locator,
+                       version.locator, version.source_vault_policy_id,
                        count(chunk.source_chunk_id) AS citation_count
                 FROM sources.versions AS version
                 LEFT JOIN sources.content_chunks AS chunk
@@ -281,7 +343,113 @@ class SourceRegistryRepository:
                 sha256=version["sha256"],
                 locator=version["locator"],
                 citation_count=version["citation_count"],
+                source_vault_policy_id=version["source_vault_policy_id"],
             )
+
+    def configure_vault_policy(
+        self,
+        workspace_id: UUID,
+        request: SourceVaultPolicyRequest,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> SourceVaultPolicyRecord:
+        """Persist a read-only human boundary for sources used in the H5 pilot."""
+        allowed_folder_id = _google_drive_folder_id(request.allowed_root_url)
+        excluded_folder_id = _google_drive_folder_id(request.excluded_folder_url)
+        if allowed_folder_id is None or excluded_folder_id is None:
+            raise SourceRegistryError("Google Drive folder policy could not be parsed")
+        with self._transaction() as connection:
+            self._require_workspace_actor(connection, organization_id, actor_user_id, workspace_id)
+            row = connection.execute(
+                """
+                INSERT INTO sources.vault_policies (
+                    organization_id, workspace_id, allowed_root_url, allowed_root_folder_id,
+                    excluded_folder_url, excluded_folder_id, created_by_user_id, updated_by_user_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (organization_id, workspace_id) DO UPDATE
+                SET allowed_root_url = EXCLUDED.allowed_root_url,
+                    allowed_root_folder_id = EXCLUDED.allowed_root_folder_id,
+                    excluded_folder_url = EXCLUDED.excluded_folder_url,
+                    excluded_folder_id = EXCLUDED.excluded_folder_id,
+                    updated_by_user_id = EXCLUDED.updated_by_user_id,
+                    updated_at = now()
+                RETURNING source_vault_policy_id, workspace_id, allowed_root_url,
+                          excluded_folder_url, access_mode, created_at, updated_at
+                """,
+                (
+                    organization_id,
+                    workspace_id,
+                    request.allowed_root_url,
+                    allowed_folder_id,
+                    request.excluded_folder_url,
+                    excluded_folder_id,
+                    actor_user_id,
+                    actor_user_id,
+                ),
+            ).fetchone()
+            if row is None:
+                raise SourceRegistryError("Source Vault policy could not be saved")
+            self._append_audit(
+                connection,
+                organization_id=organization_id,
+                actor_user_id=actor_user_id,
+                action="SOURCE_VAULT_CONFIGURED",
+                entity_type="SOURCE_VAULT_POLICY",
+                entity_id=row["source_vault_policy_id"],
+                correlation_id=correlation_id,
+                reason=request.reason,
+                metadata={
+                    "workspace_id": str(workspace_id),
+                    "access_mode": "READ_ONLY",
+                    "allowed_root_folder_id": allowed_folder_id,
+                    "excluded_folder_id": excluded_folder_id,
+                },
+            )
+            return SourceVaultPolicyRecord(**row)
+
+    def get_vault_policy(
+        self, workspace_id: UUID, *, organization_id: UUID
+    ) -> SourceVaultPolicyRecord | None:
+        with self._connection() as connection:
+            row = self._vault_policy(connection, organization_id, workspace_id)
+        if row is None:
+            return None
+        return SourceVaultPolicyRecord(
+            source_vault_policy_id=row["source_vault_policy_id"],
+            workspace_id=row["workspace_id"],
+            allowed_root_url=row["allowed_root_url"],
+            excluded_folder_url=row["excluded_folder_url"],
+            access_mode=row["access_mode"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def list_source_versions(
+        self, workspace_id: UUID, *, organization_id: UUID
+    ) -> list[SourceVersionRecord]:
+        """List the newest immutable version for each workspace source."""
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT ON (source.source_id)
+                       source.source_id, version.source_version_id, source.workspace_id,
+                       source.source_key, source.name, source.source_type, source.classification,
+                       source.status, version.version_label, version.sha256, version.locator,
+                       version.source_vault_policy_id,
+                       count(chunk.source_chunk_id) OVER (PARTITION BY version.source_version_id)
+                         AS citation_count
+                FROM sources.sources AS source
+                JOIN sources.versions AS version ON version.source_id = source.source_id
+                LEFT JOIN sources.content_chunks AS chunk
+                  ON chunk.source_version_id = version.source_version_id
+                WHERE source.organization_id = %s AND source.workspace_id = %s
+                ORDER BY source.source_id, version.received_at DESC, version.source_version_id DESC
+                """,
+                (organization_id, workspace_id),
+            ).fetchall()
+        return [SourceVersionRecord(**row) for row in rows]
 
     def search_evidence(
         self,
@@ -346,6 +514,52 @@ class SourceRegistryRepository:
         if source is None:
             raise SourceNotFoundError("source was not found in this workspace")
         return dict(source)
+
+    @staticmethod
+    def _vault_policy(
+        connection: psycopg.Connection[Any], organization_id: UUID, workspace_id: UUID
+    ) -> dict[str, Any] | None:
+        row = connection.execute(
+            """
+            SELECT source_vault_policy_id, workspace_id, allowed_root_url, allowed_root_folder_id,
+                   excluded_folder_url, excluded_folder_id, access_mode, created_at, updated_at
+            FROM sources.vault_policies
+            WHERE organization_id = %s AND workspace_id = %s
+            """,
+            (organization_id, workspace_id),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    @staticmethod
+    def _enforce_vault_registration(
+        request: SourceRegistrationRequest,
+        *,
+        vault_policy: dict[str, Any] | None,
+        actor_user_id: UUID,
+    ) -> None:
+        del actor_user_id  # Attestation identity is persisted by the caller transaction.
+        if vault_policy is None:
+            if request.source_vault_policy_id is not None or request.vault_attestation:
+                raise SourceConflictError(
+                    "Source Vault policy is not configured for this workspace"
+                )
+            return
+        if request.source_vault_policy_id != vault_policy["source_vault_policy_id"]:
+            raise SourceConflictError(
+                "source registration must reference the current Source Vault policy"
+            )
+        if not request.vault_attestation:
+            raise SourceConflictError(
+                "source registration requires explicit Source Vault attestation"
+            )
+        if not request.locator:
+            raise SourceConflictError(
+                "a Source Vault registration requires a declared source locator"
+            )
+        if vault_policy["excluded_folder_id"] in request.locator:
+            raise SourceConflictError(
+                "the declared source locator is explicitly excluded by Source Vault"
+            )
 
     @staticmethod
     def _require_workspace_actor(
@@ -442,3 +656,9 @@ def _digest(value: str) -> str:
 def _excerpt(value: str) -> str:
     normalized = re.sub(r"\s+", " ", value).strip()
     return normalized[:800]
+
+
+def _google_drive_folder_id(value: str) -> str | None:
+    """Extract a folder id without calling Google Drive or following a URL."""
+    match = _GOOGLE_DRIVE_FOLDER_URL.match(value.strip())
+    return match.group(1) if match is not None else None

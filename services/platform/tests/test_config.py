@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -65,3 +66,30 @@ def test_staging_rejects_gemini() -> None:
 def test_config_allows_a_container_migrations_path() -> None:
     settings = Settings(_env_file=None, migrations_path="/app/infra/database")
     assert settings.migrations_path == Path("/app/infra/database")
+
+
+def test_openai_pricing_estimate_rounds_up_for_a_hard_cost_cap() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="staging",
+        auth_signing_secret="a" * 32,
+        llm_provider="openai",
+        llm_api_key="test-only-key",
+        llm_model="gpt-5.6-luna",
+    )
+
+    assert settings.estimate_llm_cost_usd(
+        model="gpt-5.6-luna", input_tokens=12, output_tokens=9
+    ) == Decimal("0.000014")
+
+
+def test_staging_openai_rejects_an_unpriced_model_route() -> None:
+    with pytest.raises(ValueError, match="pricing is not configured"):
+        Settings(
+            _env_file=None,
+            environment="staging",
+            auth_signing_secret="a" * 32,
+            llm_provider="openai",
+            llm_api_key="test-only-key",
+            llm_model="unreviewed-model",
+        )

@@ -63,9 +63,21 @@ export type AuditEvent = {
 };
 
 export class ApiError extends Error {
-  constructor(readonly status: number) {
+  constructor(readonly status: number, readonly detail?: string) {
     super(`ALOS API request failed with ${status}`);
   }
+}
+
+export function apiErrorDetail(payload: unknown): string | undefined {
+  if (
+    payload !== null
+    && typeof payload === "object"
+    && "detail" in payload
+    && typeof payload.detail === "string"
+  ) {
+    return payload.detail;
+  }
+  return undefined;
 }
 
 export function canChangeBudget(roles: string[]): boolean {

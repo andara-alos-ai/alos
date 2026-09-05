@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import ROUND_UP, Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -9,6 +9,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 Environment = Literal["local", "test", "staging", "production"]
 LlmProvider = Literal["disabled", "openai", "anthropic", "gemini", "local"]
 ModelRoute = Literal["light", "standard", "critical"]
+
+
+# Text-token rates per one million tokens. They are deliberately kept on the
+# server so a browser cannot select a cheaper route or alter cost accounting.
+# Refresh this registry together with the deployment when OpenAI changes a
+# model's published pricing.
+_OPENAI_TEXT_PRICING_PER_MILLION: dict[str, tuple[Decimal, Decimal]] = {
+    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20")),
+    "gpt-5.6-terra": (Decimal("2.00"), Decimal("12.00")),
+    "gpt-5.6-sol": (Decimal("4.00"), Decimal("20.00")),
+}
+_COST_PRECISION = Decimal("0.000001")
 
 
 def repository_root() -> Path:
@@ -86,6 +98,22 @@ class Settings(BaseSettings):
             raise ValueError("an enabled LLM provider requires an environment secret")
         if self.llm_provider != "disabled" and not self.llm_model.strip():
             raise ValueError("an enabled LLM provider requires a model policy")
+        if self.llm_provider == "openai" and self.environment in {"staging", "production"}:
+            configured_models = {
+                model.strip()
+                for model in (
+                    self.llm_model,
+                    self.llm_model_light,
+                    self.llm_model_standard,
+                    self.llm_model_critical,
+                )
+                if model.strip()
+            }
+            unknown_models = configured_models.difference(_OPENAI_TEXT_PRICING_PER_MILLION)
+            if unknown_models:
+                raise ValueError(
+                    "OpenAI model pricing is not configured for the selected model route"
+                )
         if self.environment in {"staging", "production"} and self.llm_store_responses:
             raise ValueError("staging/production must keep provider response storage disabled")
         return self
@@ -103,6 +131,28 @@ class Settings(BaseSettings):
             "critical": self.llm_model_critical,
         }[route]
         return configured.strip() or self.llm_model.strip()
+
+    def estimate_llm_cost_usd(
+        self, *, model: str, input_tokens: int, output_tokens: int
+    ) -> Decimal:
+        """Return a conservative text-token estimate rounded up for budget safety.
+
+        Non-OpenAI test/local providers do not have a staging USD price table,
+        so they remain zero-cost fixtures. OpenAI routes are validated during
+        Settings construction and therefore cannot silently bypass this guard.
+        """
+        if input_tokens < 0 or output_tokens < 0:
+            raise ValueError("token counts cannot be negative")
+        if self.llm_provider != "openai":
+            return Decimal("0")
+        pricing = _OPENAI_TEXT_PRICING_PER_MILLION.get(model)
+        if pricing is None:
+            raise ValueError("OpenAI model pricing is not configured")
+        input_price, output_price = pricing
+        estimated = (
+            Decimal(input_tokens) * input_price + Decimal(output_tokens) * output_price
+        ) / Decimal(1_000_000)
+        return estimated.quantize(_COST_PRECISION, rounding=ROUND_UP)
 
 
 @lru_cache

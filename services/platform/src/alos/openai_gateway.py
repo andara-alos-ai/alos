@@ -7,7 +7,6 @@ decisions before a request reaches OpenAI.
 
 from __future__ import annotations
 
-from decimal import Decimal
 from time import perf_counter
 from typing import Any
 
@@ -98,19 +97,27 @@ class OpenAIModelGateway:
         if not isinstance(usage, dict):
             usage = {}
 
+        requested_model = request.model or self._settings.llm_model
+        response_model = payload.get("model")
+        if response_model is not None and response_model != requested_model:
+            raise ModelGatewayError(
+                "OPENAI_MODEL_MISMATCH", "OpenAI response model violates route policy"
+            )
+        model_usage = ModelUsage(
+            input_tokens=_token_count(usage, "input_tokens"),
+            output_tokens=_token_count(usage, "output_tokens"),
+        )
         return ModelResponse(
             provider="openai",
-            model=str(payload.get("model") or request.model or self._settings.llm_model),
+            model=requested_model,
             output_text=output_text,
-            usage=ModelUsage(
-                input_tokens=_token_count(usage, "input_tokens"),
-                output_tokens=_token_count(usage, "output_tokens"),
-            ),
+            usage=model_usage,
             latency_milliseconds=round((perf_counter() - started_at) * 1_000),
-            # Cost tables are provider and date dependent. Persistent accounting
-            # records the provider-reported token counts; pricing is configured
-            # separately instead of guessed inside this adapter.
-            estimated_cost_usd=Decimal("0"),
+            estimated_cost_usd=self._settings.estimate_llm_cost_usd(
+                model=requested_model,
+                input_tokens=model_usage.input_tokens,
+                output_tokens=model_usage.output_tokens,
+            ),
         )
 
     @property
