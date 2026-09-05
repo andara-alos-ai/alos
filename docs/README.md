@@ -28,6 +28,8 @@ terukur untuk produk ALOS.
    — status backend lokal, evidence quality gate, dan limitation yang masih HOLD.
 9. [OpenAI staging gateway](implementation/OPENAI_STAGING_GATEWAY.md) —
    konfigurasi provider, routing model, dan urutan validasi VPS staging.
+10. [Document Center workflow](product/DOCUMENT_CENTER_WORKFLOW.md) — satu
+    repositori dokumen untuk DRAFT Genesis/manual, checklist, dan approval.
 
 ## Status dokumen yang sudah ada
 
