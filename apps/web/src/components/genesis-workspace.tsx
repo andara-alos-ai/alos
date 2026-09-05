@@ -60,13 +60,22 @@ const stages: readonly StageDefinition[] = [
   },
 ];
 
+const workflowLabels = ["Baca dokumen", "Draft & review", "R&D & checklist", "Dokumen pelengkap", "Usulan agent", "Approval"];
+
+const quickPrompts = [
+  "Analisis dokumen ini dan jelaskan kekurangan yang perlu diperbaiki.",
+  "Periksa apakah target, PIC, timeline, dan risiko sudah cukup jelas.",
+  "Susun rekomendasi R&D yang diperlukan dari dokumen ini.",
+  "Usulkan agent read-only bila ada pekerjaan berulang yang terukur.",
+];
+
 export function GenesisWorkspace({ actor }: { actor: SessionActor }) {
+  const [workspaces, setWorkspaces] = useState<DocumentWorkspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState("");
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [sourceId, setSourceId] = useState("");
   const [source, setSource] = useState<DocumentDetail | null>(null);
   const [requirement, setRequirement] = useState("");
-  const [conversationPrompt, setConversationPrompt] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,6 +95,16 @@ export function GenesisWorkspace({ actor }: { actor: SessionActor }) {
   const artifacts = useMemo(() => Object.fromEntries(
     stages.map((stage) => [stage.key, genesisDrafts.find((document) => document.title.startsWith(stagePrefix(stage.key)))]),
   ) as Record<WorkflowStage, DocumentRecord | undefined>, [genesisDrafts]);
+  const currentStage = useMemo(() => {
+    if (!source) return 0;
+    if (!artifacts.ANALYSIS) return 1;
+    if (!artifacts.RND) return 2;
+    if (!artifacts.CHECKLIST) return 3;
+    if (!artifacts.COMPLETION) return 4;
+    if (!artifacts.AGENT) return 5;
+    return 6;
+  }, [artifacts, source]);
+
   const loadDocuments = useCallback(async (nextWorkspaceId: string) => {
     if (!nextWorkspaceId) {
       setDocuments([]);
@@ -106,6 +125,7 @@ export function GenesisWorkspace({ actor }: { actor: SessionActor }) {
         if (!response.ok) throw new Error(await errorDetail(response));
         const items = (await response.json()) as DocumentWorkspace[];
         const firstWorkspaceId = items[0]?.workspace_id ?? "";
+        setWorkspaces(items);
         setWorkspaceId(firstWorkspaceId);
         await loadDocuments(firstWorkspaceId);
       } catch (failure) {
@@ -118,7 +138,10 @@ export function GenesisWorkspace({ actor }: { actor: SessionActor }) {
   }, [loadDocuments]);
 
   useEffect(() => {
-    if (!sourceId) return;
+    if (!sourceId) {
+      setSource(null);
+      return;
+    }
     async function loadSource() {
       try {
         setError(null);
@@ -136,9 +159,21 @@ export function GenesisWorkspace({ actor }: { actor: SessionActor }) {
     void loadSource();
   }, [sourceId]);
 
+  async function changeWorkspace(nextWorkspaceId: string) {
+    setWorkspaceId(nextWorkspaceId);
+    setSourceId("");
+    setSource(null);
+    setNotice(null);
+    setError(null);
+    try {
+      await loadDocuments(nextWorkspaceId);
+    } catch (failure) {
+      setError(messageFrom(failure));
+    }
+  }
+
   async function createArtifact(stage: StageDefinition) {
-    const activeRequirement = conversationPrompt || requirement;
-    if (!workspaceId || !source || !activeRequirement.trim() || !canInitiate) return;
+    if (!workspaceId || !source || !requirement.trim() || !canInitiate) return;
     setSavingStage(stage.key);
     setError(null);
     setNotice(null);
@@ -147,7 +182,7 @@ export function GenesisWorkspace({ actor }: { actor: SessionActor }) {
     const workflowRequirement = [
       `Tahap H6: ${stage.title}.`,
       "Instruksi Direktur:",
-      activeRequirement.trim(),
+      requirement.trim(),
       "",
       "Sumber internal yang sudah dapat dibaca:",
       `- ${source.document.title} (${source.document.status}, v${source.document.version_number})`,
@@ -194,7 +229,6 @@ export function GenesisWorkspace({ actor }: { actor: SessionActor }) {
       return;
     }
     setError(null);
-    setConversationPrompt(requirement.trim());
     setNotice("Dokumen dan instruksi siap. Simpan Draft Analisis untuk memulai alur yang diaudit.");
   }
 
@@ -202,42 +236,55 @@ export function GenesisWorkspace({ actor }: { actor: SessionActor }) {
 
   const draftForReview = genesisDrafts.filter((document) => document.status === "DRAFT" || document.status === "IN_REVIEW");
   const backlogDrafts = [artifacts.CHECKLIST, artifacts.COMPLETION].filter(Boolean) as DocumentRecord[];
-  const nextStage = stages.find((stage) => !artifacts[stage.key]);
-  const conversationReady = Boolean(source && conversationPrompt);
 
   return (
     <section className="alos-content alos-h6-workspace" aria-label="Genesis Workspace">
       <header className="alos-h6-heading">
-        <div><h2>GENESIS</h2><p>AI Executive Assistant</p></div>
-        <button className="alos-h6-enterprise" disabled type="button">♢ Enterprise Mode <span>⌄</span></button>
+        <div><p className="alos-kicker">ALOS / GENESIS WORKSPACE</p><h2><span>✦</span> GENESIS</h2><p>AI Executive Assistant untuk menganalisis sumber, menyiapkan DRAFT, dan membawa keputusan Dirut ke alur yang terkendali.</p></div>
+        <label>Workspace<select aria-label="Workspace Genesis" onChange={(event) => void changeWorkspace(event.target.value)} value={workspaceId}>{workspaces.map((workspace) => <option key={workspace.workspace_id} value={workspace.workspace_id}>{workspace.name}</option>)}</select></label>
       </header>
 
       {!canInitiate ? <article className="alos-h6-director-notice"><strong>Ruang kerja Direktur</strong><span>Untuk pilot H6, hanya Direktur yang dapat memulai analisis atau membuat DRAFT. Anda tetap dapat melihat dokumen yang diizinkan.</span></article> : null}
       {error ? <p className="alos-inline-error">{error}</p> : null}
       {notice ? <p className="alos-inline-success">{notice}</p> : null}
 
+      <ol className="alos-h6-progress" aria-label="Alur kerja Genesis H6">
+        {workflowLabels.map((label, index) => <li className={index < currentStage ? "complete" : index === currentStage ? "current" : ""} key={label}><span>{index < currentStage ? "✓" : index + 1}</span><small>{label}</small></li>)}
+      </ol>
+
       <div className="alos-h6-grid">
         <article className="alos-panel alos-h6-chat">
           <div className="alos-h6-chat-scroll">
-            <div className="alos-h6-director-message"><span>{actor.roles.includes("DIRECTOR") ? "D" : "A"}</span><div><div className="alos-h6-message-meta"><strong>Direktur Utama</strong><small>Instruksi baru</small></div><p>{conversationPrompt || "Pilih dokumen dan ketik instruksi untuk memulai percakapan dengan Genesis."}</p><label className="alos-h6-document-attachment"><span>▣</span><div><strong>{source?.document.title ?? "Pilih dokumen internal"}</strong><small>{source ? `${source.document.category} · v${source.document.version_number}` : "Hanya dokumen APPROVED atau ACTIVE"}</small></div><select aria-label="Dokumen internal yang dianalisis" disabled={!canInitiate} onChange={(event) => { setSource(null); setSourceId(event.target.value); setConversationPrompt(""); setNotice(null); }} value={sourceId}><option value="">Pilih</option>{sourceCandidates.map((document) => <option key={document.document_id} value={document.document_id}>{document.title} · v{document.version_number}</option>)}</select></label></div></div>
+            <div className="alos-h6-director-message"><span>{actor.roles.includes("DIRECTOR") ? "D" : "A"}</span><div><strong>Direktur</strong><p>{requirement || "Pilih dokumen lalu tuliskan instruksi untuk Genesis."}</p></div></div>
+
+            <div className="alos-h6-source-select">
+              <label>Dokumen internal yang akan dianalisis<select disabled={!canInitiate} onChange={(event) => setSourceId(event.target.value)} value={sourceId}><option value="">Pilih dokumen yang telah disetujui</option>{sourceCandidates.map((document) => <option key={document.document_id} value={document.document_id}>{document.title} · v{document.version_number}</option>)}</select></label>
+              {sourceCandidates.length === 0 ? <p>Belum ada dokumen `APPROVED` atau `ACTIVE` yang dapat menjadi sumber analisis. Selesaikan review dokumen terlebih dahulu.</p> : null}
+            </div>
 
             <div className="alos-h6-genesis-message"><span>✦</span><div>
-              {!source ? <><strong>Genesis siap membaca sumber yang diizinkan</strong><p>Pilih dokumen internal yang telah disetujui. Genesis tidak memakai draft yang belum tervalidasi sebagai dasar rekomendasi.</p>{sourceCandidates.length === 0 ? <p className="alos-h6-warning">Belum ada dokumen APPROVED atau ACTIVE pada workspace ini.</p> : null}</> : <>
-                <div className="alos-h6-readable"><span>✓</span><div><strong>Dokumen dapat dibaca</strong><small>{source.document.title} · {source.content.length.toLocaleString("id-ID")} karakter</small></div><Link href="/documents">Lihat sumber ↗</Link></div>
-                <section className="alos-h6-analysis-card"><h3>{artifacts.ANALYSIS ? "Draft Analisis tercatat" : "Analisis siap disusun"}</h3><p>{artifacts.ANALYSIS ? "Draft analisis sudah tersimpan dan menunggu pemeriksaan manusia sebelum Genesis melanjutkan R&D." : conversationReady ? "Genesis akan menyimpan instruksi, versi sumber, citation, ruang lingkup, dan area pemeriksaan sebagai Draft Analisis." : "Ketik instruksi untuk menjelaskan analisis atau rekomendasi yang Dirut perlukan."}</p><div className="alos-h6-analysis-source"><strong>Sumber</strong><span>DOC:{source.document.document_id.slice(0, 8)}…@v{source.document.version_number}</span><span>SHA-256 tersimpan</span></div></section>
+              {!source ? <><strong>Siap membaca sumber yang diizinkan</strong><p>Pilih dokumen internal yang sudah disetujui. Genesis tidak akan menggunakan draft yang belum tervalidasi sebagai dasar keputusan.</p></> : <>
+                <div className="alos-h6-readable"><span>✓</span><div><strong>Dokumen dapat dibaca</strong><small>{source.document.title} · v{source.document.version_number} · {source.document.classification}</small></div><Link href="/documents">Lihat sumber ↗</Link></div>
+                <strong>Siap membuat {artifacts.ANALYSIS ? "tahap berikutnya" : "Draft Analisis"}</strong>
+                <p>Genesis akan menyimpan instruksi Dirut, referensi versi, dan citation sumber ke DRAFT. Tidak ada dokumen sumber yang diubah secara otomatis.</p>
+                <p className="alos-h6-citation">Citation: DOC:{source.document.document_id.slice(0, 8)}…@v{source.document.version_number} · SHA-256 tersimpan</p>
               </>}
             </div></div>
 
-            <div className="alos-h6-action-row">
-              {!artifacts.ANALYSIS ? <button disabled={!canInitiate || !conversationReady || savingStage !== null} onClick={() => void createArtifact(stages[0])} type="button">▤ <span>{savingStage === "ANALYSIS" ? "Menyimpan…" : "Simpan Draft Analisis"}</span></button> : <Link href="/documents">▤ <span>Buka Draft Analisis</span></Link>}
-              <button disabled={!canInitiate || !artifacts.ANALYSIS || !nextStage || savingStage !== null} onClick={() => nextStage && void createArtifact(nextStage)} type="button">♙ <span>{savingStage ? "Menyimpan…" : nextStage ? nextStage.action : "Alur selesai"}</span></button>
-              <button className="revision" disabled={!canInitiate || !source} onClick={() => { setConversationPrompt(""); setRequirement(""); setNotice("Silakan perbarui instruksi Dirut lalu kirim kembali."); }} type="button">▱ <span>Minta Revisi</span></button>
-            </div>
+            {source ? <div className="alos-h6-artifact-actions">
+              {stages.map((stage) => {
+                const draft = artifacts[stage.key];
+                const previous = stages[stages.indexOf(stage) - 1];
+                const locked = Boolean(previous && !artifacts[previous.key]);
+                if (draft) return <div className="alos-h6-artifact-complete" key={stage.key}><span>✓</span><div><strong>{stage.shortTitle}</strong><small>{draft.status.replace("_", " ")} · {formatDocumentDate(draft.updated_at)}</small></div><Link href="/documents">Buka ↗</Link></div>;
+                return <button disabled={!canInitiate || locked || !requirement.trim() || savingStage !== null} key={stage.key} onClick={() => void createArtifact(stage)} type="button"><span>{locked ? "○" : "＋"}</span><div><strong>{stage.action}</strong><small>{locked ? "Selesaikan tahap sebelumnya terlebih dahulu" : stage.description}</small></div>{savingStage === stage.key ? <em>Menyimpan…</em> : null}</button>;
+              })}
+            </div> : null}
           </div>
 
           <form className="alos-h6-composer" onSubmit={submitPrompt}>
-            <textarea disabled={!canInitiate} maxLength={10000} onChange={(event) => setRequirement(event.target.value)} placeholder="Ketik pesan atau perintah Anda…" value={requirement} />
-            <div><span aria-hidden="true">⌇　▦　▥</span><small>Tekan Enter untuk mengirim</small><button aria-label="Siapkan analisis" disabled={!canInitiate || !workspaceId} type="submit">➤</button></div>
+            <textarea disabled={!canInitiate} maxLength={10000} onChange={(event) => setRequirement(event.target.value)} placeholder="Contoh: Analisis dokumen ini, rekomendasikan kekurangannya, lalu siapkan draft perbaikannya." value={requirement} />
+            <div><small>Hasil selalu DRAFT; keputusan, dokumen resmi, dan agent ACTIVE tetap memerlukan manusia.</small><button aria-label="Siapkan analisis" disabled={!canInitiate || !workspaceId} type="submit">➤</button></div>
           </form>
         </article>
 
@@ -245,16 +292,17 @@ export function GenesisWorkspace({ actor }: { actor: SessionActor }) {
           <WorkspaceSideCard empty="Belum ada DRAFT dari Genesis." items={draftForReview} title="Draft perlu ditinjau" />
           <WorkspaceSideCard empty="Backlog akan muncul setelah checklist perbaikan dibuat." items={backlogDrafts} title="Backlog Genesis" />
           <WorkspaceSideCard empty="Genesis belum mengusulkan agent." items={artifacts.AGENT ? [artifacts.AGENT] : []} title="Usulan Agent" />
+          <article className="alos-panel alos-h6-control-card"><p className="alos-kicker">BATAS KONTROL</p><h3>Direktur memutuskan</h3><ul><li>Genesis membuat DRAFT, bukan perubahan resmi.</li><li>Dokumen sumber tidak dapat ditimpa.</li><li>Agent hanya dapat menjadi ACTIVE melalui H4.</li></ul><Link href="/governance">Buka Governance &amp; Agent Control →</Link></article>
         </aside>
       </div>
 
-      <section className="alos-h6-knowledge"><div><p className="alos-kicker">SUMBER PENGETAHUAN</p><h3>Context <span>ⓘ</span></h3></div><div className="alos-h6-knowledge-cards"><Link href="/documents"><span>▣</span><div><strong>Internal ALOS</strong><small>{sourceCandidates.length ? `${sourceCandidates.length} dokumen disetujui dapat dipilih` : "Dokumen dan evidence terdaftar"}</small></div><b>›</b></Link><Link href="/h5"><span>◎</span><div><strong>External Research</strong><small>Industri, pasar, regulasi, dan best practice yang telah diverifikasi.</small></div><b>›</b></Link></div></section>
+      <section className="alos-h6-knowledge"><div><p className="alos-kicker">SUMBER PENGETAHUAN</p><h3>Ruang lingkup riset</h3></div><div className="alos-h6-knowledge-cards"><Link href="/documents"><span>▣</span><div><strong>Internal ALOS</strong><small>{sourceCandidates.length ? `${sourceCandidates.length} dokumen disetujui dapat dipilih` : "Belum ada dokumen disetujui"}</small></div><b>›</b></Link><Link href="/h5"><span>◎</span><div><strong>External Research</strong><small>Teknologi, pasar, regulasi, dan tren harus ditambahkan sebagai evidence terverifikasi.</small></div><b>›</b></Link></div></section>
     </section>
   );
 }
 
 function WorkspaceSideCard({ empty, items, title }: { empty: string; items: DocumentRecord[]; title: string }) {
-  return <article className="alos-panel alos-h6-side-card"><div className="alos-h6-side-heading"><h3>{title}</h3><Link href="/documents">Lihat semua →</Link></div>{items.length === 0 ? <p className="alos-empty-copy">{empty}</p> : <ul>{items.slice(0, 3).map((item) => <li key={item.document_id}><span>◫</span><div><strong>{item.title.replace(/^\[GENESIS\/H6\/[A-Z_]+\]\s*/, "")}</strong><small>{item.status.replace("_", " ")} · {formatDocumentDate(item.updated_at)}</small></div></li>)}</ul>}</article>;
+  return <article className="alos-panel alos-h6-side-card"><div className="alos-h6-side-heading"><h3>{title}</h3><Link href="/documents">Lihat semua →</Link></div>{items.length === 0 ? <p className="alos-empty-copy">{empty}</p> : <ul>{items.slice(0, 3).map((item) => <li key={item.document_id}><span>◫</span><div><strong>{item.title.replace(/^\[GENESIS\/H6\]\s*/, "")}</strong><small>{item.status.replace("_", " ")} · {formatDocumentDate(item.updated_at)}</small></div></li>)}</ul>}</article>;
 }
 
 function stagePrefix(stage: WorkflowStage): string {
