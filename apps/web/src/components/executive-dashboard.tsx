@@ -16,7 +16,6 @@ import {
   type DashboardProfile,
 } from "@/lib/dashboard-access";
 import { DocumentCenter } from "@/components/document-center";
-import { GenesisWorkspace } from "@/components/genesis-workspace";
 import { type SessionActor } from "@/lib/governance";
 
 type ExecutiveDashboardProps = {
@@ -323,7 +322,7 @@ function TaskBoard({ emptyMessage }: { emptyMessage: string }) {
 }
 
 function GenesisDashboard({ actor }: { actor: SessionActor }) {
-  return <GenesisWorkspace actor={actor} />;
+  return <DocumentCenter actor={actor} mode="genesis" />;
 }
 
 function SettingsDashboard({ actor }: { actor: SessionActor }) {
