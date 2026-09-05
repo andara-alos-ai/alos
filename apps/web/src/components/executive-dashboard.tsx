@@ -10,6 +10,11 @@ import {
   type DashboardMetric,
   type DashboardModuleKey,
 } from "@/lib/dashboard-modules";
+import {
+  getDashboardProfile,
+  type DashboardPersona,
+  type DashboardProfile,
+} from "@/lib/dashboard-access";
 import { type SessionActor } from "@/lib/governance";
 
 type ExecutiveDashboardProps = {
@@ -18,8 +23,7 @@ type ExecutiveDashboardProps = {
 
 type IconName = "home" | "divisions" | "projects" | "tasks" | "approvals" | "documents" | "reports" | "findings" | "genesis" | "settings" | "governance" | "logout" | "search" | "bell" | "chevron" | DashboardMetric["icon"];
 
-const navItems: Array<{ href: string; key: DashboardModuleKey | "executive"; label: string; icon: IconName }> = [
-  { href: "/", key: "executive", label: "Executive Dashboard", icon: "home" },
+const navItems: Array<{ href: string; key: DashboardModuleKey; label: string; icon: IconName }> = [
   { href: "/divisions", key: "divisions", label: "Divisi", icon: "divisions" },
   { href: "/projects", key: "projects", label: "Proyek", icon: "projects" },
   { href: "/tasks", key: "tasks", label: "Tugas", icon: "tasks" },
@@ -57,10 +61,18 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
   }
 
   const roleLabel = useMemo(() => actor?.roles.join(" · ") || "Sesi ALOS", [actor]);
+  const profile = useMemo(
+    () => (actor ? getDashboardProfile(actor.roles, actor.division_codes) : null),
+    [actor],
+  );
   const page = module ? dashboardModules[module] : null;
-  const pageTitle = page?.title ?? "Selamat datang di ALOS";
-  const pageDescription = page?.description ?? "Satu ruang kerja untuk melihat kondisi perusahaan, keputusan, dan aksi yang telah terdaftar.";
+  const displayRoleLabel = profile?.roleLabel ?? roleLabel;
+  const pageTitle = page?.title ?? profile?.homeTitle ?? "Selamat datang di ALOS";
+  const pageDescription = page?.description ?? profile?.homeDescription ?? "Satu ruang kerja untuk melihat kondisi perusahaan, keputusan, dan aksi yang telah terdaftar.";
   const searchPlaceholder = page?.searchPlaceholder ?? "Cari proyek, dokumen, divisi, atau tanya GENESIS…";
+  const navigation = profile
+    ? [{ href: "/", key: "executive" as const, label: profile.homeLabel, icon: "home" as const }, ...navItems]
+    : navItems;
 
   if (!actor && !loadFailed) {
     return <main className="alos-loading-shell">Memuat ALOS…</main>;
@@ -79,7 +91,7 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
         </Link>
 
         <nav className="alos-nav">
-          {navItems.map((item) => (
+          {navigation.map((item) => (
             <Link className={item.key === (module ?? "executive") ? "active" : ""} href={item.href} key={item.key}>
               <AppIcon name={item.icon} />{item.label}
             </Link>
@@ -87,12 +99,12 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
         </nav>
 
         <div className="alos-genesis-nav">
-          <Link className={module === "genesis" ? "active" : ""} href="/genesis"><AppIcon name="genesis" />GENESIS <AppIcon name="chevron" /></Link>
+          <Link className={module === "genesis" ? "active" : ""} href="/genesis"><AppIcon name="genesis" />GENESIS · AI Executive <AppIcon name="chevron" /></Link>
         </div>
 
         <div className="alos-sidebar-footer">
           <Link className={module === "settings" ? "active" : ""} href="/settings"><AppIcon name="settings" />Pengaturan</Link>
-          <Link href="/governance"><AppIcon name="governance" />Governance &amp; Agent Control</Link>
+          {profile?.governanceVisible ? <Link href="/governance"><AppIcon name="governance" />Governance &amp; Agent Control</Link> : null}
           <button onClick={() => void logout()} type="button"><AppIcon name="logout" />Keluar</button>
           <p>Building Better Living<br /><em>for a Brighter Tomorrow</em></p>
         </div>
@@ -108,47 +120,155 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
           <div className="alos-profile">
             <div className="alos-date"><strong>{formatCurrentDate()}</strong><span>{formatCurrentTime()}</span></div>
             <button aria-label="Notifikasi belum tersedia" className="alos-notifications" disabled type="button"><AppIcon name="bell" /><i /></button>
-            <div className="alos-avatar" aria-hidden="true">{roleInitial(roleLabel)}</div>
-            <div className="alos-profile-copy"><strong>ALOS User</strong><span>{roleLabel}</span></div>
+            <div className="alos-avatar" aria-hidden="true">{roleInitial(displayRoleLabel)}</div>
+            <div className="alos-profile-copy"><strong>{profile?.homeLabel ?? "ALOS User"}</strong><span>{displayRoleLabel}</span></div>
             <AppIcon name="chevron" />
           </div>
         </header>
 
         <section className="alos-hero" aria-label="ALOS The Park Town Sukoharjo">
           <div className="alos-hero-copy">
-            {module && <p className="alos-kicker">ALOS / {module.toUpperCase()}</p>}
+            <p className="alos-kicker">{module ? `ALOS / ${module.toUpperCase()}` : profile?.homeEyebrow}</p>
             <h1>{pageTitle}</h1>
             <p>{pageDescription}</p>
             {!module && <><span className="alos-hero-rule" /><em>“Keputusan terbaik dimulai dari informasi yang terstruktur dan dapat dipercaya.”</em></>}
           </div>
         </section>
 
-        {module ? <ModuleDashboard actor={actor!} module={module} /> : <ExecutiveDashboardContent />}
+        {module ? <ModuleDashboard actor={actor!} module={module} /> : <ExecutiveDashboardContent profile={profile!} />}
       </section>
     </main>
   );
 }
 
-function ExecutiveDashboardContent() {
-  const metrics: DashboardMetric[] = [
-    { label: "Proyek aktif", hint: "Belum ada proyek terhubung", icon: "folder", tone: "success" },
-    { label: "Rata-rata progres", hint: "Menunggu pembaruan proyek", icon: "chart", tone: "warning" },
-    { label: "Tugas overdue", hint: "Belum ada tugas terdaftar", icon: "alert", tone: "danger" },
-    { label: "Approval pending", hint: "Belum ada permintaan", icon: "file", tone: "info" },
-  ];
+function ExecutiveDashboardContent({ profile }: { profile: DashboardProfile }) {
+  const content = homeDashboardContent(profile.persona);
   return (
-    <section className="alos-content" aria-label="Executive Dashboard">
-      <MetricGrid metrics={metrics} />
+    <section className="alos-content" aria-label={profile.homeLabel}>
+      <DashboardScope profile={profile} />
+      <MetricGrid metrics={content.metrics} />
       <div className="alos-dashboard-grid">
-        <DataPanel eyebrow="KINERJA PERUSAHAAN" title="Tren kinerja" type="chart" />
-        <DataPanel eyebrow="DISTRIBUSI PROYEK" title="Kesehatan proyek" type="donut" />
+        <DataPanel eyebrow={content.primaryEyebrow} title={content.primaryTitle} type="chart" />
+        <DataPanel eyebrow={content.secondaryEyebrow} title={content.secondaryTitle} type="donut" />
       </div>
       <div className="alos-dashboard-grid alos-lower-grid">
-        <DataPanel eyebrow="RINGKASAN PER DIVISI" title="Kesehatan organisasi" type="division-grid" />
-        <DataPanel eyebrow="MEMERLUKAN PERHATIAN" title="Proyek, isu, dan approval" type="list" />
+        <DataPanel eyebrow={content.lowerPrimaryEyebrow} title={content.lowerPrimaryTitle} type="division-grid" />
+        <DataPanel eyebrow={content.lowerSecondaryEyebrow} title={content.lowerSecondaryTitle} type="list" />
       </div>
     </section>
   );
+}
+
+function DashboardScope({ profile }: { profile: DashboardProfile }) {
+  return (
+    <article className="alos-role-scope">
+      <div>
+        <p className="alos-kicker">RUANG KERJA AKTIF</p>
+        <h2>{profile.scopeTitle}</h2>
+        <p>{profile.scopeDescription}</p>
+      </div>
+      <dl>
+        <div><dt>Peran</dt><dd>{profile.roleLabel}</dd></div>
+        <div><dt>Lingkup divisi</dt><dd>{profile.divisionLabel ?? "Lintas fungsi"}</dd></div>
+      </dl>
+    </article>
+  );
+}
+
+function homeDashboardContent(persona: DashboardPersona) {
+  const shared: Record<DashboardPersona, {
+    lowerPrimaryEyebrow: string;
+    lowerPrimaryTitle: string;
+    lowerSecondaryEyebrow: string;
+    lowerSecondaryTitle: string;
+    metrics: DashboardMetric[];
+    primaryEyebrow: string;
+    primaryTitle: string;
+    secondaryEyebrow: string;
+    secondaryTitle: string;
+  }> = {
+    director: {
+      metrics: [
+        { label: "Proyek aktif", hint: "Belum ada proyek terhubung", icon: "folder", tone: "success" },
+        { label: "Rata-rata progres", hint: "Menunggu pembaruan proyek", icon: "chart", tone: "warning" },
+        { label: "Tugas overdue", hint: "Belum ada tugas terdaftar", icon: "alert", tone: "danger" },
+        { label: "Approval pending", hint: "Belum ada permintaan", icon: "file", tone: "info" },
+      ],
+      primaryEyebrow: "KINERJA PERUSAHAAN",
+      primaryTitle: "Tren kinerja",
+      secondaryEyebrow: "DISTRIBUSI PROYEK",
+      secondaryTitle: "Kesehatan proyek",
+      lowerPrimaryEyebrow: "RINGKASAN PER DIVISI",
+      lowerPrimaryTitle: "Kesehatan organisasi",
+      lowerSecondaryEyebrow: "MEMERLUKAN PERHATIAN",
+      lowerSecondaryTitle: "Proyek, isu, dan approval",
+    },
+    division_lead: {
+      metrics: [
+        { label: "Prioritas divisi", hint: "Belum ada prioritas terdaftar", icon: "folder", tone: "success" },
+        { label: "Progres kerja", hint: "Menunggu pembaruan tim", icon: "chart", tone: "warning" },
+        { label: "Tenggat perhatian", hint: "Belum ada tenggat terdaftar", icon: "alert", tone: "danger" },
+        { label: "Menunggu keputusan", hint: "Belum ada approval", icon: "file", tone: "info" },
+      ],
+      primaryEyebrow: "KINERJA DIVISI",
+      primaryTitle: "Tren prioritas dan progres",
+      secondaryEyebrow: "KESEHATAN KERJA",
+      secondaryTitle: "Status pekerjaan divisi",
+      lowerPrimaryEyebrow: "TIM & EVIDENCE",
+      lowerPrimaryTitle: "Kesiapan proses divisi",
+      lowerSecondaryEyebrow: "PERLU TINDAK LANJUT",
+      lowerSecondaryTitle: "Tugas, risiko, dan approval",
+    },
+    member: {
+      metrics: [
+        { label: "Tugas saya", hint: "Belum ada tugas ditugaskan", icon: "check", tone: "success" },
+        { label: "Jatuh tempo", hint: "Belum ada tenggat", icon: "calendar", tone: "warning" },
+        { label: "Perlu perhatian", hint: "Belum ada isu", icon: "alert", tone: "danger" },
+        { label: "Menunggu review", hint: "Belum ada item", icon: "file", tone: "info" },
+      ],
+      primaryEyebrow: "PEKERJAAN SAYA",
+      primaryTitle: "Prioritas dan penyelesaian",
+      secondaryEyebrow: "STATUS TUGAS",
+      secondaryTitle: "Kesehatan pekerjaan saya",
+      lowerPrimaryEyebrow: "DOKUMEN & EVIDENCE",
+      lowerPrimaryTitle: "Sumber yang dapat diakses",
+      lowerSecondaryEyebrow: "BUTUH PERHATIAN",
+      lowerSecondaryTitle: "Tugas dan approval terkait",
+    },
+    it_lead: {
+      metrics: [
+        { label: "Agent terdaftar", hint: "Menunggu release yang disetujui", icon: "folder", tone: "success" },
+        { label: "Sumber terverifikasi", hint: "Belum ada sumber baru", icon: "check", tone: "info" },
+        { label: "Kontrol menunggu", hint: "Belum ada kontrol baru", icon: "alert", tone: "warning" },
+        { label: "UAT & release", hint: "Belum ada aktivitas baru", icon: "file", tone: "violet" },
+      ],
+      primaryEyebrow: "OPERASI SISTEM",
+      primaryTitle: "Kesiapan runtime dan sumber",
+      secondaryEyebrow: "GENESIS & AGENT",
+      secondaryTitle: "Status kontrak dan release",
+      lowerPrimaryEyebrow: "KONTROL TEKNIS",
+      lowerPrimaryTitle: "Guardrail dan evidence",
+      lowerSecondaryEyebrow: "TINDAK LANJUT",
+      lowerSecondaryTitle: "UAT, review, dan release",
+    },
+    deputy_it: {
+      metrics: [
+        { label: "Kontrol untuk review", hint: "Belum ada kontrol menunggu", icon: "shield", tone: "warning" },
+        { label: "Evidence terverifikasi", hint: "Belum ada evidence baru", icon: "check", tone: "success" },
+        { label: "Temuan guardrail", hint: "Belum ada temuan", icon: "alert", tone: "danger" },
+        { label: "Audit tersedia", hint: "Menunggu aktivitas", icon: "file", tone: "info" },
+      ],
+      primaryEyebrow: "KONTROL & EVIDENCE",
+      primaryTitle: "Kesiapan kontrol operasi",
+      secondaryEyebrow: "HASIL UJI",
+      secondaryTitle: "Ringkasan UAT dan guardrail",
+      lowerPrimaryEyebrow: "AUDIT LINTAS FUNGSI",
+      lowerPrimaryTitle: "Status pemeriksaan",
+      lowerSecondaryEyebrow: "MEMERLUKAN REVIEW",
+      lowerSecondaryTitle: "Approval dan pengecualian",
+    },
+  };
+  return shared[persona];
 }
 
 function ModuleDashboard({ actor, module }: { actor: SessionActor; module: DashboardModuleKey }) {
@@ -195,21 +315,22 @@ function TaskBoard({ emptyMessage }: { emptyMessage: string }) {
 }
 
 function GenesisDashboard({ actor }: { actor: SessionActor }) {
-  const roleLabel = actor.roles.join(" · ") || "Sesi ALOS";
+  const profile = getDashboardProfile(actor.roles, actor.division_codes);
+  const roleLabel = profile.roleLabel;
   return (
     <section className="alos-content alos-genesis-content" aria-label="GENESIS">
       <div className="alos-genesis-heading"><div className="alos-genesis-star"><AppIcon name="genesis" /></div><div><h2>GENESIS</h2><p>Your AI Executive Assistant</p></div><span>Enterprise Mode <AppIcon name="chevron" /></span></div>
       <div className="alos-genesis-layout">
         <article className="alos-panel alos-conversation-panel">
-          <div className="alos-conversation-empty"><div className="alos-avatar alos-actor-avatar">{roleInitial(roleLabel)}</div><p>Mulai percakapan dengan kebutuhan bisnis, analisis, atau rancangan Agent yang ingin Anda siapkan.</p></div>
-          <div className="alos-genesis-response"><div className="alos-genesis-star"><AppIcon name="genesis" /></div><p>GENESIS akan menghasilkan DRAFT yang perlu diperiksa dan disetujui manusia. Tidak ada agen, tool, atau perubahan sistem yang dijalankan langsung dari percakapan ini.</p></div>
+          <div className="alos-conversation-empty"><div className="alos-avatar alos-actor-avatar">{roleInitial(roleLabel)}</div><p>Mulai percakapan dengan kebutuhan bisnis, analisis, atau rancangan Agent yang relevan untuk {profile.divisionLabel ?? "organisasi"}.</p></div>
+          <div className="alos-genesis-response"><div className="alos-genesis-star"><AppIcon name="genesis" /></div><p>GENESIS adalah AI Executive Operating Layer. Ia mengoordinasikan agent hanya dalam batas evidence, kontrak, izin, dan review manusia yang telah disetujui.</p></div>
           <label className="alos-genesis-input"><span>Tulis kebutuhan Anda untuk GENESIS…</span><button disabled type="button" aria-label="Kirim ke Genesis"><AppIcon name="chevron" /></button></label>
-          <small>Data, tool, dan akses hanya akan dipakai setelah kontrak, izin, dan review yang sesuai tersedia.</small>
+          <small>Data, tool, dan akses hanya akan dipakai setelah kontrak, izin, dan review yang sesuai tersedia. GENESIS bukan akun manusia dan tidak dapat menyetujui pekerjaannya sendiri.</small>
         </article>
         <aside className="alos-genesis-side">
           <DataPanel eyebrow="PERCAKAPAN TERBARU" title="Belum ada percakapan" type="list" />
-          <DataPanel eyebrow="AGEN AKTIF" title="Belum ada Agent aktif" type="list" />
-          <article className="alos-panel alos-quick-prompt"><PanelTitle eyebrow="QUICK PROMPTS" title="Mulai dengan aman" /><Link className="alos-pilot-link" href="/h5">Buka Source Vault &amp; H5 Pilot <AppIcon name="chevron" /></Link><button disabled type="button">Buat DRAFT kebutuhan Agent <AppIcon name="chevron" /></button></article>
+          <DataPanel eyebrow="AGEN DIVISI" title="Menunggu Agent disetujui" type="list" />
+          <article className="alos-panel alos-quick-prompt"><PanelTitle eyebrow="QUICK PROMPTS" title="Mulai dengan aman" />{profile.governanceVisible ? <Link className="alos-pilot-link" href="/governance">Buka Governance &amp; Agent Control <AppIcon name="chevron" /></Link> : <p className="alos-quick-prompt-note">Agent dan sumber akan muncul di sini sesuai akses divisi Anda.</p>}<button disabled type="button">Buat DRAFT kebutuhan Agent <AppIcon name="chevron" /></button></article>
         </aside>
       </div>
     </section>
@@ -217,7 +338,7 @@ function GenesisDashboard({ actor }: { actor: SessionActor }) {
 }
 
 function SettingsDashboard({ actor }: { actor: SessionActor }) {
-  const roleLabel = actor.roles.join(" · ") || "Sesi ALOS";
+  const roleLabel = getDashboardProfile(actor.roles, actor.division_codes).roleLabel;
   return (
     <section className="alos-content" aria-label="Pengaturan ALOS">
       <div className="alos-section-heading"><div><p className="alos-kicker">ALOS / ADMINISTRATION</p><h2>Settings &amp; Administration</h2></div><span>Hak akses aktif</span></div>
