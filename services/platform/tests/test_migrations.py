@@ -16,4 +16,5 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "007_h5_tool_permission_approvals.sql",
         "008_h6_staging_authentication.sql",
         "009_h5_source_vault_policy.sql",
+        "010_document_center.sql",
     ]

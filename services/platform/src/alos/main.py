@@ -19,6 +19,18 @@ from alos.agents.registry import (
 from alos.agents.validation_catalog import validation_agent_requests
 from alos.audit.reader import AuditEventRecord, AuditReader
 from alos.config import get_settings
+from alos.documents.center import (
+    ChecklistCompletionRequest,
+    DocumentCenterError,
+    DocumentCenterRepository,
+    DocumentConflictError,
+    DocumentDetail,
+    DocumentDraftRequest,
+    DocumentNotFoundError,
+    DocumentRecord,
+    DocumentReviewDecisionRequest,
+    GenesisDocumentDraftRequest,
+)
 from alos.genesis.history import (
     GenesisArtifactRecord,
     GenesisConversationRecord,
@@ -248,6 +260,10 @@ def get_genesis_history_repository() -> GenesisHistoryRepository:
     return GenesisHistoryRepository(get_settings().database_url)
 
 
+def get_document_center_repository() -> DocumentCenterRepository:
+    return DocumentCenterRepository(get_settings().database_url)
+
+
 def get_tool_registry_repository() -> ToolRegistryRepository:
     return ToolRegistryRepository(get_settings().database_url)
 
@@ -291,6 +307,29 @@ def require_h5_control_reader(actor: ActorContext) -> None:
         )
 
 
+def require_document_checker(actor: ActorContext) -> None:
+    if not {
+        HumanRole.DIRECTOR,
+        HumanRole.DIVISION_OWNER,
+        HumanRole.IT_LEAD,
+        HumanRole.TECHNICAL_REVIEWER,
+        HumanRole.BUSINESS_REVIEWER,
+        HumanRole.QA_SECURITY,
+    }.intersection(actor.roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="document checker role required",
+        )
+
+
+def require_document_approver(actor: ActorContext) -> None:
+    if not {HumanRole.DIRECTOR, HumanRole.DIVISION_OWNER}.intersection(actor.roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="document approver role required",
+        )
+
+
 def require_workspace_access(actor: ActorContext, workspace_id: UUID) -> None:
     if workspace_id not in actor.workspace_ids:
         raise HTTPException(
@@ -321,6 +360,14 @@ def source_http_error(error: SourceRegistryError) -> HTTPException:
 
 
 def genesis_http_error(error: GenesisHistoryError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+def document_http_error(error: DocumentCenterError) -> HTTPException:
+    if isinstance(error, DocumentNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+    if isinstance(error, DocumentConflictError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
 
@@ -613,6 +660,171 @@ def list_genesis_artifacts(
         )
     except GenesisHistoryError as error:
         raise genesis_http_error(error) from error
+
+
+@app.post("/api/v1/documents/drafts", response_model=DocumentRecord)
+def create_document_draft(
+    request: DocumentDraftRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> DocumentRecord:
+    """Create a canonical human document DRAFT; no publication occurs here."""
+    require_workspace_access(actor, request.workspace_id)
+    try:
+        return get_document_center_repository().create_draft(
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
+
+
+@app.post("/api/v1/genesis/document-drafts", response_model=DocumentRecord)
+def create_genesis_document_draft(
+    request: GenesisDocumentDraftRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> DocumentRecord:
+    """Record a human requirement, then let Genesis prepare only a document skeleton DRAFT."""
+    require_workspace_access(actor, request.workspace_id)
+    correlation_id = uuid4()
+    history = get_genesis_history_repository()
+    try:
+        conversation = history.create_conversation(
+            GenesisConversationRequest(workspace_id=request.workspace_id),
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=correlation_id,
+        )
+        history.record_requirement(
+            conversation.conversation_id,
+            request.requirement,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=correlation_id,
+        )
+        return get_document_center_repository().create_genesis_draft(
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=correlation_id,
+            conversation_id=conversation.conversation_id,
+        )
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
+
+
+@app.get("/api/v1/documents", response_model=list[DocumentRecord])
+def list_documents(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> list[DocumentRecord]:
+    require_workspace_access(actor, workspace_id)
+    try:
+        return get_document_center_repository().list_documents(
+            workspace_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
+
+
+@app.get("/api/v1/documents/{document_id}", response_model=DocumentDetail)
+def get_document(
+    document_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> DocumentDetail:
+    try:
+        return get_document_center_repository().get_document(
+            document_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
+
+
+@app.post(
+    "/api/v1/documents/{document_id}/checklist/{check_key}/complete",
+    response_model=DocumentDetail,
+)
+def complete_document_checklist_item(
+    document_id: UUID,
+    check_key: str,
+    request: ChecklistCompletionRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> DocumentDetail:
+    require_document_checker(actor)
+    try:
+        return get_document_center_repository().complete_checklist_item(
+            document_id,
+            check_key,
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
+
+
+@app.post("/api/v1/documents/{document_id}/submit-review", response_model=DocumentDetail)
+def submit_document_for_review(
+    document_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> DocumentDetail:
+    try:
+        return get_document_center_repository().submit_for_review(
+            document_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
+
+
+@app.post("/api/v1/documents/{document_id}/approve", response_model=DocumentDetail)
+def approve_document(
+    document_id: UUID,
+    request: DocumentReviewDecisionRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> DocumentDetail:
+    require_document_approver(actor)
+    try:
+        return get_document_center_repository().decide_review(
+            document_id,
+            request,
+            approved=True,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
+
+
+@app.post("/api/v1/documents/{document_id}/reject", response_model=DocumentDetail)
+def reject_document(
+    document_id: UUID,
+    request: DocumentReviewDecisionRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> DocumentDetail:
+    require_document_approver(actor)
+    try:
+        return get_document_center_repository().decide_review(
+            document_id,
+            request,
+            approved=False,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
 
 
 @app.post("/api/v1/tools", response_model=ToolDefinitionRecord)
