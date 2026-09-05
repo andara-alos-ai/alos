@@ -1,5 +1,5 @@
 from hashlib import sha256
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
@@ -169,6 +169,35 @@ class H5PilotRequest(BaseModel):
     workspace_id: UUID
 
 
+H5_VALIDATION_AGENT_KEYS = (
+    "DAILY_BRIEF",
+    "EVIDENCE_CHECKER",
+    "PERMIT_OVERDUE_MONITOR",
+)
+
+
+class H5PermissionControlStatus(BaseModel):
+    agent_key: str
+    semantic_version: str | None
+    permission_policy: PermissionPolicyRecord | None
+
+
+class H5ControlSummary(BaseModel):
+    source_tool: ToolDefinitionRecord | None
+    permissions: list[H5PermissionControlStatus]
+    ready_for_uat: bool
+
+
+class H5ValidationRunRequest(BaseModel):
+    """A bounded source-enabled fixture run; only the shared Runtime invokes a model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    agent_key: Literal["DAILY_BRIEF", "EVIDENCE_CHECKER", "PERMIT_OVERDUE_MONITOR"]
+    input: dict[str, object] = Field(default_factory=dict)
+
+
 def get_agent_registry_repository() -> AgentRegistryRepository:
     return AgentRegistryRepository(get_settings().database_url)
 
@@ -249,6 +278,16 @@ def require_h5_pilot_editor(actor: ActorContext) -> None:
     if HumanRole.IT_LEAD not in actor.roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="IT Lead H5 pilot authority required"
+        )
+
+
+def require_h5_control_reader(actor: ActorContext) -> None:
+    """Approval evidence is visible to its makers and independent reviewers only."""
+    if not {HumanRole.DIRECTOR, HumanRole.IT_LEAD, HumanRole.QA_SECURITY}.intersection(
+        actor.roles
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="H5 control reader role required"
         )
 
 
@@ -838,6 +877,119 @@ def get_agent(
         return record
     except AgentRegistryError as error:
         raise registry_http_error(error) from error
+
+
+def _h5_control_summary(organization_id: UUID, workspace_id: UUID) -> H5ControlSummary:
+    """Describe only the current H5 control chain, never a secret or contract body."""
+    tool = next(
+        (
+            record
+            for record in get_tool_registry_repository().list_tools(organization_id)
+            if record.tool_key == "SOURCE_REGISTRY_SEARCH"
+        ),
+        None,
+    )
+    agents = get_agent_registry_repository()
+    permissions = get_permission_registry_repository()
+    controls: list[H5PermissionControlStatus] = []
+    for agent_key in H5_VALIDATION_AGENT_KEYS:
+        try:
+            agent = agents.get_agent(organization_id, agent_key)
+        except AgentNotFoundError:
+            controls.append(
+                H5PermissionControlStatus(
+                    agent_key=agent_key, semantic_version=None, permission_policy=None
+                )
+            )
+            continue
+        if agent.workspace_id != workspace_id:
+            controls.append(
+                H5PermissionControlStatus(
+                    agent_key=agent_key, semantic_version=None, permission_policy=None
+                )
+            )
+            continue
+        latest = agent.versions[0]
+        policy = next(
+            (
+                record
+                for record in permissions.list_policies(organization_id, agent_key=agent_key)
+                if record.agent_version_id == latest.agent_version_id
+                and record.permission_key == "SOURCE_READ_INTERNAL"
+            ),
+            None,
+        )
+        controls.append(
+            H5PermissionControlStatus(
+                agent_key=agent_key,
+                semantic_version=latest.semantic_version,
+                permission_policy=policy,
+            )
+        )
+    ready_for_uat = (
+        tool is not None
+        and tool.lifecycle_status == "APPROVED"
+        and len(controls) == len(H5_VALIDATION_AGENT_KEYS)
+        and all(
+            control.permission_policy is not None
+            and control.permission_policy.lifecycle_status == "APPROVED"
+            and control.semantic_version is not None
+            for control in controls
+        )
+    )
+    return H5ControlSummary(
+        source_tool=tool,
+        permissions=controls,
+        ready_for_uat=ready_for_uat,
+    )
+
+
+@app.get("/api/v1/h5/validation-controls", response_model=H5ControlSummary)
+def get_h5_validation_controls(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> H5ControlSummary:
+    """Show draft/approved H5 controls to the maker and independent reviewers."""
+    require_h5_control_reader(actor)
+    require_workspace_access(actor, workspace_id)
+    return _h5_control_summary(actor.organization_id, workspace_id)
+
+
+@app.post("/api/v1/h5/validation-runs", response_model=AgentRunResult)
+def run_h5_validation_fixture(
+    request: H5ValidationRunRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> AgentRunResult:
+    """Run one approved, source-enabled H5 fixture through the shared Runtime."""
+    require_h5_pilot_editor(actor)
+    require_workspace_access(actor, request.workspace_id)
+    summary = _h5_control_summary(actor.organization_id, request.workspace_id)
+    if not summary.ready_for_uat:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="H5 Tool and all current Permission Policies require independent approval",
+        )
+    sources = get_source_registry_repository().list_source_versions(
+        request.workspace_id, organization_id=actor.organization_id
+    )
+    if not any(source.status == "VERIFIED" for source in sources):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="at least one verified source is required before an H5 validation run",
+        )
+    try:
+        return get_agent_runtime().execute(
+            request.agent_key,
+            AgentRunRequest(
+                workspace_id=request.workspace_id,
+                input=request.input,
+                requested_tool_keys=["SOURCE_REGISTRY_SEARCH"],
+            ),
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except AgentRuntimeError as error:
+        raise runtime_http_error(error) from error
 
 
 @app.post("/api/v1/h5/validation-agents/drafts")

@@ -32,11 +32,50 @@ type SourceVersion = {
   source_vault_policy_id: string | null;
 };
 
+type ToolControl = {
+  tool_definition_id: string;
+  tool_key: string;
+  lifecycle_status: "DRAFT" | "IN_REVIEW" | "APPROVED" | "RETIRED";
+};
+
+type PermissionControl = {
+  permission_policy_id: string;
+  permission_key: string;
+  lifecycle_status: "DRAFT" | "IN_REVIEW" | "APPROVED" | "REVOKED";
+};
+
+type H5ControlSummary = {
+  source_tool: ToolControl | null;
+  permissions: Array<{
+    agent_key: string;
+    semantic_version: string | null;
+    permission_policy: PermissionControl | null;
+  }>;
+  ready_for_uat: boolean;
+};
+
+type H5RunResult = {
+  agent_run_id: string;
+  agent_key: string;
+  semantic_version: string;
+  status: string;
+  correlation_id: string;
+  output: Record<string, unknown> | null;
+  provider: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  latency_milliseconds: number | null;
+  estimated_cost_usd: string | null;
+  error_code: string | null;
+};
+
 type H5Data = {
   actor: SessionActor;
   workspaces: Workspace[];
   vault: SourceVault | null;
   sources: SourceVersion[];
+  controls: H5ControlSummary | null;
 };
 
 const permittedRoot = "https://drive.google.com/drive/folders/1D66GYJVl7WZlefS8e8FO9lkL034CA9wS";
@@ -77,14 +116,18 @@ export function H5PilotConsole() {
     locator: "",
     content: "",
   });
+  const [selectedAgent, setSelectedAgent] = useState<"DAILY_BRIEF" | "EVIDENCE_CHECKER" | "PERMIT_OVERDUE_MONITOR">("DAILY_BRIEF");
+  const [fixtureInput, setFixtureInput] = useState('{\n  "as_of_date": "2026-09-05",\n  "query": "operasional"\n}');
+  const [runResult, setRunResult] = useState<H5RunResult | null>(null);
 
   const loadWorkspace = useCallback(async (selectedWorkspaceId: string, foundation?: Pick<H5Data, "actor" | "workspaces">) => {
     const base = foundation ?? await loadFoundation();
-    const [vault, sources] = await Promise.all([
+    const [vault, sources, controls] = await Promise.all([
       loadVault(selectedWorkspaceId),
       api<SourceVersion[]>(`/api/v1/workspaces/${selectedWorkspaceId}/sources`),
+      loadControls(selectedWorkspaceId),
     ]);
-    setData({ ...base, vault, sources });
+    setData({ ...base, vault, sources, controls });
     if (vault) {
       setVaultForm({
         allowedRootUrl: vault.allowed_root_url,
@@ -119,6 +162,10 @@ export function H5PilotConsole() {
   }, [loadWorkspace, router]);
 
   const canOperatePilot = data?.actor.roles.includes("IT_LEAD") ?? false;
+  const canApproveControls = data?.actor.roles.some((role) => role === "DIRECTOR" || role === "QA_SECURITY") ?? false;
+  const canRunFixture = canOperatePilot
+    && Boolean(data?.controls?.ready_for_uat)
+    && Boolean(data?.sources.some((source) => source.status === "VERIFIED"));
 
   async function reload() {
     if (!data || !workspaceId) return;
@@ -204,6 +251,38 @@ export function H5PilotConsole() {
     });
   }
 
+  async function approveTool() {
+    await mutate("Tool read-only telah disetujui dan tercatat pada audit trail.", async () => {
+      await api<ToolControl>("/api/v1/tools/SOURCE_REGISTRY_SEARCH/approve", { method: "POST" });
+    });
+  }
+
+  async function approvePermission(permissionPolicyId: string, agentKey: string) {
+    await mutate(`Permission read-only ${agentKey} telah disetujui dan tercatat pada audit trail.`, async () => {
+      await api<PermissionControl>(`/api/v1/permission-policies/${permissionPolicyId}/approve`, { method: "POST" });
+    });
+  }
+
+  async function runFixture() {
+    let input: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(fixtureInput) as unknown;
+      if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("invalid input");
+      input = parsed as Record<string, unknown>;
+    } catch {
+      setError("Input fixture harus berupa JSON object yang valid.");
+      return;
+    }
+    await mutate("Fixture H5 selesai; hasil, correlation ID, usage, dan audit telah disimpan.", async () => {
+      const result = await api<H5RunResult>("/api/v1/h5/validation-runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace_id: workspaceId, agent_key: selectedAgent, input }),
+      });
+      setRunResult(result);
+    });
+  }
+
   async function mutate(success: string, action: () => Promise<void>) {
     setSaving(true);
     setError("");
@@ -216,7 +295,7 @@ export function H5PilotConsole() {
       if (mutationError instanceof ApiError && mutationError.status === 401) {
         router.replace("/login");
       } else if (mutationError instanceof ApiError && mutationError.status === 403) {
-        setError("Aksi H5 ini hanya dapat dilakukan oleh IT Lead pada workspace aktif.");
+        setError("Peran Anda tidak memiliki izin untuk aksi H5 ini pada workspace aktif.");
       } else if (mutationError instanceof ApiError && mutationError.detail) {
         setError(mutationError.detail);
       } else {
@@ -262,8 +341,8 @@ export function H5PilotConsole() {
       <section className="h5-step-grid" aria-label="Tahapan H5">
         <StatusCard label="1. Source Vault" ready={Boolean(data.vault)} value={data.vault ? "Configured" : "Belum diatur"} />
         <StatusCard label="2. Evidence" ready={data.sources.some((source) => source.status === "VERIFIED")} value={`${data.sources.filter((source) => source.status === "VERIFIED").length} terverifikasi`} />
-        <StatusCard label="3. Agent DRAFT" ready={false} value="Siapkan dari catalog" />
-        <StatusCard label="4. UAT & review" ready={false} value="Lanjutkan di H4 Release" />
+        <StatusCard label="3. Agent & control" ready={Boolean(data.controls?.source_tool)} value={data.controls?.ready_for_uat ? "Siap UAT" : "Menunggu approval"} />
+        <StatusCard label="4. UAT & review" ready={canRunFixture} value={canRunFixture ? "Fixture dapat dijalankan" : "Menunggu control"} />
       </section>
 
       <section className="dashboard-grid h5-grid">
@@ -285,6 +364,14 @@ export function H5PilotConsole() {
             <li><strong>2. Tool &amp; permissions</strong><span>Hanya menyiapkan Tool dan Permission Policy DRAFT. Persetujuan independen tetap wajib.</span><button disabled={!canOperatePilot || saving} onClick={() => void createDrafts("/api/v1/h5/validation-controls/drafts", "Control DRAFT telah disiapkan. Setujui secara independen sebelum UAT.")} type="button">Siapkan Control DRAFT</button></li>
             <li><strong>3. UAT &amp; GO / HOLD / NO-GO</strong><span>Jalankan fixture, review, dan keputusan manusia melalui lifecycle release.</span><Link className="secondary-button button-link" href="/releases">Buka H4 Release Governance</Link></li>
           </ol>
+          <div className="h5-approval-card">
+            <div><p className="eyebrow">INDEPENDENT APPROVAL</p><h3>Tool &amp; permission control</h3></div>
+            {!data.controls ? <p className="empty-state">Masuk sebagai IT Lead, Director, atau QA Security untuk melihat control H5.</p> : <>
+              <div className="h5-approval-row"><span><strong>Tool: SOURCE_REGISTRY_SEARCH</strong><small>{data.controls.source_tool?.lifecycle_status ?? "Belum dibuat"} · hanya read-only</small></span>{data.controls.source_tool?.lifecycle_status === "APPROVED" ? <b className="permission-ok">APPROVED</b> : <button disabled={!canApproveControls || saving || data.controls.source_tool?.lifecycle_status !== "DRAFT"} onClick={() => void approveTool()} type="button">Approve Tool</button>}</div>
+              {data.controls.permissions.map((control) => <div className="h5-approval-row" key={control.agent_key}><span><strong>{control.agent_key}: SOURCE_READ_INTERNAL</strong><small>{control.semantic_version ? `v${control.semantic_version}` : "Agent belum tersedia"} · {control.permission_policy?.lifecycle_status ?? "Belum dibuat"}</small></span>{control.permission_policy?.lifecycle_status === "APPROVED" ? <b className="permission-ok">APPROVED</b> : <button disabled={!canApproveControls || saving || control.permission_policy?.lifecycle_status !== "DRAFT"} onClick={() => control.permission_policy && void approvePermission(control.permission_policy.permission_policy_id, control.agent_key)} type="button">Approve Permission</button>}</div>)}
+              <p className="safe-note">Hanya DIRECTOR atau QA_SECURITY yang dapat menyetujui. Pembuat control tidak dapat menyetujui control buatannya sendiri.</p>
+            </>}
+          </div>
         </article>
       </section>
 
@@ -313,6 +400,23 @@ export function H5PilotConsole() {
           </div>}
         </article>
       </section>
+
+      <section className="dashboard-grid h5-grid lower-grid">
+        <article className="panel h5-uat-panel">
+          <p className="eyebrow">H5 FIXTURE UAT</p>
+          <h2>Jalankan satu Agent DRAFT secara terbatas</h2>
+          <p className="muted">Memakai shared Runtime, satu Tool read-only, evidence yang telah VERIFIED, dan limit biaya workspace yang berlaku. Tidak ada perubahan pada dokumen atau Drive.</p>
+          <label className="h5-field">Agent<select disabled={!canOperatePilot || saving || !canRunFixture} onChange={(event) => { const agentKey = event.target.value as typeof selectedAgent; setSelectedAgent(agentKey); setFixtureInput(defaultFixtureInput(agentKey)); }} value={selectedAgent}><option value="DAILY_BRIEF">Daily Brief Agent</option><option value="EVIDENCE_CHECKER">Evidence Checker Agent</option><option value="PERMIT_OVERDUE_MONITOR">Permit/Overdue Monitor Agent</option></select></label>
+          <label className="h5-field">Input fixture (JSON)<textarea disabled={!canOperatePilot || saving || !canRunFixture} onChange={(event) => setFixtureInput(event.target.value)} value={fixtureInput} /></label>
+          <button disabled={!canOperatePilot || saving || !canRunFixture} onClick={() => void runFixture()} type="button">{saving ? "Menjalankan…" : "Jalankan Fixture UAT"}</button>
+          {!canRunFixture ? <p className="safe-note">Butuh minimal satu source VERIFIED serta Tool dan tiga Permission Policy APPROVED oleh pihak independen.</p> : null}
+        </article>
+        <article className="panel h5-run-result">
+          <p className="eyebrow">UAT RESULT</p>
+          <h2>Correlation &amp; evidence</h2>
+          {!runResult ? <p className="empty-state">Belum ada fixture run H5 pada sesi ini.</p> : <div className="h5-result-body"><div><span>Status</span><strong>{runResult.status}</strong></div><div><span>Correlation ID</span><code>{runResult.correlation_id}</code></div><div><span>Provider / model</span><strong>{runResult.provider ?? "—"} / {runResult.model ?? "—"}</strong></div><div><span>Token / latency</span><strong>{runResult.input_tokens ?? "—"} input · {runResult.output_tokens ?? "—"} output · {runResult.latency_milliseconds ?? "—"} ms</strong></div>{runResult.output ? <pre>{JSON.stringify(runResult.output, null, 2)}</pre> : <p className="banner-error">{runResult.error_code ?? "Run tidak menghasilkan output."}</p>}</div>}
+        </article>
+      </section>
     </main>
   );
 }
@@ -332,6 +436,25 @@ async function loadVault(workspaceId: string): Promise<SourceVault | null> {
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   }
+}
+
+async function loadControls(workspaceId: string): Promise<H5ControlSummary | null> {
+  try {
+    return await api<H5ControlSummary>(`/api/v1/h5/validation-controls?workspace_id=${workspaceId}`);
+  } catch (error: unknown) {
+    if (error instanceof ApiError && error.status === 403) return null;
+    throw error;
+  }
+}
+
+function defaultFixtureInput(agentKey: "DAILY_BRIEF" | "EVIDENCE_CHECKER" | "PERMIT_OVERDUE_MONITOR"): string {
+  if (agentKey === "EVIDENCE_CHECKER") {
+    return '{\n  "claim": "Tulis klaim yang akan diperiksa terhadap evidence terverifikasi."\n}';
+  }
+  if (agentKey === "PERMIT_OVERDUE_MONITOR") {
+    return '{\n  "as_of_date": "2026-09-05",\n  "query": "izin atau tenggat"\n}';
+  }
+  return '{\n  "as_of_date": "2026-09-05",\n  "query": "operasional"\n}';
 }
 
 function StatusCard({ label, ready, value }: { label: string; ready: boolean; value: string }) {
