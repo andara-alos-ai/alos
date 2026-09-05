@@ -16,8 +16,16 @@ from alos.documents.center import (
     DocumentReviewDecisionRequest,
 )
 from alos.genesis.document_analysis import (
+    GenesisDocumentAnalysisError,
     GenesisDocumentAnalysisRequest,
     GenesisDocumentAnalysisService,
+)
+from alos.genesis.document_workflow import (
+    GenesisAgentProposalRequest,
+    GenesisApprovalHandoffRequest,
+    GenesisCompletionDraftRequest,
+    GenesisDocumentResearchRequest,
+    GenesisDocumentWorkflowRepository,
 )
 from alos.genesis.history import GenesisHistoryRepository
 from alos.persistence.database import psycopg_url
@@ -93,7 +101,9 @@ def test_director_document_analysis_binds_approved_source_to_a_draft() -> None:
             correlation_id=uuid4(),
         )
         service = GenesisDocumentAnalysisService(
-            documents, GenesisHistoryRepository(temporary_url)
+            documents,
+            GenesisHistoryRepository(temporary_url),
+            GenesisDocumentWorkflowRepository(temporary_url),
         )
         result = service.create_analysis(
             GenesisDocumentAnalysisRequest(
@@ -112,6 +122,8 @@ def test_director_document_analysis_binds_approved_source_to_a_draft() -> None:
         assert result.analysis.content["source"]["document_id"] == str(source.document_id)
         assert result.draft.origin == "GENESIS"
         assert result.draft.status == "DRAFT"
+        assert result.workflow.status == "ANALYSIS_DRAFT"
+        assert result.workflow.source_document_id == source.document_id
         draft_detail = documents.get_document(
             result.draft.document_id,
             organization_id=context.organization_id,
@@ -119,6 +131,76 @@ def test_director_document_analysis_binds_approved_source_to_a_draft() -> None:
         )
         assert approved_source.content_sha256 in draft_detail.content
         assert "Tidak ada kesimpulan substantif" in draft_detail.content
+        with pytest.raises(GenesisDocumentAnalysisError, match="RND_DRAFT"):
+            service.create_checklist(
+                result.workflow.workflow_id,
+                organization_id=context.organization_id,
+                actor_user_id=director_id,
+                correlation_id=uuid4(),
+            )
+        rnd = service.create_rnd(
+            result.workflow.workflow_id,
+            GenesisDocumentResearchRequest(
+                focus="Petakan kelengkapan owner, KPI, risiko, dan evidence yang perlu ditinjau."
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=director_id,
+            correlation_id=uuid4(),
+        )
+        assert rnd.workflow.status == "RND_DRAFT"
+        assert rnd.draft is not None and rnd.draft.origin == "GENESIS"
+        checklist = service.create_checklist(
+            result.workflow.workflow_id,
+            organization_id=context.organization_id,
+            actor_user_id=director_id,
+            correlation_id=uuid4(),
+        )
+        assert checklist.workflow.status == "CHECKLIST_DRAFT"
+        assert checklist.draft is not None
+        completion = service.create_completion_draft(
+            result.workflow.workflow_id,
+            GenesisCompletionDraftRequest(
+                completion_intent=(
+                    "Siapkan kerangka pelengkapan untuk owner, KPI, risiko, dan evidence."
+                )
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=director_id,
+            correlation_id=uuid4(),
+        )
+        assert completion.workflow.status == "COMPLETION_DRAFT"
+        assert completion.draft is not None
+        proposal = service.create_agent_proposal(
+            result.workflow.workflow_id,
+            GenesisAgentProposalRequest(
+                objective=(
+                    "Menyusun ringkasan read-only dari evidence internal yang telah disetujui."
+                )
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=director_id,
+            correlation_id=uuid4(),
+        )
+        assert proposal.workflow.status == "AGENT_PROPOSAL_DRAFT"
+        assert proposal.draft is None
+        assert proposal.artifact.content["status"] == "DRAFT_RECOMMENDATION_ONLY"
+        handoff = service.create_h4_handoff(
+            result.workflow.workflow_id,
+            GenesisApprovalHandoffRequest(
+                note="Direktur meminta IT Lead menyiapkan draft kontrak."
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=director_id,
+            correlation_id=uuid4(),
+        )
+        assert handoff.workflow.status == "READY_FOR_H4"
+        assert handoff.draft is None
+        assert handoff.artifact.content["handoff"]["not_created"].startswith("No Agent Contract")
+        with psycopg.connect(temporary_url) as connection:
+            assert connection.execute("SELECT count(*) FROM agents.contracts").fetchone() == (0,)
+            assert connection.execute(
+                "SELECT count(*) FROM governance.agent_change_requests"
+            ).fetchone() == (0,)
         events = AuditReader(temporary_url).list_events(context.organization_id)
         assert {event.action for event in events}.issuperset(
             {
@@ -126,6 +208,12 @@ def test_director_document_analysis_binds_approved_source_to_a_draft() -> None:
                 "GENESIS_REQUIREMENT_RECORDED",
                 "GENESIS_ARTIFACT_RECORDED",
                 "GENESIS_DOCUMENT_ANALYSIS_DRAFT_CREATED",
+                "GENESIS_DOCUMENT_WORKFLOW_CREATED",
+                "GENESIS_DOCUMENT_WORKFLOW_RND_RECORDED",
+                "GENESIS_DOCUMENT_WORKFLOW_CHECKLIST_RECORDED",
+                "GENESIS_DOCUMENT_WORKFLOW_COMPLETION_RECORDED",
+                "GENESIS_DOCUMENT_WORKFLOW_AGENT_PROPOSAL_RECORDED",
+                "GENESIS_DOCUMENT_WORKFLOW_H4_HANDOFF_RECORDED",
             }
         )
     finally:

@@ -36,6 +36,18 @@ from alos.genesis.document_analysis import (
     GenesisDocumentAnalysisRequest,
     GenesisDocumentAnalysisResult,
     GenesisDocumentAnalysisService,
+    GenesisDocumentWorkflowStageResult,
+)
+from alos.genesis.document_workflow import (
+    GenesisAgentProposalRequest,
+    GenesisApprovalHandoffRequest,
+    GenesisCompletionDraftRequest,
+    GenesisDocumentResearchRequest,
+    GenesisDocumentWorkflowConflictError,
+    GenesisDocumentWorkflowError,
+    GenesisDocumentWorkflowNotFoundError,
+    GenesisDocumentWorkflowRecord,
+    GenesisDocumentWorkflowRepository,
 )
 from alos.genesis.history import (
     GenesisArtifactRecord,
@@ -270,9 +282,15 @@ def get_document_center_repository() -> DocumentCenterRepository:
     return DocumentCenterRepository(get_settings().database_url)
 
 
+def get_genesis_document_workflow_repository() -> GenesisDocumentWorkflowRepository:
+    return GenesisDocumentWorkflowRepository(get_settings().database_url)
+
+
 def get_genesis_document_analysis_service() -> GenesisDocumentAnalysisService:
     return GenesisDocumentAnalysisService(
-        get_document_center_repository(), get_genesis_history_repository()
+        get_document_center_repository(),
+        get_genesis_history_repository(),
+        get_genesis_document_workflow_repository(),
     )
 
 
@@ -381,6 +399,14 @@ def source_http_error(error: SourceRegistryError) -> HTTPException:
 
 
 def genesis_http_error(error: GenesisHistoryError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+def genesis_document_workflow_http_error(error: GenesisDocumentWorkflowError) -> HTTPException:
+    if isinstance(error, GenesisDocumentWorkflowNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+    if isinstance(error, GenesisDocumentWorkflowConflictError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
 
@@ -705,8 +731,183 @@ def create_genesis_document_analysis(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except GenesisHistoryError as error:
         raise genesis_http_error(error) from error
+    except GenesisDocumentWorkflowError as error:
+        raise genesis_document_workflow_http_error(error) from error
     except DocumentCenterError as error:
         raise document_http_error(error) from error
+
+
+@app.get(
+    "/api/v1/genesis/document-workflows",
+    response_model=list[GenesisDocumentWorkflowRecord],
+)
+def list_genesis_document_workflows(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> list[GenesisDocumentWorkflowRecord]:
+    require_genesis_director(actor)
+    require_workspace_access(actor, workspace_id)
+    try:
+        return get_genesis_document_workflow_repository().list_for_workspace(
+            workspace_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except GenesisDocumentWorkflowError as error:
+        raise genesis_document_workflow_http_error(error) from error
+
+
+@app.get(
+    "/api/v1/genesis/document-workflows/{workflow_id}",
+    response_model=GenesisDocumentWorkflowRecord,
+)
+def get_genesis_document_workflow(
+    workflow_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisDocumentWorkflowRecord:
+    require_genesis_director(actor)
+    try:
+        return get_genesis_document_workflow_repository().get(
+            workflow_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except GenesisDocumentWorkflowError as error:
+        raise genesis_document_workflow_http_error(error) from error
+
+
+@app.post(
+    "/api/v1/genesis/document-workflows/{workflow_id}/rnd",
+    response_model=GenesisDocumentWorkflowStageResult,
+)
+def create_genesis_document_rnd(
+    workflow_id: UUID,
+    request: GenesisDocumentResearchRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisDocumentWorkflowStageResult:
+    require_genesis_director(actor)
+    try:
+        return get_genesis_document_analysis_service().create_rnd(
+            workflow_id,
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except GenesisDocumentAnalysisError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except GenesisDocumentWorkflowError as error:
+        raise genesis_document_workflow_http_error(error) from error
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
+
+
+@app.post(
+    "/api/v1/genesis/document-workflows/{workflow_id}/checklist",
+    response_model=GenesisDocumentWorkflowStageResult,
+)
+def create_genesis_document_checklist(
+    workflow_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisDocumentWorkflowStageResult:
+    require_genesis_director(actor)
+    try:
+        return get_genesis_document_analysis_service().create_checklist(
+            workflow_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except GenesisDocumentAnalysisError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except GenesisDocumentWorkflowError as error:
+        raise genesis_document_workflow_http_error(error) from error
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
+
+
+@app.post(
+    "/api/v1/genesis/document-workflows/{workflow_id}/completion-draft",
+    response_model=GenesisDocumentWorkflowStageResult,
+)
+def create_genesis_completion_draft(
+    workflow_id: UUID,
+    request: GenesisCompletionDraftRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisDocumentWorkflowStageResult:
+    require_genesis_director(actor)
+    try:
+        return get_genesis_document_analysis_service().create_completion_draft(
+            workflow_id,
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except GenesisDocumentAnalysisError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except GenesisDocumentWorkflowError as error:
+        raise genesis_document_workflow_http_error(error) from error
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
+
+
+@app.post(
+    "/api/v1/genesis/document-workflows/{workflow_id}/agent-proposal",
+    response_model=GenesisDocumentWorkflowStageResult,
+)
+def create_genesis_agent_proposal(
+    workflow_id: UUID,
+    request: GenesisAgentProposalRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisDocumentWorkflowStageResult:
+    require_genesis_director(actor)
+    try:
+        return get_genesis_document_analysis_service().create_agent_proposal(
+            workflow_id,
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except GenesisDocumentAnalysisError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except GenesisDocumentWorkflowError as error:
+        raise genesis_document_workflow_http_error(error) from error
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+
+
+@app.post(
+    "/api/v1/genesis/document-workflows/{workflow_id}/h4-handoff",
+    response_model=GenesisDocumentWorkflowStageResult,
+)
+def create_genesis_h4_handoff(
+    workflow_id: UUID,
+    request: GenesisApprovalHandoffRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisDocumentWorkflowStageResult:
+    require_genesis_director(actor)
+    try:
+        return get_genesis_document_analysis_service().create_h4_handoff(
+            workflow_id,
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except GenesisDocumentAnalysisError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except GenesisDocumentWorkflowError as error:
+        raise genesis_document_workflow_http_error(error) from error
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
 
 
 @app.post("/api/v1/documents/drafts", response_model=DocumentRecord)

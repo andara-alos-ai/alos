@@ -8,6 +8,8 @@ create/activate an Agent Contract.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any
 from uuid import UUID
 
@@ -15,10 +17,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from alos.documents.center import (
     DocumentCenterRepository,
+    DocumentClassification,
     DocumentConflictError,
     DocumentDetail,
     DocumentDraftRequest,
     DocumentRecord,
+)
+from alos.genesis.document_workflow import (
+    GenesisAgentProposalRequest,
+    GenesisApprovalHandoffRequest,
+    GenesisCompletionDraftRequest,
+    GenesisDocumentResearchRequest,
+    GenesisDocumentWorkflowRecord,
+    GenesisDocumentWorkflowRepository,
 )
 from alos.genesis.history import (
     GenesisArtifactRecord,
@@ -48,7 +59,7 @@ class GenesisDocumentSourceReference(BaseModel):
     version_number: int
     content_sha256: str
     status: str
-    classification: str
+    classification: DocumentClassification
 
 
 class GenesisDocumentAnalysisResult(BaseModel):
@@ -56,6 +67,14 @@ class GenesisDocumentAnalysisResult(BaseModel):
     source: GenesisDocumentSourceReference
     analysis: GenesisArtifactRecord
     draft: DocumentRecord
+    workflow: GenesisDocumentWorkflowRecord
+
+
+class GenesisDocumentWorkflowStageResult(BaseModel):
+    workflow: GenesisDocumentWorkflowRecord
+    source: GenesisDocumentSourceReference
+    artifact: GenesisArtifactRecord
+    draft: DocumentRecord | None
 
 
 class GenesisDocumentAnalysisService:
@@ -65,9 +84,11 @@ class GenesisDocumentAnalysisService:
         self,
         documents: DocumentCenterRepository,
         history: GenesisHistoryRepository,
+        workflows: GenesisDocumentWorkflowRepository,
     ) -> None:
         self._documents = documents
         self._history = history
+        self._workflows = workflows
 
     def create_analysis(
         self,
@@ -83,14 +104,7 @@ class GenesisDocumentAnalysisService:
             actor_user_id=actor_user_id,
         )
         self._validate_source(source, request)
-        source_reference = GenesisDocumentSourceReference(
-            document_id=source.document.document_id,
-            title=source.document.title,
-            version_number=source.document.version_number,
-            content_sha256=source.content_sha256,
-            status=source.document.status,
-            classification=source.document.classification,
-        )
+        source_reference = _source_reference(source)
         conversation = self._history.create_conversation(
             GenesisConversationRequest(workspace_id=request.workspace_id),
             organization_id=organization_id,
@@ -125,12 +139,310 @@ class GenesisDocumentAnalysisService:
             correlation_id=correlation_id,
             conversation_id=conversation.conversation_id,
         )
+        workflow = self._workflows.create(
+            organization_id=organization_id,
+            workspace_id=request.workspace_id,
+            conversation_id=conversation.conversation_id,
+            source_document_id=source_reference.document_id,
+            source_version_number=source_reference.version_number,
+            source_content_sha256=source_reference.content_sha256,
+            analysis_document_id=draft.document_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+        )
         return GenesisDocumentAnalysisResult(
             conversation=conversation,
             source=source_reference,
             analysis=analysis,
             draft=draft,
+            workflow=workflow,
         )
+
+    def create_rnd(
+        self,
+        workflow_id: UUID,
+        request: GenesisDocumentResearchRequest,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> GenesisDocumentWorkflowStageResult:
+        workflow, source = self._workflow_source(
+            workflow_id, organization_id=organization_id, actor_user_id=actor_user_id
+        )
+        self._require_workflow_status(workflow, "ANALYSIS_DRAFT")
+        artifact = self._history.record_system_artifact(
+            workflow.conversation_id,
+            "BLUEPRINT",
+            _rnd_artifact_content(workflow, source, request.focus),
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+        )
+        draft = self._documents.create_genesis_workflow_draft(
+            DocumentDraftRequest(
+                workspace_id=workflow.workspace_id,
+                title=_workflow_title("R&D Genesis", source.title),
+                content=_rnd_draft_content(source, request.focus),
+                category="GENESIS_RND",
+                classification=source.classification,
+            ),
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            conversation_id=workflow.conversation_id,
+            audit_action="GENESIS_DOCUMENT_RND_DRAFT_CREATED",
+            audit_reason="Genesis prepared a bounded R&D draft that remains DRAFT",
+        )
+        updated = self._workflows.advance(
+            workflow_id,
+            expected_status="ANALYSIS_DRAFT",
+            next_status="RND_DRAFT",
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            audit_action="GENESIS_DOCUMENT_WORKFLOW_RND_RECORDED",
+            audit_reason="Genesis recorded a bounded R&D draft for human review",
+            metadata={
+                "rnd_document_id": str(draft.document_id),
+                "artifact_id": str(artifact.artifact_id),
+            },
+            draft_column="rnd_document_id",
+            draft_document_id=draft.document_id,
+        )
+        return GenesisDocumentWorkflowStageResult(
+            workflow=updated, source=source, artifact=artifact, draft=draft
+        )
+
+    def create_checklist(
+        self,
+        workflow_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> GenesisDocumentWorkflowStageResult:
+        workflow, source = self._workflow_source(
+            workflow_id, organization_id=organization_id, actor_user_id=actor_user_id
+        )
+        self._require_workflow_status(workflow, "RND_DRAFT")
+        artifact = self._history.record_system_artifact(
+            workflow.conversation_id,
+            "TEST_PLAN",
+            _checklist_artifact_content(workflow, source),
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+        )
+        draft = self._documents.create_genesis_workflow_draft(
+            DocumentDraftRequest(
+                workspace_id=workflow.workspace_id,
+                title=_workflow_title("Checklist Genesis", source.title),
+                content=_checklist_draft_content(source),
+                category="GENESIS_CHECKLIST",
+                classification=source.classification,
+            ),
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            conversation_id=workflow.conversation_id,
+            audit_action="GENESIS_DOCUMENT_CHECKLIST_DRAFT_CREATED",
+            audit_reason="Genesis prepared a remediation checklist draft that remains DRAFT",
+        )
+        updated = self._workflows.advance(
+            workflow_id,
+            expected_status="RND_DRAFT",
+            next_status="CHECKLIST_DRAFT",
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            audit_action="GENESIS_DOCUMENT_WORKFLOW_CHECKLIST_RECORDED",
+            audit_reason="Genesis recorded a remediation checklist for human review",
+            metadata={
+                "checklist_document_id": str(draft.document_id),
+                "artifact_id": str(artifact.artifact_id),
+            },
+            draft_column="checklist_document_id",
+            draft_document_id=draft.document_id,
+        )
+        return GenesisDocumentWorkflowStageResult(
+            workflow=updated, source=source, artifact=artifact, draft=draft
+        )
+
+    def create_completion_draft(
+        self,
+        workflow_id: UUID,
+        request: GenesisCompletionDraftRequest,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> GenesisDocumentWorkflowStageResult:
+        workflow, source = self._workflow_source(
+            workflow_id, organization_id=organization_id, actor_user_id=actor_user_id
+        )
+        self._require_workflow_status(workflow, "CHECKLIST_DRAFT")
+        artifact = self._history.record_system_artifact(
+            workflow.conversation_id,
+            "DIFF",
+            _completion_artifact_content(workflow, source, request.completion_intent),
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+        )
+        draft = self._documents.create_genesis_workflow_draft(
+            DocumentDraftRequest(
+                workspace_id=workflow.workspace_id,
+                title=_workflow_title("Pelengkapan Genesis", source.title),
+                content=_completion_draft_content(source, request.completion_intent),
+                category="GENESIS_COMPLETION",
+                classification=source.classification,
+            ),
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            conversation_id=workflow.conversation_id,
+            audit_action="GENESIS_DOCUMENT_COMPLETION_DRAFT_CREATED",
+            audit_reason="Genesis prepared a remediation draft that remains DRAFT",
+        )
+        updated = self._workflows.advance(
+            workflow_id,
+            expected_status="CHECKLIST_DRAFT",
+            next_status="COMPLETION_DRAFT",
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            audit_action="GENESIS_DOCUMENT_WORKFLOW_COMPLETION_RECORDED",
+            audit_reason="Genesis recorded a remediation draft for human review",
+            metadata={
+                "completion_document_id": str(draft.document_id),
+                "artifact_id": str(artifact.artifact_id),
+            },
+            draft_column="completion_document_id",
+            draft_document_id=draft.document_id,
+        )
+        return GenesisDocumentWorkflowStageResult(
+            workflow=updated, source=source, artifact=artifact, draft=draft
+        )
+
+    def create_agent_proposal(
+        self,
+        workflow_id: UUID,
+        request: GenesisAgentProposalRequest,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> GenesisDocumentWorkflowStageResult:
+        workflow, source = self._workflow_source(
+            workflow_id, organization_id=organization_id, actor_user_id=actor_user_id
+        )
+        self._require_workflow_status(workflow, "COMPLETION_DRAFT")
+        artifact = self._history.record_system_artifact(
+            workflow.conversation_id,
+            "CONTRACT",
+            _agent_proposal_artifact_content(workflow, source, request),
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+        )
+        updated = self._workflows.advance(
+            workflow_id,
+            expected_status="COMPLETION_DRAFT",
+            next_status="AGENT_PROPOSAL_DRAFT",
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            audit_action="GENESIS_DOCUMENT_WORKFLOW_AGENT_PROPOSAL_RECORDED",
+            audit_reason="Genesis recorded an agent proposal that is not an Agent Contract",
+            metadata={"artifact_id": str(artifact.artifact_id)},
+            artifact_column="agent_proposal_artifact_id",
+            artifact_id=artifact.artifact_id,
+        )
+        return GenesisDocumentWorkflowStageResult(
+            workflow=updated, source=source, artifact=artifact, draft=None
+        )
+
+    def create_h4_handoff(
+        self,
+        workflow_id: UUID,
+        request: GenesisApprovalHandoffRequest,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> GenesisDocumentWorkflowStageResult:
+        workflow, source = self._workflow_source(
+            workflow_id, organization_id=organization_id, actor_user_id=actor_user_id
+        )
+        self._require_workflow_status(workflow, "AGENT_PROPOSAL_DRAFT")
+        artifact = self._history.record_system_artifact(
+            workflow.conversation_id,
+            "RELEASE_PROPOSAL",
+            _h4_handoff_artifact_content(workflow, source, request.note),
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+        )
+        updated = self._workflows.advance(
+            workflow_id,
+            expected_status="AGENT_PROPOSAL_DRAFT",
+            next_status="READY_FOR_H4",
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            audit_action="GENESIS_DOCUMENT_WORKFLOW_H4_HANDOFF_RECORDED",
+            audit_reason="Genesis recorded a handoff to the existing H4 human approval path",
+            metadata={"artifact_id": str(artifact.artifact_id), "note": request.note.strip()},
+            artifact_column="h4_handoff_artifact_id",
+            artifact_id=artifact.artifact_id,
+        )
+        return GenesisDocumentWorkflowStageResult(
+            workflow=updated, source=source, artifact=artifact, draft=None
+        )
+
+    def _workflow_source(
+        self,
+        workflow_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+    ) -> tuple[GenesisDocumentWorkflowRecord, GenesisDocumentSourceReference]:
+        workflow = self._workflows.get(
+            workflow_id, organization_id=organization_id, actor_user_id=actor_user_id
+        )
+        source = self._documents.get_document(
+            workflow.source_document_id,
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+        )
+        source_reference = _source_reference(source)
+        if (
+            source_reference.version_number != workflow.source_version_number
+            or source_reference.content_sha256 != workflow.source_content_sha256
+        ):
+            raise GenesisDocumentAnalysisError(
+                "source document changed; start a new Genesis analysis from the latest "
+                "approved version"
+            )
+        self._validate_source(
+            source,
+            GenesisDocumentAnalysisRequest(
+                workspace_id=workflow.workspace_id,
+                source_document_id=workflow.source_document_id,
+                prompt="Source binding verification for a governed Genesis workflow.",
+            ),
+        )
+        return workflow, source_reference
+
+    @staticmethod
+    def _require_workflow_status(
+        workflow: GenesisDocumentWorkflowRecord, expected_status: str
+    ) -> None:
+        if workflow.status != expected_status:
+            raise GenesisDocumentAnalysisError(
+                f"workflow must be {expected_status} before the requested stage can be created"
+            )
 
     @staticmethod
     def _validate_source(
@@ -211,3 +523,247 @@ def _analysis_draft_content(
             "instruksi untuk membuat atau mengaktifkan agent.",
         )
     )
+
+
+def _source_reference(source: DocumentDetail) -> GenesisDocumentSourceReference:
+    return GenesisDocumentSourceReference(
+        document_id=source.document.document_id,
+        title=source.document.title,
+        version_number=source.document.version_number,
+        content_sha256=source.content_sha256,
+        status=source.document.status,
+        classification=source.document.classification,
+    )
+
+
+def _workflow_title(prefix: str, source_title: str) -> str:
+    return f"{prefix} — {source_title}"[:200]
+
+
+def _workflow_source_payload(
+    workflow: GenesisDocumentWorkflowRecord, source: GenesisDocumentSourceReference
+) -> dict[str, Any]:
+    return {
+        "workflow_id": str(workflow.workflow_id),
+        "source": source.model_dump(mode="json"),
+        "source_bound": True,
+        "source_modified": False,
+    }
+
+
+def _rnd_artifact_content(
+    workflow: GenesisDocumentWorkflowRecord,
+    source: GenesisDocumentSourceReference,
+    focus: str,
+) -> dict[str, Any]:
+    return {
+        "kind": "RND_RECOMMENDATION",
+        **_workflow_source_payload(workflow, source),
+        "focus": focus.strip(),
+        "research_tracks": [
+            "Kelengkapan dan konsistensi dokumen internal.",
+            "Bukti, owner, KPI, dan risiko yang perlu ditinjau manusia.",
+            "Kebutuhan riset lanjutan yang harus disetujui sebelum sumber eksternal dibaca.",
+        ],
+        "status": "DRAFT_FOR_HUMAN_REVIEW",
+        "limitations": [
+            "No external research was performed.",
+            "No model inference was performed.",
+            "This is not an approved business recommendation.",
+        ],
+    }
+
+
+def _rnd_draft_content(source: GenesisDocumentSourceReference, focus: str) -> str:
+    return "\n".join(
+        (
+            f"# {_workflow_title('R&D Genesis', source.title)}",
+            "",
+            "## Fokus R&D yang diminta",
+            focus.strip(),
+            "",
+            "## Landasan sumber",
+            f"- Dokumen: {source.title}",
+            f"- Versi terikat: {source.version_number}",
+            f"- SHA-256: {source.content_sha256}",
+            "",
+            "## Area yang perlu diteliti",
+            "1. Kelengkapan ruang lingkup, owner, KPI, dan risiko.",
+            "2. Bukti internal yang mendukung atau membatasi kesimpulan.",
+            "3. Pertanyaan riset eksternal yang memerlukan persetujuan sumber dan biaya.",
+            "",
+            "## Batasan",
+            "R&D ini masih kerangka DRAFT. Genesis belum melakukan browsing, membaca sumber",
+            "eksternal, atau menyatakan rekomendasi bisnis sebagai fakta.",
+        )
+    )
+
+
+def _checklist_items() -> list[dict[str, str]]:
+    return [
+        {
+            "key": "SOURCE_INTEGRITY",
+            "label": "Versi dan SHA sumber diverifikasi checker independen.",
+        },
+        {
+            "key": "SCOPE_OWNER",
+            "label": "Owner mengonfirmasi ruang lingkup, target, dan batas keputusan.",
+        },
+        {
+            "key": "KPI_RISK",
+            "label": "KPI, risiko, asumsi, dan bukti pendukung dinilai manusia.",
+        },
+        {
+            "key": "RESEARCH_AUTHORITY",
+            "label": "Kebutuhan sumber eksternal, jika ada, mendapat otorisasi terpisah.",
+        },
+    ]
+
+
+def _checklist_artifact_content(
+    workflow: GenesisDocumentWorkflowRecord, source: GenesisDocumentSourceReference
+) -> dict[str, Any]:
+    return {
+        "kind": "REMEDIATION_CHECKLIST",
+        **_workflow_source_payload(workflow, source),
+        "items": _checklist_items(),
+        "status": "DRAFT_FOR_HUMAN_REVIEW",
+        "completion_boundary": "Only a human checker can mark document checklist items complete.",
+    }
+
+
+def _checklist_draft_content(source: GenesisDocumentSourceReference) -> str:
+    items = tuple(f"- [ ] {item['label']}" for item in _checklist_items())
+    return "\n".join(
+        (
+            f"# {_workflow_title('Checklist Genesis', source.title)}",
+            "",
+            "## Sumber terikat",
+            f"- Dokumen: {source.title}",
+            f"- Versi: {source.version_number}",
+            f"- SHA-256: {source.content_sha256}",
+            "",
+            "## Checklist perbaikan",
+            *items,
+            "",
+            "## Catatan kontrol",
+            "Checklist ini adalah DRAFT. Penyelesaian dan bukti tiap item harus diperiksa",
+            "oleh manusia independen sebelum dokumen apa pun diajukan untuk review.",
+        )
+    )
+
+
+def _completion_artifact_content(
+    workflow: GenesisDocumentWorkflowRecord,
+    source: GenesisDocumentSourceReference,
+    completion_intent: str,
+) -> dict[str, Any]:
+    return {
+        "kind": "COMPLETION_DRAFT",
+        **_workflow_source_payload(workflow, source),
+        "completion_intent": completion_intent.strip(),
+        "checklist_keys": [item["key"] for item in _checklist_items()],
+        "status": "DRAFT_FOR_HUMAN_REVIEW",
+        "limitations": [
+            "The completion draft does not alter the source document.",
+            "Human owners must supply and verify substantive information.",
+        ],
+    }
+
+
+def _completion_draft_content(
+    source: GenesisDocumentSourceReference, completion_intent: str
+) -> str:
+    return "\n".join(
+        (
+            f"# {_workflow_title('Pelengkapan Genesis', source.title)}",
+            "",
+            "## Tujuan pelengkapan",
+            completion_intent.strip(),
+            "",
+            "## Hubungan ke sumber",
+            f"Draft ini melengkapi, bukan mengubah, {source.title} v{source.version_number}.",
+            f"SHA sumber: {source.content_sha256}",
+            "",
+            "## Isian yang harus dilengkapi owner",
+            "### Ruang lingkup dan owner",
+            "[Lengkapi owner, PIC/backup, batas kewenangan, dan target.]",
+            "",
+            "### KPI, asumsi, dan risiko",
+            "[Lengkapi indikator, baseline, target, asumsi, risiko, dan mitigasi.]",
+            "",
+            "### Evidence dan keputusan",
+            "[Tambahkan evidence terverifikasi serta keputusan manusia yang relevan.]",
+            "",
+            "## Batasan",
+            "Genesis tidak mengesahkan isian ini dan tidak memperbarui dokumen sumber "
+            "secara otomatis.",
+        )
+    )
+
+
+def _agent_proposal_artifact_content(
+    workflow: GenesisDocumentWorkflowRecord,
+    source: GenesisDocumentSourceReference,
+    request: GenesisAgentProposalRequest,
+) -> dict[str, Any]:
+    agent_key = _suggest_agent_key(source.title)
+    name = request.name.strip() if request.name else f"{source.title} Advisor"[:200]
+    return {
+        "kind": "AGENT_PROPOSAL",
+        **_workflow_source_payload(workflow, source),
+        "proposal": {
+            "agent_key": agent_key,
+            "name": name,
+            "objective": request.objective.strip(),
+            "risk_level": "LOW",
+            "approval_required": True,
+            "proposed_mode": "READ_ONLY_DRAFT",
+            "tool_keys": [],
+            "permission_keys": [],
+            "forbidden_actions": [
+                "Do not modify source documents.",
+                "Do not take external actions.",
+                "Do not activate, release, or approve any Agent Contract.",
+            ],
+        },
+        "status": "DRAFT_RECOMMENDATION_ONLY",
+        "next_owner": "IT_LEAD",
+        "required_human_controls": [
+            "IT Lead creates a separate Agent Registry DRAFT with final controls.",
+            "Independent H4 tests, reviews, and approval remain mandatory.",
+        ],
+    }
+
+
+def _suggest_agent_key(source_title: str) -> str:
+    ascii_title = unicodedata.normalize("NFKD", source_title).encode("ascii", "ignore").decode()
+    words = re.findall(r"[A-Z0-9]+", ascii_title.upper())[:5]
+    suffix = "_".join(words) or "DOCUMENT_ADVISOR"
+    return f"GENESIS_{suffix}"[:80].rstrip("_")
+
+
+def _h4_handoff_artifact_content(
+    workflow: GenesisDocumentWorkflowRecord,
+    source: GenesisDocumentSourceReference,
+    note: str,
+) -> dict[str, Any]:
+    return {
+        "kind": "H4_HANDOFF",
+        **_workflow_source_payload(workflow, source),
+        "director_note": note.strip(),
+        "status": "PENDING_AGENT_REGISTRY_DRAFT",
+        "handoff": {
+            "next_owner": "IT_LEAD",
+            "required_action": "Create a separate Agent Registry DRAFT from the proposal.",
+            "not_created": (
+                "No Agent Contract, version, release request, or activation was created."
+            ),
+            "h4_requirements": [
+                "Create the Agent Registry DRAFT with explicit tool and permission controls.",
+                "Run the required positive, negative, regression, security, and recovery tests.",
+                "Record independent reviewer and approver decisions under H4 segregation "
+                "of duties.",
+            ],
+        },
+    }

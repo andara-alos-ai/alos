@@ -182,6 +182,32 @@ class DocumentCenterRepository:
         conversation_id: UUID,
     ) -> DocumentRecord:
         """Store a source-bound Genesis analysis as a canonical DRAFT only."""
+        return self.create_genesis_workflow_draft(
+            request,
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            conversation_id=conversation_id,
+            audit_action="GENESIS_DOCUMENT_ANALYSIS_DRAFT_CREATED",
+            audit_reason="Genesis prepared a source-bound analysis draft that remains DRAFT",
+        )
+
+    def create_genesis_workflow_draft(
+        self,
+        request: DocumentDraftRequest,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+        conversation_id: UUID,
+        audit_action: str,
+        audit_reason: str,
+    ) -> DocumentRecord:
+        """Persist a Genesis workflow artifact as a canonical DRAFT only.
+
+        ``audit_action`` and ``audit_reason`` are service-controlled constants;
+        this method is intentionally not exposed as a browser API.
+        """
         return self._create_draft(
             request,
             organization_id=organization_id,
@@ -191,10 +217,8 @@ class DocumentCenterRepository:
             genesis_conversation_id=conversation_id,
             generated_by_system=True,
             audit_actor_kind="SYSTEM",
-            system_audit_action="GENESIS_DOCUMENT_ANALYSIS_DRAFT_CREATED",
-            system_audit_reason=(
-                "Genesis prepared a source-bound analysis draft that remains DRAFT"
-            ),
+            system_audit_action=audit_action,
+            system_audit_reason=audit_reason,
         )
 
     def list_documents(
