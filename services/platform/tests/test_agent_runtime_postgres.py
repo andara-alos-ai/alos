@@ -112,6 +112,20 @@ def test_runtime_persists_usage_and_blocks_tools_and_budget() -> None:
         settings = _settings(temporary_url, environment="staging")
         registry = AgentRegistryRepository(temporary_url)
         context = registry.bootstrap_local_context(LocalBootstrapRequest(), uuid4())
+        # Staging requires an explicit persistent workspace cost limit before any
+        # run (auto-seeding is local/test only). A director sets a generous fixture
+        # limit here; the hard-stop behaviour is exercised by resetting it to 0 below.
+        AgentRuntimeRepository(temporary_url, settings).set_budget_limit(
+            context.workspace_id,
+            WorkspaceBudgetRequest(
+                daily_request_limit=50,
+                daily_output_token_limit=10_000,
+                daily_cost_cap_usd=Decimal("1.00"),
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
         with psycopg.connect(temporary_url) as connection:
             connection.execute(
                 """

@@ -19,7 +19,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from alos.agents.registry import AgentContract
 from alos.config import Settings
-from alos.model_gateway import ModelGateway, ModelGatewayError, ModelResponse
+from alos.model_gateway import (
+    ModelGateway,
+    ModelGatewayBudgetError,
+    ModelGatewayError,
+    ModelResponse,
+)
 from alos.persistence.database import psycopg_url
 from alos.sources.registry import SourceRegistryRepository
 
@@ -199,6 +204,9 @@ class AgentRuntime:
         except OutputSchemaError as error:
             self._repository.complete_failure(prepared, str(error), response=response)
             return _failure_result(prepared, "OUTPUT_SCHEMA_INVALID")
+        except ModelGatewayBudgetError as error:
+            self._repository.complete_blocked(prepared, "BUDGET_POLICY", str(error))
+            return _blocked_result(prepared, "BUDGET_POLICY", str(error))
         except ModelGatewayError as error:
             self._repository.complete_failure(prepared, error.code)
             return _failure_result(prepared, error.code)
@@ -631,6 +639,42 @@ class AgentRuntimeRepository:
                 correlation_id=prepared.correlation_id,
                 reason=reason,
                 metadata={"agent_key": prepared.execution.agent_key},
+            )
+
+    def complete_blocked(
+        self, prepared: _PreparedRun, tool_key: str, reason: str
+    ) -> None:
+        """Mark a deterministic policy/cap refusal as BLOCKED (not a system failure)."""
+        with self._transaction() as connection:
+            connection.execute(
+                "DELETE FROM runtime.budget_reservations WHERE agent_run_id = %s",
+                (prepared.agent_run_id,),
+            )
+            connection.execute(
+                """
+                UPDATE runtime.agent_runs
+                SET status = 'BLOCKED', output_reference = %s, completed_at = now()
+                WHERE agent_run_id = %s
+                """,
+                (Jsonb({"reason": reason, "policy": tool_key}), prepared.agent_run_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO runtime.tool_calls (agent_run_id, tool_key, decision, reason)
+                VALUES (%s, %s, 'BLOCKED', %s)
+                """,
+                (prepared.agent_run_id, tool_key, reason),
+            )
+            self._append_audit(
+                connection,
+                organization_id=prepared.organization_id,
+                actor_user_id=prepared.actor_user_id,
+                action="AGENT_RUN_BLOCKED",
+                entity_type="AGENT_RUN",
+                entity_id=prepared.agent_run_id,
+                correlation_id=prepared.correlation_id,
+                reason=reason,
+                metadata={"agent_key": prepared.execution.agent_key, "policy": tool_key},
             )
 
     def _load_execution(
@@ -1229,4 +1273,21 @@ def _failure_result(prepared: _PreparedRun, error_code: str) -> AgentRunResult:
         correlation_id=prepared.correlation_id,
         tool_decisions=list(prepared.tool_decisions),
         error_code=error_code,
+    )
+
+
+def _blocked_result(
+    prepared: _PreparedRun, tool_key: str, reason: str
+) -> AgentRunResult:
+    """A deterministic policy/cap refusal: recorded as BLOCKED, not FAILED."""
+    decisions = list(prepared.tool_decisions)
+    decisions.append(ToolDecision(tool_key=tool_key, decision="BLOCKED", reason=reason))
+    return AgentRunResult(
+        agent_run_id=prepared.agent_run_id,
+        agent_key=prepared.execution.agent_key,
+        semantic_version=prepared.execution.semantic_version,
+        status="BLOCKED",
+        correlation_id=prepared.correlation_id,
+        tool_decisions=decisions,
+        error_code="TOOL_OR_INPUT_BLOCKED",
     )
