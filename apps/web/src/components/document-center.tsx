@@ -21,6 +21,10 @@ import {
   type DocumentWorkspace,
 } from "@/lib/documents";
 import {
+  canGenesisReadDocument,
+  type GenesisDocumentAnalysisResult,
+} from "@/lib/genesis-document-analysis";
+import {
   formatUploadSize,
   supportsGenesisUpload,
   uploadExtractionLabel,
@@ -47,7 +51,9 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [requirement, setRequirement] = useState("");
+  const [analysisPrompt, setAnalysisPrompt] = useState("");
+  const [analysisSourceId, setAnalysisSourceId] = useState("");
+  const [analysisResult, setAnalysisResult] = useState<GenesisDocumentAnalysisResult | null>(null);
   const [checkNotes, setCheckNotes] = useState("Evidence dan scope telah diperiksa oleh checker independen.");
   const [reviewNotes, setReviewNotes] = useState("Review independen telah selesai.");
   const [submitting, setSubmitting] = useState(false);
@@ -81,6 +87,10 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const pendingChecks = selected?.checklist.filter((item) => item.required && item.status !== "PASSED").length ?? 0;
   const latestUpload = uploads[0] ?? null;
   const canUploadToGenesis = actor.roles.includes("DIRECTOR");
+  const analysisSources = useMemo(
+    () => documents.filter(canGenesisReadDocument),
+    [documents],
+  );
 
   const refreshDocuments = useCallback(async (nextWorkspaceId: string) => {
     setError(null);
@@ -92,6 +102,13 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       if (!response.ok) throw new Error(await errorDetail(response));
       const items = (await response.json()) as DocumentRecord[];
       setDocuments(items);
+      if (mode === "genesis") {
+        setAnalysisSourceId((current) => (
+          items.some((document) => document.document_id === current && canGenesisReadDocument(document))
+            ? current
+            : items.find(canGenesisReadDocument)?.document_id ?? ""
+        ));
+      }
       setSelected((current) => (
         current && !items.some((item) => item.document_id === current.document.document_id)
           ? null
@@ -100,7 +117,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     } catch (failure) {
       setError(messageFrom(failure));
     }
-  }, []);
+  }, [mode]);
 
   const refreshGenesisUploads = useCallback(async (nextWorkspaceId: string) => {
     if (!nextWorkspaceId) {
@@ -134,7 +151,11 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
             { credentials: "same-origin", cache: "no-store" },
           );
           if (!documentResponse.ok) throw new Error(await errorDetail(documentResponse));
-          setDocuments((await documentResponse.json()) as DocumentRecord[]);
+          const documentItems = (await documentResponse.json()) as DocumentRecord[];
+          setDocuments(documentItems);
+          if (mode === "genesis") {
+            setAnalysisSourceId(documentItems.find(canGenesisReadDocument)?.document_id ?? "");
+          }
           if (mode === "genesis" && canUploadToGenesis) {
             const uploadResponse = await fetch(
               `/api/v1/genesis/uploads?workspace_id=${encodeURIComponent(firstWorkspaceId)}`,
@@ -156,6 +177,8 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   function selectWorkspace(nextWorkspaceId: string) {
     setWorkspaceId(nextWorkspaceId);
     void refreshDocuments(nextWorkspaceId);
+    setAnalysisSourceId("");
+    setAnalysisResult(null);
     if (mode === "genesis" && canUploadToGenesis) {
       void refreshGenesisUploads(nextWorkspaceId);
       return;
@@ -180,13 +203,9 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     setSubmitting(true);
     setError(null);
     setNotice(null);
-    const generatedTitle = `Draft Genesis — ${requirement.trim().replace(/\s+/g, " ").slice(0, 80)}`;
-    const payload = mode === "genesis"
-      ? { workspace_id: workspaceId, title: title.trim() || generatedTitle, requirement, category: "GENERAL", classification: "INTERNAL" }
-      : { workspace_id: workspaceId, title, content, category: "GENERAL", classification: "INTERNAL" };
-    const endpoint = mode === "genesis" ? "/api/v1/genesis/document-drafts" : "/api/v1/documents/drafts";
+    const payload = { workspace_id: workspaceId, title, content, category: "GENERAL", classification: "INTERNAL" };
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch("/api/v1/documents/drafts", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -196,11 +215,41 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       const document = (await response.json()) as DocumentRecord;
       setTitle("");
       setContent("");
-      setRequirement("");
       setComposerOpen(false);
-      setNotice(mode === "genesis" ? "Genesis membuat kerangka DRAFT. Lengkapi dan kirimkan untuk pemeriksaan." : "Dokumen DRAFT dibuat di repositori resmi.");
+      setNotice("Dokumen DRAFT dibuat di repositori resmi.");
       await refreshDocuments(workspaceId);
       await selectDocument(document.document_id);
+    } catch (failure) {
+      setError(messageFrom(failure));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function createDocumentAnalysis(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!workspaceId || !analysisSourceId) return;
+    setSubmitting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/v1/genesis/document-analysis", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          source_document_id: analysisSourceId,
+          prompt: analysisPrompt,
+        }),
+      });
+      if (!response.ok) throw new Error(await errorDetail(response));
+      const result = (await response.json()) as GenesisDocumentAnalysisResult;
+      setAnalysisResult(result);
+      setAnalysisPrompt("");
+      setNotice("Genesis membuat DRAFT analisis terikat ke versi dokumen yang disetujui.");
+      await refreshDocuments(workspaceId);
+      await selectDocument(result.draft.document_id);
     } catch (failure) {
       setError(messageFrom(failure));
     } finally {
@@ -383,8 +432,13 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       <div className="alos-genesis-workspace-grid">
         <article className="alos-panel alos-genesis-conversation">
           <div className="alos-genesis-chat-stream">
-            <div className="alos-genesis-user-message"><span>{actor.roles[0]?.slice(0, 1) ?? "A"}</span><div><p>Mulai percakapan dengan tujuan atau pertanyaan Anda.</p><small>GENESIS akan menggunakan sumber yang telah diizinkan untuk menyusun DRAFT yang dapat ditinjau.</small></div></div>
-            <div className="alos-genesis-assistant-message"><span>✦</span><div><p>GENESIS siap membantu menyusun insight dan DRAFT secara terkendali.</p><div className="alos-genesis-brief"><div><span>Dokumen workspace</span><strong>{documentStats.total || "—"}</strong><small>{documentStats.total ? "Tercatat pada repositori aktif" : "Belum ada data"}</small></div><div><span>Draft dari GENESIS</span><strong>{documentStats.genesis || "—"}</strong><small>{documentStats.genesis ? "Menunggu pemeriksaan" : "Belum ada DRAFT"}</small></div><div><span>Sumber evidence</span><strong>—</strong><small>Belum terhubung</small></div></div><div className="alos-genesis-attention"><strong>Langkah berikutnya</strong><span>Berikan konteks yang cukup; hasil awal tidak akan dipublikasikan atau mengubah data secara otomatis.</span></div></div></div>
+            {analysisResult ? <>
+              <div className="alos-genesis-user-message"><span>{actor.roles[0]?.slice(0, 1) ?? "A"}</span><div><small>Direktur · {analysisResult.source.title}</small><p>{analysisResult.analysis.content.prompt}</p></div></div>
+              <div className="alos-genesis-assistant-message"><span>✦</span><div><p>Dokumen berhasil dibaca dalam mode read-only dan Genesis sudah membuat DRAFT analisis untuk ditinjau.</p><div className="alos-genesis-analysis-result"><div><span>Sumber terikat</span><strong>{analysisResult.source.title}</strong><small>v{analysisResult.source.version_number} · {analysisResult.source.status}</small></div><div><span>Isi diperiksa</span><strong>{analysisResult.analysis.content.reading.content_characters.toLocaleString("id-ID")} karakter</strong><small>SHA dan versi tercatat pada DRAFT</small></div><div><span>Status</span><strong>ANALYSIS DRAFT</strong><small>Belum mengubah dokumen sumber</small></div></div><div className="alos-genesis-attention"><strong>Langkah berikutnya</strong><span>Buka DRAFT, lakukan pemeriksaan manusia, lalu lanjutkan R&D hanya jika hasilnya disetujui.</span><button onClick={() => void selectDocument(analysisResult.draft.document_id)} type="button">Buka DRAFT analisis</button></div></div></div>
+            </> : <>
+              <div className="alos-genesis-user-message"><span>{actor.roles[0]?.slice(0, 1) ?? "A"}</span><div><p>Mulai analisis dengan memilih dokumen yang sudah disetujui.</p><small>Genesis hanya membaca sumber kanonis yang statusnya APPROVED atau ACTIVE.</small></div></div>
+              <div className="alos-genesis-assistant-message"><span>✦</span><div><p>Genesis akan mengikat pertanyaan Direktur ke versi dokumen yang dipilih, lalu membuat DRAFT analisis untuk ditinjau.</p><div className="alos-genesis-brief"><div><span>Dokumen tersedia</span><strong>{documentStats.total || "—"}</strong><small>{documentStats.total ? "Tercatat pada repositori aktif" : "Belum ada data"}</small></div><div><span>Siap dibaca</span><strong>{analysisSources.length || "—"}</strong><small>{analysisSources.length ? "Disetujui atau aktif" : "Belum ada sumber disetujui"}</small></div><div><span>Draft Genesis</span><strong>{documentStats.genesis || "—"}</strong><small>{documentStats.genesis ? "Menunggu pemeriksaan" : "Belum ada DRAFT"}</small></div></div><div className="alos-genesis-attention"><strong>Batasan</strong><span>Hasil analisis awal selalu DRAFT; dokumen sumber, agent, dan data produksi tidak akan berubah otomatis.</span></div></div></div>
+            </>}
           </div>
           <div className="alos-genesis-upload-toolbar">
             <button disabled={!workspaceId || !canUploadToGenesis || uploading} onClick={openUploadPicker} type="button">
@@ -405,14 +459,14 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
             </div> : null}
             <p className="alos-genesis-upload-preview-note">{latestUpload.status === "DRAFT_CREATED" ? "DRAFT sudah tersimpan di Document Center dan menunggu checklist serta review independen." : "Berkas ini belum menjadi dokumen resmi dan belum dibaca GENESIS. Jika salah unggah, batalkan untuk menghapus berkas dan preview; jika sudah tepat, simpan sebagai DRAFT untuk menjalani checklist serta review independen."}</p>
           </article> : null}
-          {!workspaceId ? <p className="alos-empty-copy">Akun ini belum memiliki workspace aktif untuk membuat DRAFT.</p> : <form className="alos-genesis-draft-form" onSubmit={createDraft}><label><span className="sr-only">Tujuan atau kebutuhan untuk Genesis</span><textarea aria-label="Tujuan atau kebutuhan untuk Genesis" maxLength={10000} minLength={20} onChange={(event) => setRequirement(event.target.value)} placeholder="Ketik pertanyaan atau kebutuhan Anda untuk GENESIS…" required value={requirement} /></label><div><span className="alos-genesis-composer-tools" aria-hidden="true">⌕　▦　▥</span><small>Hasil awal selalu DRAFT dan membutuhkan pemeriksaan manusia.</small><button aria-label="Buat DRAFT dari kebutuhan" disabled={submitting} type="submit">{submitting ? "…" : "➤"}</button></div></form>}
+          {!workspaceId ? <p className="alos-empty-copy">Akun ini belum memiliki workspace aktif untuk membuat analisis.</p> : <form className="alos-genesis-draft-form alos-genesis-analysis-form" onSubmit={createDocumentAnalysis}><label className="alos-genesis-source-picker">Dokumen sumber yang disetujui<select aria-label="Dokumen sumber Genesis" disabled={!canUploadToGenesis || analysisSources.length === 0 || submitting} onChange={(event) => setAnalysisSourceId(event.target.value)} required value={analysisSourceId}><option value="">Pilih dokumen sumber…</option>{analysisSources.map((document) => <option key={document.document_id} value={document.document_id}>{document.title} · v{document.version_number} · {document.status}</option>)}</select></label><label><span className="sr-only">Pertanyaan untuk Genesis</span><textarea aria-label="Pertanyaan untuk Genesis" maxLength={10000} minLength={20} onChange={(event) => setAnalysisPrompt(event.target.value)} placeholder="Contoh: Analisa dokumen ini dan berikan rekomendasi kekurangan yang perlu diperbaiki." required value={analysisPrompt} /></label><div><span className="alos-genesis-composer-tools" aria-hidden="true">⌕　▦　▥</span><small>{!canUploadToGenesis ? "Analisis dokumen Genesis saat ini hanya tersedia untuk Direktur." : analysisSources.length === 0 ? "Belum ada dokumen yang berstatus APPROVED atau ACTIVE." : "Genesis membuat DRAFT analisis; hasilnya memerlukan pemeriksaan manusia."}</small><button aria-label="Buat analisis Genesis" disabled={submitting || !analysisSourceId || !canUploadToGenesis} type="submit">{submitting ? "…" : "➤"}</button></div></form>}
           <p className="alos-genesis-disclaimer">GENESIS dapat membuat kesalahan. Verifikasi informasi penting sebelum membuat keputusan.</p>
         </article>
 
         <aside className="alos-genesis-workspace-side">
-          <article className="alos-panel alos-genesis-recent"><div className="alos-panel-heading-row"><div><h3>Percakapan Terbaru</h3></div><span>Lihat Semua →</span></div><p className="alos-empty-copy">Belum ada percakapan tersimpan. {uploads.length ? `${uploads.length} sumber unggahan menunggu ditinjau.` : "Histori akan tersedia saat capability percakapan diaktifkan."}</p></article>
+          <article className="alos-panel alos-genesis-recent"><div className="alos-panel-heading-row"><div><h3>Percakapan Terbaru</h3></div><span>Lihat Semua →</span></div>{analysisResult ? <div className="alos-genesis-recent-analysis"><strong>{analysisResult.source.title}</strong><small>Analisis DRAFT · baru saja dibuat</small><button onClick={() => void selectDocument(analysisResult.draft.document_id)} type="button">Buka hasil →</button></div> : <p className="alos-empty-copy">Belum ada analisis tersimpan. {uploads.length ? `${uploads.length} sumber unggahan menunggu ditinjau.` : "Pilih dokumen yang disetujui untuk memulai."}</p>}</article>
           <article className="alos-panel alos-genesis-agents"><div className="alos-panel-heading-row"><div><h3>Agen Aktif</h3></div><Link href="/agents">Kelola Agen →</Link></div><div className="alos-genesis-agent-empty"><span>◌</span><div><strong>Belum ada agent ACTIVE</strong><small>Agent hanya muncul setelah melewati release dan approval.</small></div></div></article>
-          <article className="alos-panel alos-genesis-quick-prompts"><p className="alos-kicker">QUICK PROMPTS</p><h3>Mulai dengan cepat</h3>{["Tampilkan dokumen yang perlu diperiksa", "Susun draft SOP untuk proses yang belum terdokumentasi", "Daftarkan kebutuhan data untuk target divisi", "Buat brief untuk agent read-only"].map((prompt) => <button key={prompt} onClick={() => setRequirement(prompt)} type="button"><span>{prompt}</span><b>›</b></button>)}</article>
+          <article className="alos-panel alos-genesis-quick-prompts"><p className="alos-kicker">CONTOH PERTANYAAN</p><h3>Mulai dengan cepat</h3>{["Analisa kelengkapan dokumen ini dan identifikasi gap utamanya.", "Periksa risiko, owner, KPI, dan evidence yang belum tercantum.", "Buatkan daftar rekomendasi perbaikan yang perlu ditinjau manusia.", "Tentukan apakah dokumen ini perlu dilanjutkan ke tahap R&D."].map((prompt) => <button key={prompt} onClick={() => setAnalysisPrompt(prompt)} type="button"><span>{prompt}</span><b>›</b></button>)}</article>
         </aside>
       </div>
 
