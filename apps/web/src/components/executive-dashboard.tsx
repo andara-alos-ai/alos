@@ -92,7 +92,10 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
           <span><strong>ALOS</strong><small>Andara Leverage Operating System</small><small>PT Andara Rejo Makmur</small></span>
         </Link>
 
-        <nav className="alos-nav">
+        <p className="alos-brand-motto">People <i>•</i> Process <i>•</i> Impact</p>
+
+        <nav className="alos-nav" aria-label="Workspace">
+          <p className="alos-sidebar-section-label">Workspace</p>
           {navigation.map((item) => (
             <Link className={item.key === (module ?? "executive") ? "active" : ""} href={item.href} key={item.key}>
               <AppIcon name={item.icon} />{item.label}
@@ -106,13 +109,15 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
             <span className="alos-genesis-label"><strong>GENESIS</strong><small>AI Executive</small></span>
             <AppIcon name="chevron" />
           </Link>
+          <p>A smarter tomorrow</p>
         </div>
 
-        <div className="alos-sidebar-footer">
+        <div className="alos-sidebar-footer" aria-label="System">
+          <p className="alos-sidebar-section-label">System</p>
           <Link className={module === "settings" ? "active" : ""} href="/settings"><AppIcon name="settings" />Pengaturan</Link>
           {profile?.governanceVisible ? <Link href="/governance"><AppIcon name="governance" />Governance &amp; Agent Control</Link> : null}
           <button onClick={() => void logout()} type="button"><AppIcon name="logout" />Keluar</button>
-          <p>Building Better Living<br /><em>for a Brighter Tomorrow</em></p>
+          <p className="alos-sidebar-signoff">Building Better Living<br /><em>for a Brighter Tomorrow</em><span aria-hidden="true" /></p>
         </div>
       </aside>
 

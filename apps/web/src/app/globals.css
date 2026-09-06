@@ -552,3 +552,188 @@ th { color: #aac0d5; font-weight: 700; }
 @media (max-width: 1180px) { .alos-genesis-workspace-grid { grid-template-columns: minmax(0, 1fr) 325px; } }
 @media (max-width: 950px) { .alos-genesis-workspace-grid { grid-template-columns: 1fr; }.alos-genesis-workspace-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }.alos-genesis-quick-prompts { grid-column: 1 / -1; } }
 @media (max-width: 620px) { .alos-genesis-workspace-heading { margin-inline: 0; }.alos-genesis-mode { display: none; }.alos-genesis-conversation { min-height: 0; padding: 17px 11px 12px; }.alos-genesis-chat-stream { gap: 16px; padding: 0; }.alos-genesis-brief { grid-template-columns: 1fr; }.alos-genesis-brief > div { border-bottom: 1px solid #ece7dc; border-right: 0; }.alos-genesis-brief > div:last-child { border-bottom: 0; }.alos-genesis-draft-form small { display: none; }.alos-genesis-context-sources { grid-template-columns: 1fr; }.alos-genesis-context-plus { display: none; }.alos-genesis-context-sources a em, .alos-genesis-upload-source em { display: none; }.alos-genesis-upload-toolbar { align-items: flex-start; flex-direction: column; }.alos-genesis-upload-preview-heading { align-items: flex-start; grid-template-columns: 28px minmax(0, 1fr); }.alos-genesis-upload-preview-heading em { grid-column: 2; justify-self: start; } }
+
+/* Sidebar follows the approved ALOS navigation: a calm green field, gold
+   accents, and a clear separation between operational and system controls. */
+.alos-app-shell { grid-template-columns: 312px minmax(0, 1fr); }
+.alos-sidebar {
+  background:
+    radial-gradient(circle at 104% 47%, rgba(95, 184, 131, .17), transparent 25%),
+    radial-gradient(ellipse at -15% 103%, rgba(213, 168, 69, .2), transparent 34%),
+    linear-gradient(160deg, #00483c 0%, #003b32 54%, #003c30 100%);
+  box-sizing: border-box;
+  min-height: 100vh;
+  overflow-y: auto;
+  padding: 33px 20px 28px;
+}
+.alos-sidebar::after {
+  background: repeating-radial-gradient(ellipse at 0 100%, transparent 0 13px, rgba(224, 175, 65, .15) 14px 15px, transparent 16px 20px);
+  bottom: 0;
+  content: "";
+  height: 174px;
+  left: 0;
+  opacity: .72;
+  pointer-events: none;
+  position: absolute;
+  width: 100%;
+}
+.alos-sidebar > * { position: relative; z-index: 1; }
+.alos-brand { align-items: center; gap: 15px; padding: 0 12px 18px; }
+.alos-brand img { height: 70px; width: 70px; }
+.alos-brand span { gap: 4px; }
+.alos-brand strong { color: #fff9e9; font-size: 2.25rem; letter-spacing: .035em; }
+.alos-brand small { color: rgba(255, 250, 235, .9); font-size: .78rem; line-height: 1.24; }
+.alos-brand-motto {
+  border-top: 1px solid rgba(238, 242, 220, .3);
+  color: #e9c775;
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .36em;
+  margin: 0 12px;
+  padding: 18px 0 29px;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.alos-brand-motto i { color: #f7d785; font-style: normal; letter-spacing: 0; }
+.alos-sidebar-section-label {
+  color: rgba(225, 238, 229, .68) !important;
+  font-size: .68rem !important;
+  font-weight: 800;
+  letter-spacing: .28em;
+  margin: 0 12px 13px !important;
+  padding: 0 !important;
+  text-transform: uppercase;
+}
+.alos-nav { gap: 7px; }
+.alos-nav a, .alos-genesis-nav a, .alos-sidebar-footer a, .alos-sidebar-footer button {
+  border-radius: 14px;
+  font-size: 1rem;
+  font-weight: 650;
+  gap: 17px;
+  min-height: 58px;
+  padding: 11px 18px;
+}
+.alos-nav a .alos-icon, .alos-genesis-nav a .alos-icon, .alos-sidebar-footer a .alos-icon, .alos-sidebar-footer button .alos-icon {
+  color: #f4c669;
+  height: 25px;
+  stroke-width: 1.75;
+  width: 25px;
+}
+.alos-nav a { color: rgba(255, 255, 255, .96); position: relative; }
+.alos-nav a:hover { background: rgba(60, 137, 106, .29); border-color: rgba(240, 202, 112, .18); }
+.alos-nav a.active {
+  background: linear-gradient(90deg, rgba(207, 159, 50, .32), rgba(14, 89, 66, .63));
+  border-color: rgba(144, 208, 163, .38);
+  box-shadow: inset 4px 0 #f5c95d, 0 8px 18px rgba(0, 30, 23, .18);
+  color: #fff9e9;
+  font-weight: 800;
+}
+.alos-nav a.active .alos-icon {
+  background: rgba(7, 71, 53, .65);
+  border-radius: 50%;
+  box-shadow: 0 0 0 10px rgba(209, 170, 65, .13);
+  padding: 8px;
+}
+.alos-genesis-nav {
+  border-bottom: 1px solid rgba(238, 245, 237, .22);
+  border-top: 1px solid rgba(238, 245, 237, .22);
+  margin: 24px 12px 0;
+  padding: 23px 0 22px;
+}
+.alos-genesis-nav a {
+  background:
+    radial-gradient(circle at 76% 42%, rgba(36, 143, 101, .23), transparent 28%),
+    linear-gradient(110deg, rgba(14, 85, 64, .75), rgba(0, 67, 53, .58));
+  border: 1px solid #dcad47;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px rgba(255, 239, 189, .08), 0 8px 18px rgba(0, 29, 22, .13);
+  color: #f8d375;
+  grid-template-columns: 30px minmax(0, 1fr) 18px;
+  min-height: 84px;
+  padding: 15px 18px;
+}
+.alos-genesis-nav a:hover, .alos-genesis-nav a.active { background-color: transparent; border-color: #f3cc68; }
+.alos-genesis-nav a .alos-icon { color: #ffcf68; height: 28px; width: 28px; }
+.alos-genesis-nav a .alos-icon:last-child { color: #fff4d4; height: 22px; width: 22px; }
+.alos-genesis-label { gap: 4px; }
+.alos-genesis-label strong { color: #f8cf70; font-size: 1.2rem; letter-spacing: .06em; }
+.alos-genesis-label small { color: #fff9ea; font-size: .87rem; }
+.alos-genesis-nav > p {
+  color: #efc86d;
+  font-size: .67rem;
+  font-weight: 800;
+  letter-spacing: .34em;
+  margin: 22px 0 0;
+  text-align: center;
+  text-transform: uppercase;
+}
+.alos-sidebar-footer {
+  border-top: 0;
+  gap: 7px;
+  margin: auto 12px 0;
+  padding: 31px 0 0;
+}
+.alos-sidebar-footer::before {
+  background: rgba(238, 245, 237, .22);
+  content: "";
+  height: 1px;
+  margin-bottom: 1px;
+  width: 100%;
+}
+.alos-sidebar-footer .alos-sidebar-section-label { margin: 0 0 10px !important; }
+.alos-sidebar-footer a, .alos-sidebar-footer button {
+  color: rgba(255, 255, 255, .95);
+  font-size: .93rem;
+  min-height: 50px;
+  padding: 9px 5px;
+}
+.alos-sidebar-footer a:hover, .alos-sidebar-footer a.active, .alos-sidebar-footer button:hover {
+  background: rgba(60, 137, 106, .22);
+  border-color: transparent;
+}
+.alos-sidebar-footer .alos-icon { height: 24px; width: 24px; }
+.alos-sidebar-signoff {
+  border-top: 1px solid rgba(238, 245, 237, .22);
+  color: #f2cc74 !important;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.18rem !important;
+  line-height: 1.2;
+  margin: 26px 0 0 !important;
+  padding: 28px 0 20px !important;
+  text-align: right;
+}
+.alos-sidebar-signoff em { color: #f7e4b8; font-size: .98rem; }
+.alos-sidebar-signoff span { background: #f0bd49; display: block; height: 3px; margin: 21px 22% 0 auto; width: 40px; }
+@media (max-width: 1120px) {
+  .alos-app-shell { grid-template-columns: 264px minmax(0, 1fr); }
+  .alos-sidebar { padding-inline: 14px; }
+  .alos-brand { gap: 11px; padding-inline: 9px; }
+  .alos-brand img { height: 58px; width: 58px; }
+  .alos-brand strong { font-size: 1.9rem; }
+  .alos-brand small { font-size: .68rem; }
+  .alos-nav a, .alos-genesis-nav a, .alos-sidebar-footer a, .alos-sidebar-footer button { font-size: .86rem; gap: 13px; padding-inline: 13px; }
+  .alos-nav a .alos-icon, .alos-genesis-nav a .alos-icon, .alos-sidebar-footer a .alos-icon, .alos-sidebar-footer button .alos-icon { height: 21px; width: 21px; }
+}
+@media (max-width: 800px) {
+  .alos-sidebar { min-height: auto; overflow: visible; padding: 23px 16px; }
+  .alos-sidebar::after { display: none; }
+  .alos-brand-motto { margin-bottom: 20px; padding-bottom: 17px; }
+  .alos-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); }
+  .alos-nav .alos-sidebar-section-label { grid-column: 1 / -1; }
+  .alos-nav a, .alos-genesis-nav a, .alos-sidebar-footer a, .alos-sidebar-footer button { min-height: 46px; }
+  .alos-nav a.active .alos-icon { box-shadow: 0 0 0 6px rgba(209, 170, 65, .13); padding: 5px; }
+  .alos-genesis-nav { margin-inline: 0; padding-bottom: 18px; }
+  .alos-genesis-nav a { min-height: 70px; }
+  .alos-sidebar-footer { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin: 0; padding-top: 21px; }
+  .alos-sidebar-footer::before, .alos-sidebar-footer .alos-sidebar-section-label, .alos-sidebar-signoff { grid-column: 1 / -1; }
+  .alos-sidebar-signoff { display: block !important; text-align: left; }
+}
+@media (max-width: 520px) {
+  .alos-sidebar { padding: 19px 14px; }
+  .alos-brand-motto { font-size: .58rem; letter-spacing: .27em; }
+  .alos-nav { grid-template-columns: 1fr 1fr; }
+  .alos-nav a { font-size: .78rem; gap: 9px; padding-inline: 10px; }
+  .alos-nav a .alos-icon { height: 19px; width: 19px; }
+  .alos-sidebar-footer { grid-template-columns: 1fr; }
+}
