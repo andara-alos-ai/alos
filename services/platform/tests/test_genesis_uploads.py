@@ -17,6 +17,7 @@ from alos.genesis.uploads import (
     GenesisUploadDocumentDraftRequest,
     GenesisUploadError,
     GenesisUploadService,
+    WithdrawableGenesisUpload,
     _extract_text,
     _validate_upload_filename,
 )
@@ -155,6 +156,24 @@ def test_complete_upload_is_promoted_to_one_document_center_draft() -> None:
     assert repository.marked == (source.upload_id, documents.result.document_id)
 
 
+def test_unpromoted_upload_removes_its_file_before_its_preview_is_withdrawn() -> None:
+    upload_id = uuid4()
+    repository = _WithdrawalRepositoryStub(upload_id)
+    storage = _WithdrawalStorageStub()
+    service = GenesisUploadService(repository, storage, _DocumentCenterStub())  # type: ignore[arg-type]
+
+    service.withdraw_upload(
+        upload_id,
+        organization_id=uuid4(),
+        actor_user_id=uuid4(),
+        correlation_id=uuid4(),
+    )
+
+    assert storage.removed == "genesis-uploads/test/source.bin"
+    assert repository.completed == upload_id
+    assert repository.cancelled is None
+
+
 class _DraftRepositoryStub:
     def __init__(self, source: DraftableGenesisUpload) -> None:
         self.source = source
@@ -174,6 +193,36 @@ class _DraftRepositoryStub:
 
 class _StorageStub:
     pass
+
+
+class _WithdrawalRepositoryStub:
+    def __init__(self, upload_id: object) -> None:
+        self.upload_id = upload_id
+        self.completed: object | None = None
+        self.cancelled: object | None = None
+
+    def begin_withdrawal(
+        self, upload_id: object, **kwargs: object
+    ) -> WithdrawableGenesisUpload:
+        assert upload_id == self.upload_id
+        return WithdrawableGenesisUpload(
+            upload_id=upload_id,  # type: ignore[arg-type]
+            object_key="genesis-uploads/test/source.bin",
+        )
+
+    def complete_withdrawal(self, upload_id: object, **kwargs: object) -> None:
+        self.completed = upload_id
+
+    def cancel_withdrawal(self, upload_id: object, **kwargs: object) -> None:
+        self.cancelled = upload_id
+
+
+class _WithdrawalStorageStub:
+    def __init__(self) -> None:
+        self.removed: str | None = None
+
+    def remove(self, object_key: str) -> None:
+        self.removed = object_key
 
 
 class _DocumentResultStub:

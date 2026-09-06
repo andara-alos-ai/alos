@@ -42,6 +42,7 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             "011_genesis_document_workflows.sql",
             "012_genesis_document_uploads.sql",
             "013_genesis_upload_document_drafts.sql",
+            "014_genesis_upload_withdrawal.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)

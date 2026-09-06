@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { formatUploadSize, supportsGenesisUpload } from "./genesis-uploads";
+import {
+  formatUploadSize,
+  supportsGenesisUpload,
+  uploadExtractionLabel,
+  type GenesisUploadRecord,
+} from "./genesis-uploads";
 
 describe("Genesis upload helpers", () => {
   it("accepts the supported document formats only", () => {
@@ -13,5 +18,11 @@ describe("Genesis upload helpers", () => {
     expect(formatUploadSize(900)).toBe("900 B");
     expect(formatUploadSize(2048)).toBe("2 KB");
     expect(formatUploadSize(1_572_864)).toBe("1.5 MB");
+  });
+
+  it("explains when an upload is being or has been withdrawn", () => {
+    const upload = { status: "WITHDRAWAL_PENDING" } as GenesisUploadRecord;
+    expect(uploadExtractionLabel(upload)).toBe("Menghapus berkas");
+    expect(uploadExtractionLabel({ ...upload, status: "WITHDRAWN" })).toBe("Unggahan dibatalkan");
   });
 });

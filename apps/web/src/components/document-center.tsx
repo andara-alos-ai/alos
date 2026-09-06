@@ -54,6 +54,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const [uploads, setUploads] = useState<GenesisUploadRecord[]>([]);
   const [uploading, setUploading] = useState(false);
   const [promotingUpload, setPromotingUpload] = useState(false);
+  const [withdrawingUpload, setWithdrawingUpload] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [documentQuery, setDocumentQuery] = useState("");
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -271,6 +272,28 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     }
   }
 
+  async function withdrawGenesisUpload(upload: GenesisUploadRecord) {
+    if (!window.confirm(`Batalkan unggahan “${upload.original_filename}”? Berkas asli dan preview teks akan dihapus.`)) {
+      return;
+    }
+    setWithdrawingUpload(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/v1/genesis/uploads/${upload.genesis_upload_id}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error(await errorDetail(response));
+      setUploads((current) => current.filter((item) => item.genesis_upload_id !== upload.genesis_upload_id));
+      setNotice("Unggahan dibatalkan. Berkas asli dan preview teks telah dihapus.");
+    } catch (failure) {
+      setError(messageFrom(failure));
+    } finally {
+      setWithdrawingUpload(false);
+    }
+  }
+
   async function completeCheck(checkKey: string) {
     if (!selected) return;
     await perform(`/api/v1/documents/${selected.document.document_id}/checklist/${checkKey}/complete`, {
@@ -376,8 +399,11 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
               <em className={latestUpload.extraction_complete ? "ready" : "review"}>{uploadExtractionLabel(latestUpload)}</em>
             </div>
             {latestUpload.preview ? <details><summary>Lihat preview teks</summary><pre>{latestUpload.preview}</pre></details> : <p>{latestUpload.extraction_note ?? "Tidak ada preview yang dapat ditampilkan. Periksa berkas asli sebelum melanjutkan."}</p>}
-            {latestUpload.status === "SOURCE_RECEIVED" && latestUpload.extraction_complete ? <button className="alos-genesis-upload-promote" disabled={promotingUpload} onClick={() => void createDraftFromUpload(latestUpload)} type="button">{promotingUpload ? "Menyimpan DRAFT…" : "Simpan sebagai DRAFT untuk ditinjau"}</button> : null}
-            <p className="alos-genesis-upload-preview-note">{latestUpload.status === "DRAFT_CREATED" ? "DRAFT sudah tersimpan di Document Center dan menunggu checklist serta review independen." : "Berkas ini belum menjadi dokumen resmi dan belum dibaca GENESIS. Setelah preview disetujui, simpan sebagai DRAFT untuk menjalani checklist dan review independen."}</p>
+            {latestUpload.status === "SOURCE_RECEIVED" ? <div className="alos-genesis-upload-actions">
+              {latestUpload.extraction_complete ? <button className="alos-genesis-upload-promote" disabled={promotingUpload || withdrawingUpload} onClick={() => void createDraftFromUpload(latestUpload)} type="button">{promotingUpload ? "Menyimpan DRAFT…" : "Simpan sebagai DRAFT untuk ditinjau"}</button> : null}
+              <button className="alos-genesis-upload-withdraw" disabled={promotingUpload || withdrawingUpload} onClick={() => void withdrawGenesisUpload(latestUpload)} type="button">{withdrawingUpload ? "Menghapus berkas…" : "Batalkan & hapus berkas"}</button>
+            </div> : null}
+            <p className="alos-genesis-upload-preview-note">{latestUpload.status === "DRAFT_CREATED" ? "DRAFT sudah tersimpan di Document Center dan menunggu checklist serta review independen." : "Berkas ini belum menjadi dokumen resmi dan belum dibaca GENESIS. Jika salah unggah, batalkan untuk menghapus berkas dan preview; jika sudah tepat, simpan sebagai DRAFT untuk menjalani checklist serta review independen."}</p>
           </article> : null}
           {!workspaceId ? <p className="alos-empty-copy">Akun ini belum memiliki workspace aktif untuk membuat DRAFT.</p> : <form className="alos-genesis-draft-form" onSubmit={createDraft}><label><span className="sr-only">Tujuan atau kebutuhan untuk Genesis</span><textarea aria-label="Tujuan atau kebutuhan untuk Genesis" maxLength={10000} minLength={20} onChange={(event) => setRequirement(event.target.value)} placeholder="Ketik pertanyaan atau kebutuhan Anda untuk GENESIS…" required value={requirement} /></label><div><span className="alos-genesis-composer-tools" aria-hidden="true">⌕　▦　▥</span><small>Hasil awal selalu DRAFT dan membutuhkan pemeriksaan manusia.</small><button aria-label="Buat DRAFT dari kebutuhan" disabled={submitting} type="submit">{submitting ? "…" : "➤"}</button></div></form>}
           <p className="alos-genesis-disclaimer">GENESIS dapat membuat kesalahan. Verifikasi informasi penting sebelum membuat keputusan.</p>

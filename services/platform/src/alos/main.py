@@ -60,6 +60,7 @@ from alos.genesis.history import (
 )
 from alos.genesis.uploads import (
     FilesystemGenesisUploadStorage,
+    GenesisUploadConflictError,
     GenesisUploadDocumentDraftRequest,
     GenesisUploadError,
     GenesisUploadNotFoundError,
@@ -435,6 +436,8 @@ def genesis_document_workflow_http_error(error: GenesisDocumentWorkflowError) ->
 def genesis_upload_http_error(error: GenesisUploadError) -> HTTPException:
     if isinstance(error, GenesisUploadNotFoundError):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+    if isinstance(error, GenesisUploadConflictError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
 
@@ -817,6 +820,25 @@ def get_genesis_upload(
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
         )
+    except GenesisUploadError as error:
+        raise genesis_upload_http_error(error) from error
+
+
+@app.delete("/api/v1/genesis/uploads/{upload_id}", status_code=status.HTTP_204_NO_CONTENT)
+def withdraw_genesis_upload(
+    upload_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> Response:
+    """Erase an unpromoted upload while retaining only its immutable audit event."""
+    require_genesis_director(actor)
+    try:
+        get_genesis_upload_service().withdraw_upload(
+            upload_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     except GenesisUploadError as error:
         raise genesis_upload_http_error(error) from error
 

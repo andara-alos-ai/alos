@@ -42,7 +42,12 @@ GenesisUploadExtractionStatus = Literal[
     "EXTRACTOR_UNAVAILABLE",
     "TRUNCATED",
 ]
-GenesisUploadStatus = Literal["SOURCE_RECEIVED", "DRAFT_CREATED"]
+GenesisUploadStatus = Literal[
+    "SOURCE_RECEIVED",
+    "DRAFT_CREATED",
+    "WITHDRAWAL_PENDING",
+    "WITHDRAWN",
+]
 
 _SUPPORTED_EXTENSIONS = frozenset(
     {"pdf", "docx", "xlsx", "xls", "csv", "json", "md", "txt"}
@@ -59,6 +64,10 @@ class GenesisUploadError(RuntimeError):
 
 class GenesisUploadNotFoundError(GenesisUploadError):
     """The requested upload is not in the current actor workspace."""
+
+
+class GenesisUploadConflictError(GenesisUploadError):
+    """The requested upload can no longer move through the requested state."""
 
 
 class GenesisUploadStorageError(GenesisUploadError):
@@ -112,6 +121,12 @@ class DraftableGenesisUpload:
     extracted_text: str
     file_sha256: str
     extracted_text_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class WithdrawableGenesisUpload:
+    upload_id: UUID
+    object_key: str
 
 
 class GenesisUploadDocumentDraftRequest(BaseModel):
@@ -191,10 +206,14 @@ class FilesystemGenesisUploadStorage:
 
     def remove(self, object_key: str) -> None:
         if self._provider != "filesystem":
-            return
+            raise GenesisUploadStorageError("Genesis upload storage is not configured for removal")
         root = self._root.resolve()
         target = root / Path(object_key)
-        _unlink_if_safe(root, target)
+        _require_descendant(root, target)
+        try:
+            target.unlink(missing_ok=True)
+        except OSError as error:
+            raise GenesisUploadStorageError("uploaded file could not be removed safely") from error
 
 
 class GenesisUploadRepository:
@@ -290,7 +309,7 @@ class GenesisUploadRepository:
                        extraction_status, extraction_complete, extracted_text,
                        extracted_text_sha256, extraction_note, created_at
                 FROM genesis.document_uploads
-                WHERE organization_id = %s AND workspace_id = %s
+                WHERE organization_id = %s AND workspace_id = %s AND status <> 'WITHDRAWN'
                 ORDER BY created_at DESC, genesis_upload_id DESC
                 """,
                 (organization_id, workspace_id),
@@ -363,6 +382,104 @@ class GenesisUploadRepository:
             file_sha256=row["file_sha256"],
             extracted_text_sha256=row["extracted_text_sha256"],
         )
+
+    def begin_withdrawal(
+        self,
+        upload_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+    ) -> WithdrawableGenesisUpload:
+        record = self.get(
+            upload_id,
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+        )
+        if record.status == "DRAFT_CREATED":
+            raise GenesisUploadConflictError(
+                "an upload that is already a Document Center DRAFT cannot be withdrawn here"
+            )
+        if record.status != "SOURCE_RECEIVED":
+            raise GenesisUploadConflictError("uploaded source is already being withdrawn")
+        with self._transaction() as connection:
+            row = connection.execute(
+                """
+                UPDATE genesis.document_uploads AS upload
+                SET status = 'WITHDRAWAL_PENDING'
+                FROM workspace.memberships AS membership
+                WHERE upload.genesis_upload_id = %s AND upload.organization_id = %s
+                  AND membership.workspace_id = upload.workspace_id
+                  AND membership.user_id = %s AND upload.status = 'SOURCE_RECEIVED'
+                RETURNING upload.object_key
+                """,
+                (upload_id, organization_id, actor_user_id),
+            ).fetchone()
+        if row is None:
+            raise GenesisUploadConflictError(
+                "uploaded source state changed before it could be withdrawn"
+            )
+        return WithdrawableGenesisUpload(upload_id=upload_id, object_key=row["object_key"])
+
+    def cancel_withdrawal(
+        self,
+        upload_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE genesis.document_uploads AS upload
+                SET status = 'SOURCE_RECEIVED'
+                FROM workspace.memberships AS membership
+                WHERE upload.genesis_upload_id = %s AND upload.organization_id = %s
+                  AND membership.workspace_id = upload.workspace_id
+                  AND membership.user_id = %s AND upload.status = 'WITHDRAWAL_PENDING'
+                """,
+                (upload_id, organization_id, actor_user_id),
+            )
+
+    def complete_withdrawal(
+        self,
+        upload_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> None:
+        with self._transaction() as connection:
+            row = connection.execute(
+                """
+                UPDATE genesis.document_uploads AS upload
+                SET status = 'WITHDRAWN', extraction_status = 'NO_TEXT',
+                    extraction_complete = false,
+                    extracted_text = NULL, extracted_text_sha256 = NULL,
+                    extraction_note =
+                        'Original file and extracted preview removed at Director request.'
+                FROM workspace.memberships AS membership
+                WHERE upload.genesis_upload_id = %s AND upload.organization_id = %s
+                  AND membership.workspace_id = upload.workspace_id
+                  AND membership.user_id = %s AND upload.status = 'WITHDRAWAL_PENDING'
+                RETURNING upload.workspace_id
+                """,
+                (upload_id, organization_id, actor_user_id),
+            ).fetchone()
+            if row is None:
+                raise GenesisUploadConflictError("uploaded source could not be marked as withdrawn")
+            self._append_audit(
+                connection,
+                organization_id=organization_id,
+                actor_user_id=actor_user_id,
+                upload_id=upload_id,
+                correlation_id=correlation_id,
+                action="GENESIS_DOCUMENT_UPLOAD_WITHDRAWN",
+                reason=(
+                    "Director withdrew an incorrect upload; its stored file and preview "
+                    "were removed"
+                ),
+                metadata={"workspace_id": str(row["workspace_id"])},
+            )
 
     def mark_document_draft_created(
         self,
@@ -574,6 +691,35 @@ class GenesisUploadService:
             correlation_id=correlation_id,
         )
         return document
+
+    def withdraw_upload(
+        self,
+        upload_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> None:
+        pending = self._repository.begin_withdrawal(
+            upload_id,
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+        )
+        try:
+            self._storage.remove(pending.object_key)
+        except GenesisUploadError:
+            self._repository.cancel_withdrawal(
+                upload_id,
+                organization_id=organization_id,
+                actor_user_id=actor_user_id,
+            )
+            raise
+        self._repository.complete_withdrawal(
+            upload_id,
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+        )
 
 
 def _validate_upload_filename(filename: str | None) -> tuple[str, GenesisUploadExtension]:

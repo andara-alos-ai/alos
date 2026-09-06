@@ -10,7 +10,11 @@ export const genesisUploadExtensions = [
 ] as const;
 
 export type GenesisUploadExtension = (typeof genesisUploadExtensions)[number];
-export type GenesisUploadStatus = "SOURCE_RECEIVED" | "DRAFT_CREATED";
+export type GenesisUploadStatus =
+  | "SOURCE_RECEIVED"
+  | "DRAFT_CREATED"
+  | "WITHDRAWAL_PENDING"
+  | "WITHDRAWN";
 export type GenesisUploadExtractionStatus =
   | "EXTRACTED"
   | "NO_TEXT"
@@ -49,6 +53,8 @@ export function formatUploadSize(bytes: number): string {
 
 export function uploadExtractionLabel(upload: GenesisUploadRecord): string {
   if (upload.status === "DRAFT_CREATED") return "DRAFT untuk ditinjau";
+  if (upload.status === "WITHDRAWAL_PENDING") return "Menghapus berkas";
+  if (upload.status === "WITHDRAWN") return "Unggahan dibatalkan";
   if (upload.extraction_status === "EXTRACTED" && upload.extraction_complete) {
     return "Teks siap ditinjau";
   }
