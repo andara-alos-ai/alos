@@ -12,8 +12,11 @@ from starlette.datastructures import UploadFile
 
 from alos.config import Settings
 from alos.genesis.uploads import (
+    DraftableGenesisUpload,
     FilesystemGenesisUploadStorage,
+    GenesisUploadDocumentDraftRequest,
     GenesisUploadError,
+    GenesisUploadService,
     _extract_text,
     _validate_upload_filename,
 )
@@ -119,3 +122,72 @@ def test_original_upload_is_stored_under_a_generated_path_with_a_digest(tmp_path
     assert len(stored.file_sha256) == 64
     assert stored.local_path.read_bytes() == content
     assert stored.object_key.endswith(".bin")
+
+
+def test_complete_upload_is_promoted_to_one_document_center_draft() -> None:
+    source = DraftableGenesisUpload(
+        upload_id=uuid4(),
+        workspace_id=uuid4(),
+        original_filename="Rencana Operasional 2026.txt",
+        extracted_text="Target: menyiapkan baseline operasional.",
+        file_sha256="f" * 64,
+        extracted_text_sha256="e" * 64,
+    )
+    repository = _DraftRepositoryStub(source)
+    documents = _DocumentCenterStub()
+    service = GenesisUploadService(repository, _StorageStub(), documents)  # type: ignore[arg-type]
+
+    result = service.create_document_draft(
+        source.upload_id,
+        GenesisUploadDocumentDraftRequest(category="OPERATIONAL"),
+        organization_id=uuid4(),
+        actor_user_id=uuid4(),
+        correlation_id=uuid4(),
+    )
+
+    assert result is documents.result
+    assert documents.request.workspace_id == source.workspace_id
+    assert documents.request.title == "Draft sumber — Rencana Operasional 2026"
+    assert documents.request.category == "OPERATIONAL"
+    assert source.file_sha256 in documents.request.content
+    assert source.extracted_text_sha256 in documents.request.content
+    assert source.extracted_text in documents.request.content
+    assert repository.marked == (source.upload_id, documents.result.document_id)
+
+
+class _DraftRepositoryStub:
+    def __init__(self, source: DraftableGenesisUpload) -> None:
+        self.source = source
+        self.marked: tuple[object, object] | None = None
+
+    def get_draftable_upload(self, *args: object, **kwargs: object) -> DraftableGenesisUpload:
+        return self.source
+
+    def mark_document_draft_created(
+        self,
+        upload_id: object,
+        document_id: object,
+        **kwargs: object,
+    ) -> None:
+        self.marked = (upload_id, document_id)
+
+
+class _StorageStub:
+    pass
+
+
+class _DocumentResultStub:
+    def __init__(self) -> None:
+        self.document_id = uuid4()
+
+
+class _DocumentCenterStub:
+    def __init__(self) -> None:
+        self.request = None
+        self.result = _DocumentResultStub()
+
+    def create_uploaded_source_draft(
+        self, request: object, **kwargs: object
+    ) -> _DocumentResultStub:
+        self.request = request
+        return self.result

@@ -29,9 +29,10 @@ import psycopg
 from fastapi import UploadFile
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from alos.config import Settings
+from alos.documents.center import DocumentCenterRepository, DocumentDraftRequest, DocumentRecord
 from alos.persistence.database import psycopg_url
 
 GenesisUploadExtension = Literal["pdf", "docx", "xlsx", "xls", "csv", "json", "md", "txt"]
@@ -41,6 +42,7 @@ GenesisUploadExtractionStatus = Literal[
     "EXTRACTOR_UNAVAILABLE",
     "TRUNCATED",
 ]
+GenesisUploadStatus = Literal["SOURCE_RECEIVED", "DRAFT_CREATED"]
 
 _SUPPORTED_EXTENSIONS = frozenset(
     {"pdf", "docx", "xlsx", "xls", "csv", "json", "md", "txt"}
@@ -76,7 +78,7 @@ class GenesisUploadRecord(BaseModel):
     byte_size: int
     file_sha256: str
     object_key: str
-    status: Literal["SOURCE_RECEIVED"]
+    status: GenesisUploadStatus
     extraction_status: GenesisUploadExtractionStatus
     extraction_complete: bool
     extracted_characters: int
@@ -100,6 +102,26 @@ class StoredObject:
     byte_size: int
     file_sha256: str
     local_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class DraftableGenesisUpload:
+    upload_id: UUID
+    workspace_id: UUID
+    original_filename: str
+    extracted_text: str
+    file_sha256: str
+    extracted_text_sha256: str
+
+
+class GenesisUploadDocumentDraftRequest(BaseModel):
+    """The Director explicitly promotes a complete preview to a canonical DRAFT."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=3, max_length=200)
+    category: str = Field(default="UPLOADED_SOURCE", pattern=r"^[A-Z][A-Z0-9_ ]{1,79}$")
+    classification: Literal["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"] = "INTERNAL"
 
 
 class FilesystemGenesisUploadStorage:
@@ -302,6 +324,86 @@ class GenesisUploadRepository:
             raise GenesisUploadNotFoundError("uploaded Genesis source was not found")
         return _record_from_row(row)
 
+    def get_draftable_upload(
+        self,
+        upload_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+    ) -> DraftableGenesisUpload:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT upload.genesis_upload_id, upload.workspace_id, upload.original_filename,
+                       upload.extracted_text, upload.file_sha256, upload.extracted_text_sha256,
+                       upload.status, upload.extraction_status, upload.extraction_complete
+                FROM genesis.document_uploads AS upload
+                JOIN workspace.memberships AS membership
+                  ON membership.workspace_id = upload.workspace_id
+                WHERE upload.genesis_upload_id = %s AND upload.organization_id = %s
+                  AND membership.user_id = %s
+                """,
+                (upload_id, organization_id, actor_user_id),
+            ).fetchone()
+        if row is None:
+            raise GenesisUploadNotFoundError("uploaded Genesis source was not found")
+        if row["status"] != "SOURCE_RECEIVED":
+            raise GenesisUploadError("uploaded source has already been saved as a document DRAFT")
+        if row["extraction_status"] != "EXTRACTED" or not row["extraction_complete"]:
+            raise GenesisUploadError(
+                "uploaded source needs a complete text extraction before it can become a DRAFT"
+            )
+        if not row["extracted_text"] or not row["extracted_text_sha256"]:
+            raise GenesisUploadError("uploaded source has no text available for a document DRAFT")
+        return DraftableGenesisUpload(
+            upload_id=row["genesis_upload_id"],
+            workspace_id=row["workspace_id"],
+            original_filename=row["original_filename"],
+            extracted_text=row["extracted_text"],
+            file_sha256=row["file_sha256"],
+            extracted_text_sha256=row["extracted_text_sha256"],
+        )
+
+    def mark_document_draft_created(
+        self,
+        upload_id: UUID,
+        document_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> None:
+        with self._transaction() as connection:
+            row = connection.execute(
+                """
+                UPDATE genesis.document_uploads AS upload
+                SET status = 'DRAFT_CREATED', canonical_document_id = %s
+                FROM workspace.memberships AS membership
+                WHERE upload.genesis_upload_id = %s AND upload.organization_id = %s
+                  AND membership.workspace_id = upload.workspace_id
+                  AND membership.user_id = %s AND upload.status = 'SOURCE_RECEIVED'
+                RETURNING upload.workspace_id
+                """,
+                (document_id, upload_id, organization_id, actor_user_id),
+            ).fetchone()
+            if row is None:
+                raise GenesisUploadError(
+                    "uploaded source could not be marked as a canonical document DRAFT"
+                )
+            self._append_audit(
+                connection,
+                organization_id=organization_id,
+                actor_user_id=actor_user_id,
+                upload_id=upload_id,
+                correlation_id=correlation_id,
+                action="GENESIS_UPLOAD_DOCUMENT_DRAFT_CREATED",
+                reason="Director promoted a complete Genesis upload to a Document Center DRAFT",
+                metadata={
+                    "document_id": str(document_id),
+                    "workspace_id": str(row["workspace_id"]),
+                },
+            )
+
     @staticmethod
     def _require_workspace_actor(
         connection: psycopg.Connection[Any],
@@ -334,24 +436,26 @@ class GenesisUploadRepository:
         upload_id: UUID,
         correlation_id: UUID,
         metadata: dict[str, object],
+        action: str = "GENESIS_DOCUMENT_UPLOADED",
+        reason: str = (
+            "Director uploaded a document source; it remains outside Genesis retrieval "
+            "until reviewed"
+        ),
     ) -> None:
         connection.execute(
             """
             INSERT INTO audit.events (
                 organization_id, actor_kind, actor_user_id, action, entity_type,
                 entity_id, correlation_id, reason, metadata
-            ) VALUES (%s, 'HUMAN', %s, 'GENESIS_DOCUMENT_UPLOADED', 'GENESIS_DOCUMENT_UPLOAD',
-                      %s, %s, %s, %s)
+            ) VALUES (%s, 'HUMAN', %s, %s, 'GENESIS_DOCUMENT_UPLOAD', %s, %s, %s, %s)
             """,
             (
                 organization_id,
                 actor_user_id,
+                action,
                 upload_id,
                 correlation_id,
-                (
-                    "Director uploaded a document source; it remains outside Genesis retrieval "
-                    "until reviewed"
-                ),
+                reason,
                 Jsonb(metadata),
             ),
         )
@@ -376,10 +480,14 @@ class GenesisUploadService:
     """Coordinate bounded upload storage, extraction, and append-only metadata."""
 
     def __init__(
-        self, repository: GenesisUploadRepository, storage: FilesystemGenesisUploadStorage
+        self,
+        repository: GenesisUploadRepository,
+        storage: FilesystemGenesisUploadStorage,
+        documents: DocumentCenterRepository,
     ) -> None:
         self._repository = repository
         self._storage = storage
+        self._documents = documents
 
     async def upload(
         self,
@@ -421,6 +529,52 @@ class GenesisUploadService:
             self._storage.remove(stored.object_key)
             raise
 
+    def create_document_draft(
+        self,
+        upload_id: UUID,
+        request: GenesisUploadDocumentDraftRequest,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> DocumentRecord:
+        source = self._repository.get_draftable_upload(
+            upload_id,
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+        )
+        title = (
+            request.title.strip()
+            if request.title is not None
+            else _draft_title(source.original_filename)
+        )
+        content = _document_draft_content(source)
+        if len(content) > 50_000:
+            raise GenesisUploadError(
+                "uploaded text is too large for one canonical DRAFT and needs a segmented review"
+            )
+        document = self._documents.create_uploaded_source_draft(
+            DocumentDraftRequest(
+                workspace_id=source.workspace_id,
+                title=title,
+                content=content,
+                category=request.category,
+                classification=request.classification,
+            ),
+            genesis_upload_id=source.upload_id,
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+        )
+        self._repository.mark_document_draft_created(
+            source.upload_id,
+            document.document_id,
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+        )
+        return document
+
 
 def _validate_upload_filename(filename: str | None) -> tuple[str, GenesisUploadExtension]:
     if filename is None or not filename.strip():
@@ -433,6 +587,29 @@ def _validate_upload_filename(filename: str | None) -> tuple[str, GenesisUploadE
         supported = ", ".join(sorted(_SUPPORTED_EXTENSIONS))
         raise GenesisUploadError(f"unsupported document format; supported formats: {supported}")
     return normalized, cast(GenesisUploadExtension, extension)
+
+
+def _draft_title(filename: str) -> str:
+    stem = Path(filename).stem.strip() or "Dokumen unggahan"
+    return f"Draft sumber — {stem}"[:200]
+
+
+def _document_draft_content(source: DraftableGenesisUpload) -> str:
+    return "\n".join(
+        (
+            f"# {_draft_title(source.original_filename)}",
+            "",
+            "## Integritas sumber unggahan",
+            f"- Nama berkas asli: {source.original_filename}",
+            f"- SHA-256 berkas: {source.file_sha256}",
+            f"- SHA-256 teks ekstrak: {source.extracted_text_sha256}",
+            f"- Genesis upload ID: {source.upload_id}",
+            "- Status: DRAFT untuk pemeriksaan manusia.",
+            "",
+            "## Teks hasil ekstraksi",
+            source.extracted_text,
+        )
+    )
 
 
 def _extract_text(path: Path, extension: GenesisUploadExtension) -> ExtractedText:

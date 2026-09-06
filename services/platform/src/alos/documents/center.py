@@ -76,6 +76,7 @@ class DocumentRecord(BaseModel):
     workspace_id: UUID
     division_code: str | None
     genesis_conversation_id: UUID | None
+    genesis_upload_id: UUID | None
     title: str
     category: str
     classification: DocumentClassification
@@ -192,6 +193,32 @@ class DocumentCenterRepository:
             audit_reason="Genesis prepared a source-bound analysis draft that remains DRAFT",
         )
 
+    def create_uploaded_source_draft(
+        self,
+        request: DocumentDraftRequest,
+        *,
+        genesis_upload_id: UUID,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> DocumentRecord:
+        """Make a reviewed upload a canonical DRAFT without changing its binary."""
+        return self._create_draft(
+            request,
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
+            origin="MANUAL",
+            genesis_conversation_id=None,
+            generated_by_system=False,
+            audit_actor_kind="HUMAN",
+            genesis_upload_id=genesis_upload_id,
+            human_audit_action="GENESIS_UPLOAD_IMPORTED_TO_DOCUMENT_DRAFT",
+            human_audit_reason=(
+                "Director saved an extracted Genesis upload as a canonical Document Center DRAFT"
+            ),
+        )
+
     def create_genesis_workflow_draft(
         self,
         request: DocumentDraftRequest,
@@ -234,7 +261,8 @@ class DocumentCenterRepository:
                 """
                 SELECT document_record.document_id, document_record.organization_id,
                        document_record.workspace_id, division.code AS division_code,
-                       document_record.genesis_conversation_id, document_record.title,
+                       document_record.genesis_conversation_id, document_record.genesis_upload_id,
+                       document_record.title,
                        document_record.category, document_record.classification,
                        document_record.origin, document_record.status,
                        document_record.owner_user_id, document_record.created_by_user_id,
@@ -493,10 +521,13 @@ class DocumentCenterRepository:
         genesis_conversation_id: UUID | None,
         generated_by_system: bool,
         audit_actor_kind: Literal["HUMAN", "SYSTEM"],
+        genesis_upload_id: UUID | None = None,
         system_audit_action: str = "GENESIS_DOCUMENT_DRAFT_CREATED",
         system_audit_reason: str = (
             "Genesis prepared a governed document skeleton that remains DRAFT"
         ),
+        human_audit_action: str = "DOCUMENT_DRAFT_CREATED",
+        human_audit_reason: str = "Human created a canonical Document Center draft",
     ) -> DocumentRecord:
         with self._transaction() as connection:
             workspace = self._require_workspace_actor(
@@ -505,18 +536,21 @@ class DocumentCenterRepository:
             row = connection.execute(
                 """
                 INSERT INTO documents.records (
-                    organization_id, workspace_id, division_id, genesis_conversation_id, title,
-                    category, classification, origin, owner_user_id, created_by_user_id
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    organization_id, workspace_id, division_id, genesis_conversation_id,
+                    genesis_upload_id, title, category, classification, origin, owner_user_id,
+                    created_by_user_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING document_id, organization_id, workspace_id, division_id,
-                          genesis_conversation_id, title, category, classification, origin, status,
-                          owner_user_id, created_by_user_id, created_at, updated_at
+                          genesis_conversation_id, genesis_upload_id, title, category,
+                          classification, origin, status, owner_user_id, created_by_user_id,
+                          created_at, updated_at
                 """,
                 (
                     organization_id,
                     request.workspace_id,
                     workspace["division_id"],
                     genesis_conversation_id,
+                    genesis_upload_id,
                     request.title.strip(),
                     request.category,
                     request.classification,
@@ -549,6 +583,8 @@ class DocumentCenterRepository:
             metadata = {"origin": origin, "document_version": version["version_number"]}
             if genesis_conversation_id is not None:
                 metadata["conversation_id"] = str(genesis_conversation_id)
+            if genesis_upload_id is not None:
+                metadata["genesis_upload_id"] = str(genesis_upload_id)
             if audit_actor_kind == "SYSTEM":
                 self._append_system_audit(
                     connection,
@@ -565,11 +601,11 @@ class DocumentCenterRepository:
                     connection,
                     organization_id=organization_id,
                     actor_user_id=actor_user_id,
-                    action="DOCUMENT_DRAFT_CREATED",
+                    action=human_audit_action,
                     entity_type="DOCUMENT",
                     entity_id=row["document_id"],
                     correlation_id=correlation_id,
-                    reason="Human created a canonical Document Center draft",
+                    reason=human_audit_reason,
                     metadata=metadata,
                 )
         return DocumentRecord(
@@ -643,7 +679,8 @@ class DocumentCenterRepository:
             f"""
             SELECT document_record.document_id, document_record.organization_id,
                    document_record.workspace_id, division.code AS division_code,
-                   document_record.genesis_conversation_id, document_record.title,
+                   document_record.genesis_conversation_id, document_record.genesis_upload_id,
+                   document_record.title,
                    document_record.category, document_record.classification,
                    document_record.origin, document_record.status,
                    document_record.owner_user_id, document_record.created_by_user_id,

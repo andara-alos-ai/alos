@@ -60,6 +60,7 @@ from alos.genesis.history import (
 )
 from alos.genesis.uploads import (
     FilesystemGenesisUploadStorage,
+    GenesisUploadDocumentDraftRequest,
     GenesisUploadError,
     GenesisUploadNotFoundError,
     GenesisUploadRecord,
@@ -309,7 +310,9 @@ def get_genesis_upload_repository() -> GenesisUploadRepository:
 def get_genesis_upload_service() -> GenesisUploadService:
     settings = get_settings()
     return GenesisUploadService(
-        get_genesis_upload_repository(), FilesystemGenesisUploadStorage(settings)
+        get_genesis_upload_repository(),
+        FilesystemGenesisUploadStorage(settings),
+        get_document_center_repository(),
     )
 
 
@@ -816,6 +819,31 @@ def get_genesis_upload(
         )
     except GenesisUploadError as error:
         raise genesis_upload_http_error(error) from error
+
+
+@app.post(
+    "/api/v1/genesis/uploads/{upload_id}/document-draft",
+    response_model=DocumentRecord,
+)
+def create_document_draft_from_genesis_upload(
+    upload_id: UUID,
+    request: GenesisUploadDocumentDraftRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> DocumentRecord:
+    """Promote one complete upload to a checklist-bound canonical DRAFT only."""
+    require_genesis_director(actor)
+    try:
+        return get_genesis_upload_service().create_document_draft(
+            upload_id,
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except GenesisUploadError as error:
+        raise genesis_upload_http_error(error) from error
+    except DocumentCenterError as error:
+        raise document_http_error(error) from error
 
 
 @app.get(
