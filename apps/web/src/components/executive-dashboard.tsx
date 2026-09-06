@@ -70,7 +70,6 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
   const displayRoleLabel = profile?.roleLabel ?? roleLabel;
   const pageTitle = page?.title ?? profile?.homeTitle ?? "Selamat datang di ALOS";
   const pageDescription = page?.description ?? profile?.homeDescription ?? "Satu ruang kerja untuk melihat kondisi perusahaan, keputusan, dan aksi yang telah terdaftar.";
-  const searchPlaceholder = page?.searchPlaceholder ?? "Cari proyek, dokumen, divisi, atau tanya GENESIS…";
   const isFocusedWorkspace = module === "documents" || module === "genesis";
   const navigation = profile
     ? [{ href: "/", key: "executive" as const, label: profile.homeLabel, icon: "home" as const }, ...navItems]
@@ -123,11 +122,6 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
 
       <section className="alos-main">
         <header className="alos-topbar">
-          <label className="alos-search" aria-label="Pencarian ALOS">
-            <AppIcon name="search" />
-            <input disabled placeholder={searchPlaceholder} />
-            <kbd>⌘ K</kbd>
-          </label>
           <div className="alos-profile">
             <div className="alos-date"><strong>{formatCurrentDate()}</strong><span>{formatCurrentTime()}</span></div>
             <button aria-label="Notifikasi belum tersedia" className="alos-notifications" disabled type="button"><AppIcon name="bell" /><i /></button>

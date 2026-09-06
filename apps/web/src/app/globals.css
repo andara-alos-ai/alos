@@ -704,6 +704,7 @@ th { color: #aac0d5; font-weight: 700; }
 }
 .alos-sidebar-signoff em { color: #f7e4b8; font-size: .98rem; }
 .alos-sidebar-signoff span { background: #f0bd49; display: block; height: 3px; margin: 21px 22% 0 auto; width: 40px; }
+.alos-topbar { justify-content: flex-end; }
 @media (max-width: 1120px) {
   .alos-app-shell { grid-template-columns: 264px minmax(0, 1fr); }
   .alos-sidebar { padding-inline: 14px; }
