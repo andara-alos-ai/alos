@@ -632,8 +632,7 @@ th { color: #aac0d5; font-weight: 700; }
 .alos-nav a.active .alos-icon {
   background: rgba(7, 71, 53, .65);
   border-radius: 50%;
-  box-shadow: 0 0 0 10px rgba(209, 170, 65, .13);
-  padding: 8px;
+  box-shadow: 0 0 0 8px rgba(209, 170, 65, .13);
 }
 .alos-genesis-nav {
   border-bottom: 1px solid rgba(238, 245, 237, .22);
@@ -722,7 +721,7 @@ th { color: #aac0d5; font-weight: 700; }
   .alos-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); }
   .alos-nav .alos-sidebar-section-label { grid-column: 1 / -1; }
   .alos-nav a, .alos-genesis-nav a, .alos-sidebar-footer a, .alos-sidebar-footer button { min-height: 46px; }
-  .alos-nav a.active .alos-icon { box-shadow: 0 0 0 6px rgba(209, 170, 65, .13); padding: 5px; }
+  .alos-nav a.active .alos-icon { box-shadow: 0 0 0 6px rgba(209, 170, 65, .13); }
   .alos-genesis-nav { margin-inline: 0; padding-bottom: 18px; }
   .alos-genesis-nav a { min-height: 70px; }
   .alos-sidebar-footer { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin: 0; padding-top: 21px; }
