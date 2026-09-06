@@ -2,7 +2,7 @@ from hashlib import sha256
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from alos.agents.registry import (
@@ -57,6 +57,14 @@ from alos.genesis.history import (
     GenesisHistoryRepository,
     GenesisMessageRecord,
     GenesisMessageRequest,
+)
+from alos.genesis.uploads import (
+    FilesystemGenesisUploadStorage,
+    GenesisUploadError,
+    GenesisUploadNotFoundError,
+    GenesisUploadRecord,
+    GenesisUploadRepository,
+    GenesisUploadService,
 )
 from alos.identity import DivisionCode, HumanRole
 from alos.identity.authentication import (
@@ -294,6 +302,17 @@ def get_genesis_document_analysis_service() -> GenesisDocumentAnalysisService:
     )
 
 
+def get_genesis_upload_repository() -> GenesisUploadRepository:
+    return GenesisUploadRepository(get_settings().database_url)
+
+
+def get_genesis_upload_service() -> GenesisUploadService:
+    settings = get_settings()
+    return GenesisUploadService(
+        get_genesis_upload_repository(), FilesystemGenesisUploadStorage(settings)
+    )
+
+
 def get_tool_registry_repository() -> ToolRegistryRepository:
     return ToolRegistryRepository(get_settings().database_url)
 
@@ -407,6 +426,12 @@ def genesis_document_workflow_http_error(error: GenesisDocumentWorkflowError) ->
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
     if isinstance(error, GenesisDocumentWorkflowConflictError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+def genesis_upload_http_error(error: GenesisUploadError) -> HTTPException:
+    if isinstance(error, GenesisUploadNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
 
@@ -735,6 +760,62 @@ def create_genesis_document_analysis(
         raise genesis_document_workflow_http_error(error) from error
     except DocumentCenterError as error:
         raise document_http_error(error) from error
+
+
+@app.post("/api/v1/genesis/uploads", response_model=GenesisUploadRecord)
+async def upload_genesis_document(
+    workspace_id: Annotated[UUID, Form()],
+    file: Annotated[UploadFile, File()],
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisUploadRecord:
+    """Store a bounded original file and preview; it is not model-readable yet."""
+    require_genesis_director(actor)
+    require_workspace_access(actor, workspace_id)
+    try:
+        return await get_genesis_upload_service().upload(
+            file,
+            workspace_id=workspace_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except GenesisUploadError as error:
+        raise genesis_upload_http_error(error) from error
+
+
+@app.get("/api/v1/genesis/uploads", response_model=list[GenesisUploadRecord])
+def list_genesis_uploads(
+    workspace_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> list[GenesisUploadRecord]:
+    """List upload metadata and previews without exposing raw binaries."""
+    require_genesis_director(actor)
+    require_workspace_access(actor, workspace_id)
+    try:
+        return get_genesis_upload_repository().list_for_workspace(
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            workspace_id=workspace_id,
+        )
+    except GenesisUploadError as error:
+        raise genesis_upload_http_error(error) from error
+
+
+@app.get("/api/v1/genesis/uploads/{upload_id}", response_model=GenesisUploadRecord)
+def get_genesis_upload(
+    upload_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisUploadRecord:
+    """Read one upload's integrity metadata and bounded text preview."""
+    require_genesis_director(actor)
+    try:
+        return get_genesis_upload_repository().get(
+            upload_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except GenesisUploadError as error:
+        raise genesis_upload_http_error(error) from error
 
 
 @app.get(

@@ -18,4 +18,5 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "009_h5_source_vault_policy.sql",
         "010_document_center.sql",
         "011_genesis_document_workflows.sql",
+        "012_genesis_document_uploads.sql",
     ]
