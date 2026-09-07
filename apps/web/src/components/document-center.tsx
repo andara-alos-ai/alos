@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   type ChangeEvent,
   type FormEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -433,8 +434,26 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
         <article className="alos-panel alos-genesis-conversation">
           <div className="alos-genesis-chat-stream">
             {analysisResult ? <>
-              <div className="alos-genesis-user-message"><span>{actor.roles[0]?.slice(0, 1) ?? "A"}</span><div><small>Direktur · {analysisResult.source.title}</small><p>{analysisResult.analysis.content.prompt}</p></div></div>
-              <div className="alos-genesis-assistant-message"><span>✦</span><div><p>{analysisResult.semantic ? "Genesis membaca dokumen INTERNAL ini dalam mode read-only dan menghasilkan jawaban DRAFT yang terikat ke sumber." : "Dokumen berhasil diikat dalam mode read-only dan Genesis membuat DRAFT analisis untuk ditinjau. Analisis semantik belum diaktifkan di environment ini."}</p><div className="alos-genesis-analysis-result"><div><span>Sumber terikat</span><strong>{analysisResult.source.title}</strong><small>v{analysisResult.source.version_number} · {analysisResult.source.status}</small></div><div><span>Isi diperiksa</span><strong>{analysisResult.analysis.content.reading.content_characters.toLocaleString("id-ID")} karakter</strong><small>SHA dan versi tercatat pada DRAFT</small></div><div><span>Status</span><strong>ANALYSIS DRAFT</strong><small>{analysisResult.semantic ? `${analysisResult.semantic.model} · tanpa tools/web` : "Belum mengubah dokumen sumber"}</small></div></div>{analysisResult.semantic ? <article className="alos-genesis-semantic-answer"><strong>Jawaban DRAFT Genesis</strong><pre>{analysisResult.semantic.answer}</pre><small>Hanya berdasarkan versi sumber di atas. Periksa sitasi sebelum mengambil keputusan.</small></article> : null}<div className="alos-genesis-attention"><strong>Langkah berikutnya</strong><span>Buka DRAFT, lakukan pemeriksaan manusia, lalu lanjutkan R&D hanya jika hasilnya disetujui.</span><button onClick={() => void selectDocument(analysisResult.draft.document_id)} type="button">Buka DRAFT analisis</button></div></div></div>
+              <div className="alos-genesis-user-message">
+                <span>{actor.roles.includes("DIRECTOR") ? "D" : actor.roles[0]?.slice(0, 1) ?? "A"}</span>
+                <div>
+                  <div className="alos-genesis-message-meta"><strong>Direktur Utama</strong><small>Baru saja</small></div>
+                  <p>{analysisResult.analysis.content.prompt}</p>
+                  <span className="alos-genesis-source-chip"><i aria-hidden="true">▤</i>{analysisResult.source.title}<small>v{analysisResult.source.version_number} · {analysisResult.source.status}</small></span>
+                </div>
+              </div>
+              <div className="alos-genesis-assistant-message">
+                <span aria-label="Genesis">✦</span>
+                <div>
+                  <div className="alos-genesis-message-meta alos-genesis-assistant-meta"><strong>GENESIS</strong><small>Analisis terikat ke sumber · DRAFT</small><em>Read-only</em></div>
+                  {analysisResult.semantic ? <GenesisMarkdown content={analysisResult.semantic.answer} /> : <div className="alos-genesis-fallback-answer"><strong>Dokumen berhasil diikat</strong><p>Analisis semantik belum aktif pada environment ini. Genesis telah membuat DRAFT pemeriksaan yang dapat ditinjau manusia.</p></div>}
+                  <details className="alos-genesis-analysis-context">
+                    <summary>Detail sumber &amp; audit analisis</summary>
+                    <dl><div><dt>Sumber</dt><dd>{analysisResult.source.title}</dd></div><div><dt>Versi</dt><dd>v{analysisResult.source.version_number} · {analysisResult.source.status}</dd></div><div><dt>Isi diperiksa</dt><dd>{analysisResult.analysis.content.reading.content_characters.toLocaleString("id-ID")} karakter</dd></div><div><dt>Model</dt><dd>{analysisResult.semantic ? `${analysisResult.semantic.provider} / ${analysisResult.semantic.model}` : "Belum dijalankan"}</dd></div></dl>
+                  </details>
+                  <div className="alos-genesis-attention"><div><strong>Siap ditinjau</strong><span>Periksa sitasi dan checklist sebelum meneruskan hasil ke R&amp;D.</span></div><button onClick={() => void selectDocument(analysisResult.draft.document_id)} type="button">Tinjau DRAFT →</button></div>
+                </div>
+              </div>
             </> : <>
               <div className="alos-genesis-user-message"><span>{actor.roles[0]?.slice(0, 1) ?? "A"}</span><div><p>Mulai analisis dengan memilih dokumen yang sudah disetujui.</p><small>Genesis hanya membaca sumber kanonis INTERNAL dengan status APPROVED atau ACTIVE.</small></div></div>
               <div className="alos-genesis-assistant-message"><span>✦</span><div><p>Genesis akan mengikat pertanyaan Direktur ke versi dokumen yang dipilih, lalu membuat DRAFT analisis untuk ditinjau.</p><div className="alos-genesis-brief"><div><span>Dokumen tersedia</span><strong>{documentStats.total || "—"}</strong><small>{documentStats.total ? "Tercatat pada repositori aktif" : "Belum ada data"}</small></div><div><span>Siap dibaca</span><strong>{analysisSources.length || "—"}</strong><small>{analysisSources.length ? "Disetujui atau aktif" : "Belum ada sumber disetujui"}</small></div><div><span>Draft Genesis</span><strong>{documentStats.genesis || "—"}</strong><small>{documentStats.genesis ? "Menunggu pemeriksaan" : "Belum ada DRAFT"}</small></div></div><div className="alos-genesis-attention"><strong>Batasan</strong><span>Hasil analisis awal selalu DRAFT; dokumen sumber, agent, dan data produksi tidak akan berubah otomatis.</span></div></div></div>
@@ -475,6 +494,91 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       {selected ? <section className="alos-document-detail-drawer" aria-label={`Rincian ${selected.document.title}`}><DocumentDetailPanel actor={actor} detail={selected} pendingChecks={pendingChecks} checkNotes={checkNotes} reviewNotes={reviewNotes} submitting={submitting} onCheckNotes={setCheckNotes} onReviewNotes={setReviewNotes} onCompleteCheck={completeCheck} onSubmit={submitForReview} onDecide={decide} /></section> : null}
     </section>
   );
+}
+
+function GenesisMarkdown({ content }: { content: string }) {
+  const lines = normaliseGenesisMarkdown(content).split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) {
+      index += 1;
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const level = heading[1].length;
+      const text = renderGenesisInline(heading[2]);
+      blocks.push(level === 1 ? <h3 key={`heading-${index}`}>{text}</h3> : level === 2 ? <h4 key={`heading-${index}`}>{text}</h4> : <h5 key={`heading-${index}`}>{text}</h5>);
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith(">")) {
+      const quote: string[] = [];
+      while (index < lines.length && lines[index].trim().startsWith(">")) {
+        quote.push(lines[index].trim().replace(/^>\s?/, ""));
+        index += 1;
+      }
+      blocks.push(<aside key={`quote-${index}`}>{renderGenesisInline(quote.join(" "))}</aside>);
+      continue;
+    }
+
+    const checklist = line.match(/^[-*]\s+\[([ xX])\]\s+(.+)$/);
+    if (checklist) {
+      const items: Array<{ checked: boolean; text: string }> = [];
+      while (index < lines.length) {
+        const candidate = lines[index].trim().match(/^[-*]\s+\[([ xX])\]\s+(.+)$/);
+        if (!candidate) break;
+        items.push({ checked: candidate[1].toLowerCase() === "x", text: candidate[2] });
+        index += 1;
+      }
+      blocks.push(<ul className="alos-genesis-markdown-checklist" key={`checklist-${index}`}>{items.map((item, itemIndex) => <li key={`${item.text}-${itemIndex}`}><i aria-hidden="true">{item.checked ? "✓" : "○"}</i><span>{renderGenesisInline(item.text)}</span></li>)}</ul>);
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^[-*]\s+/, ""));
+        index += 1;
+      }
+      blocks.push(<ul key={`list-${index}`}>{items.map((item, itemIndex) => <li key={`${item}-${itemIndex}`}>{renderGenesisInline(item)}</li>)}</ul>);
+      continue;
+    }
+
+    const paragraph: string[] = [line];
+    index += 1;
+    while (index < lines.length) {
+      const candidate = lines[index].trim();
+      if (!candidate || /^(#{1,3})\s+/.test(candidate) || candidate.startsWith(">") || /^[-*]\s+/.test(candidate)) break;
+      paragraph.push(candidate);
+      index += 1;
+    }
+    blocks.push(<p key={`paragraph-${index}`}>{renderGenesisInline(paragraph.join(" "))}</p>);
+  }
+
+  return <article className="alos-genesis-semantic-answer"><strong>Jawaban DRAFT Genesis</strong><div className="alos-genesis-markdown">{blocks}</div><small>Hanya berdasarkan versi sumber di atas. Periksa sitasi sebelum mengambil keputusan.</small></article>;
+}
+
+function normaliseGenesisMarkdown(value: string): string {
+  return value
+    .replace(/\\([#*_\[\]])/g, "$1")
+    .replace(/\r\n/g, "\n")
+    .trim();
+}
+
+function renderGenesisInline(value: string): ReactNode[] {
+  const tokens = value.split(/(\*\*[^*]+\*\*|\*[^*]+\*|\[Sumber L\d+(?:-L?\d+)?\])/g);
+  return tokens.filter(Boolean).map((token, index) => {
+    if (token.startsWith("**") && token.endsWith("**")) return <strong key={`${token}-${index}`}>{token.slice(2, -2)}</strong>;
+    if (token.startsWith("*") && token.endsWith("*")) return <em key={`${token}-${index}`}>{token.slice(1, -1)}</em>;
+    if (/^\[Sumber L\d+(?:-L?\d+)?\]$/.test(token)) return <mark className="alos-genesis-citation" key={`${token}-${index}`}>{token}</mark>;
+    return <span key={`${token}-${index}`}>{token}</span>;
+  });
 }
 
 function DocumentMetric({ label, tone, value }: { label: string; tone: "success" | "warning" | "info" | "danger"; value: number }) {
