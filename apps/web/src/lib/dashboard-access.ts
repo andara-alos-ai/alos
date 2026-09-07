@@ -24,7 +24,7 @@ const divisionLabels: Record<string, string> = {
 
 const roleLabels: Record<string, string> = {
   BUSINESS_REVIEWER: "Business Reviewer",
-  DIRECTOR: "Director",
+  DIRECTOR: "Direktur Utama",
   DIVISION_OWNER: "Lead Divisi",
   IT_LEAD: "IT Lead",
   QA_SECURITY: "Wakil IT",

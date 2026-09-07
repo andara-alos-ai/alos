@@ -32,6 +32,10 @@ from alos.documents.center import (
     DocumentReviewDecisionRequest,
     GenesisDocumentDraftRequest,
 )
+from alos.executive_dashboard import (
+    ExecutiveDashboardRepository,
+    ExecutiveDashboardSnapshot,
+)
 from alos.genesis.document_analysis import (
     GenesisDocumentAnalysisError,
     GenesisDocumentAnalysisRequest,
@@ -305,6 +309,10 @@ def get_genesis_history_repository() -> GenesisHistoryRepository:
 
 def get_document_center_repository() -> DocumentCenterRepository:
     return DocumentCenterRepository(get_settings().database_url)
+
+
+def get_executive_dashboard_repository() -> ExecutiveDashboardRepository:
+    return ExecutiveDashboardRepository(get_settings().database_url)
 
 
 def get_genesis_document_workflow_repository() -> GenesisDocumentWorkflowRepository:
@@ -604,6 +612,26 @@ def logout(response: Response) -> Response:
 @app.get("/api/v1/whoami")
 def whoami(actor: Annotated[ActorContext, Depends(get_current_actor)]) -> ActorContext:
     return actor
+
+
+@app.get("/api/v1/executive-dashboard", response_model=ExecutiveDashboardSnapshot)
+def get_executive_dashboard(
+    response: Response,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> ExecutiveDashboardSnapshot:
+    """Return a read-only company snapshot from the Director's accessible workspaces."""
+
+    if HumanRole.DIRECTOR not in actor.roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Director authority required for executive dashboard",
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return get_executive_dashboard_repository().snapshot(
+        organization_id=actor.organization_id,
+        actor_user_id=actor.user_id,
+        workspace_ids=actor.workspace_ids,
+    )
 
 
 @app.get("/api/v1/workspaces", response_model=list[WorkspaceSummary])

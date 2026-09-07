@@ -16,6 +16,15 @@ import {
   type DashboardProfile,
 } from "@/lib/dashboard-access";
 import { DocumentCenter } from "@/components/document-center";
+import {
+  approvalAgeLabel,
+  approvalKindLabel,
+  executiveFirstName,
+  executiveGreeting,
+  formatExecutiveMetric,
+  type ExecutiveDashboardMetric,
+  type ExecutiveDashboardSnapshot,
+} from "@/lib/executive-dashboard";
 import { type SessionActor } from "@/lib/governance";
 
 type ExecutiveDashboardProps = {
@@ -37,20 +46,42 @@ const navItems: Array<{ href: string; key: DashboardModuleKey; label: string; ic
 export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
   const router = useRouter();
   const [actor, setActor] = useState<SessionActor | null>(null);
+  const [executiveData, setExecutiveData] = useState<ExecutiveDashboardSnapshot | null>(null);
+  const [executiveLoadFailed, setExecutiveLoadFailed] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     async function loadActor() {
-      const response = await fetch("/api/v1/whoami", { cache: "no-store", credentials: "same-origin" });
-      if (response.status === 401) {
-        router.replace("/login");
-        return;
-      }
-      if (!response.ok) {
+      try {
+        const response = await fetch("/api/v1/whoami", { cache: "no-store", credentials: "same-origin" });
+        if (response.status === 401) {
+          router.replace("/login");
+          return;
+        }
+        if (!response.ok) {
+          setLoadFailed(true);
+          return;
+        }
+        const currentActor = (await response.json()) as SessionActor;
+        setActor(currentActor);
+        if (currentActor.roles.includes("DIRECTOR")) {
+          try {
+            const dashboardResponse = await fetch("/api/v1/executive-dashboard", {
+              cache: "no-store",
+              credentials: "same-origin",
+            });
+            if (!dashboardResponse.ok) {
+              setExecutiveLoadFailed(true);
+              return;
+            }
+            setExecutiveData((await dashboardResponse.json()) as ExecutiveDashboardSnapshot);
+          } catch {
+            setExecutiveLoadFailed(true);
+          }
+        }
+      } catch {
         setLoadFailed(true);
-        return;
       }
-      setActor((await response.json()) as SessionActor);
     }
     void loadActor();
   }, [router]);
@@ -72,6 +103,11 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
   const pageDescription = page?.description ?? profile?.homeDescription ?? "Satu ruang kerja untuk melihat kondisi perusahaan, keputusan, dan aksi yang telah terdaftar.";
   const searchPlaceholder = page?.searchPlaceholder ?? "Cari proyek, dokumen, divisi, atau tanya GENESIS…";
   const isFocusedWorkspace = module === "documents" || module === "genesis";
+  const isDirectorHome = !module && profile?.persona === "director";
+  const profileName = executiveData?.profile.display_name ?? profile?.homeLabel ?? "ALOS User";
+  const pendingApprovalCount = executiveData?.metrics.find(
+    (metric) => metric.key === "pending_approvals",
+  )?.value ?? 0;
   const navigation = profile
     ? [{ href: "/", key: "executive" as const, label: profile.homeLabel, icon: "home" as const }, ...navItems]
     : navItems;
@@ -95,7 +131,10 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
         <nav className="alos-nav">
           {navigation.map((item) => (
             <Link className={item.key === (module ?? "executive") ? "active" : ""} href={item.href} key={item.key}>
-              <AppIcon name={item.icon} />{item.label}
+              <AppIcon name={item.icon} /><span className="alos-nav-label">{item.label}</span>
+              {item.key === "approvals" && pendingApprovalCount > 0
+                ? <strong className="alos-nav-badge">{Math.round(pendingApprovalCount)}</strong>
+                : null}
             </Link>
           ))}
         </nav>
@@ -127,7 +166,7 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
             <div className="alos-date"><strong>{formatCurrentDate()}</strong><span>{formatCurrentTime()}</span></div>
             <button aria-label="Notifikasi belum tersedia" className="alos-notifications" disabled type="button"><AppIcon name="bell" /><i /></button>
             <div className="alos-avatar" aria-hidden="true">{roleInitial(displayRoleLabel)}</div>
-            <div className="alos-profile-copy"><strong>{profile?.homeLabel ?? "ALOS User"}</strong><span>{displayRoleLabel}</span></div>
+            <div className="alos-profile-copy"><strong>{profileName}</strong><span>{executiveData?.profile.role_label ?? displayRoleLabel}</span></div>
             <AppIcon name="chevron" />
           </div>
         </header>
@@ -135,20 +174,39 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
         {!isFocusedWorkspace ? <section className="alos-hero" aria-label="ALOS The Park Town Sukoharjo">
           <div className="alos-hero-copy">
             <p className="alos-kicker">{module ? `ALOS / ${module.toUpperCase()}` : profile?.homeEyebrow}</p>
-            <h1>{pageTitle}</h1>
-            <p>{pageDescription}</p>
-            {!module && <><span className="alos-hero-rule" /><em>“Keputusan terbaik dimulai dari informasi yang terstruktur dan dapat dipercaya.”</em></>}
+            <h1>{isDirectorHome && executiveData
+              ? `${executiveGreeting(new Date())}, ${executiveFirstName(executiveData.profile.display_name)} 👋`
+              : pageTitle}</h1>
+            <p>{isDirectorHome ? "Mari terus membangun masa depan yang lebih baik." : pageDescription}</p>
+            {!module && <><span className="alos-hero-rule" /><em>“Keberhasilan hari ini adalah hasil dari keputusan yang tepat di masa lalu, dan kesempatan untuk membuat keputusan yang lebih baik di masa depan.”</em></>}
           </div>
         </section> : null}
 
-        {module ? <ModuleDashboard actor={actor!} module={module} /> : <ExecutiveDashboardContent profile={profile!} />}
+        {module
+          ? <ModuleDashboard actor={actor!} module={module} />
+          : <ExecutiveDashboardContent dashboard={executiveData} loadFailed={executiveLoadFailed} profile={profile!} />}
       </section>
     </main>
   );
 }
 
-function ExecutiveDashboardContent({ profile }: { profile: DashboardProfile }) {
+export function ExecutiveDashboardContent({
+  dashboard,
+  loadFailed,
+  profile,
+}: {
+  dashboard: ExecutiveDashboardSnapshot | null;
+  loadFailed: boolean;
+  profile: DashboardProfile;
+}) {
   const content = homeDashboardContent(profile.persona);
+  if (profile.persona === "director") {
+    if (loadFailed) {
+      return <section className="alos-content alos-executive-content"><article className="alos-executive-error"><strong>Ringkasan eksekutif belum dapat dimuat</strong><span>Data operasional tetap aman. Muat ulang halaman untuk mencoba kembali.</span></article></section>;
+    }
+    if (!dashboard) return <ExecutiveDashboardLoading />;
+    return <ExecutiveHomeDashboard dashboard={dashboard} />;
+  }
   return (
     <section className="alos-content" aria-label={profile.homeLabel}>
       <DashboardScope profile={profile} />
@@ -163,6 +221,109 @@ function ExecutiveDashboardContent({ profile }: { profile: DashboardProfile }) {
       </div>
     </section>
   );
+}
+
+export function ExecutiveHomeDashboard({ dashboard }: { dashboard: ExecutiveDashboardSnapshot }) {
+  return (
+    <section className="alos-content alos-executive-content" aria-label="Executive Dashboard">
+      <div className="alos-executive-freshness">
+        <span><i />Data governance live</span>
+        <small>Diperbarui {formatDashboardTimestamp(dashboard.generated_at)}</small>
+      </div>
+      <div className="alos-executive-metrics">
+        {dashboard.metrics.map((metric) => <ExecutiveMetricCard key={metric.key} metric={metric} />)}
+      </div>
+      <div className="alos-executive-primary-grid">
+        <ExecutivePerformancePanel dashboard={dashboard} />
+        <ExecutiveProjectDistributionPanel dashboard={dashboard} />
+      </div>
+      <div className="alos-executive-bottom-grid">
+        <ExecutiveDivisionPanel dashboard={dashboard} />
+        <ExecutiveAttentionPanel dashboard={dashboard} />
+        <ExecutiveApprovalPanel dashboard={dashboard} />
+      </div>
+    </section>
+  );
+}
+
+function ExecutiveDashboardLoading() {
+  return <section className="alos-content alos-executive-content" aria-label="Memuat Executive Dashboard"><div className="alos-executive-metrics">{[0, 1, 2, 3].map((item) => <div className="alos-executive-skeleton metric" key={item} />)}</div><div className="alos-executive-primary-grid"><div className="alos-executive-skeleton panel" /><div className="alos-executive-skeleton panel" /></div></section>;
+}
+
+function ExecutiveMetricCard({ metric }: { metric: ExecutiveDashboardMetric }) {
+  const icon: IconName = metric.key === "active_projects"
+    ? "projects"
+    : metric.key === "average_progress"
+      ? "chart"
+      : metric.key === "overdue_tasks"
+        ? "alert"
+        : "file";
+  return <article className={`alos-executive-metric ${metric.tone.toLowerCase()} ${metric.state.toLowerCase()}`}><span className="alos-executive-metric-icon"><AppIcon name={icon} /></span><div><strong>{formatExecutiveMetric(metric)}</strong><p>{metric.label}</p><small><i />{metric.context}</small></div></article>;
+}
+
+function ExecutivePerformancePanel({ dashboard }: { dashboard: ExecutiveDashboardSnapshot }) {
+  const points = dashboard.performance.points;
+  const available = points.flatMap((point, index) => point.value === null ? [] : [{ ...point, index }]);
+  const x = (index: number) => 51 + index * (612 / Math.max(1, points.length - 1));
+  const y = (value: number) => 180 - Math.min(100, Math.max(0, value)) * 1.38;
+  const line = available.map((point, index) => `${index === 0 ? "M" : "L"}${x(point.index)} ${y(point.value!)}`).join(" ");
+  const area = available.length > 1 ? `${line} L${x(available.at(-1)!.index)} 180 L${x(available[0].index)} 180 Z` : "";
+  return <article className="alos-executive-panel alos-executive-performance"><div className="alos-executive-panel-heading"><div><h2>Kinerja Perusahaan</h2><p>{dashboard.performance.title}</p></div><span>7 Bulan Terakhir <AppIcon name="chevron" /></span></div><div className="alos-performance-chart"><svg aria-label="Grafik rasio approval" role="img" viewBox="0 0 700 220"><defs><linearGradient id="executive-chart-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#0b6a43" stopOpacity=".2" /><stop offset="1" stopColor="#0b6a43" stopOpacity=".01" /></linearGradient></defs>{[0, 25, 50, 75, 100].map((tick) => <g key={tick}><line stroke="#e5e8e3" x1="51" x2="663" y1={y(tick)} y2={y(tick)} /><text x="10" y={y(tick) + 4}>{tick}</text></g>)}{area ? <path d={area} fill="url(#executive-chart-fill)" /> : null}{line ? <path d={line} fill="none" stroke="#07523d" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" /> : null}{available.map((point) => <circle cx={x(point.index)} cy={y(point.value!)} fill="#07523d" key={point.period} r="4.5" />)}{points.map((point, index) => <text className="month" key={point.period} textAnchor="middle" x={x(index)} y="207">{point.label}</text>)}</svg>{available.length === 0 ? <div className="alos-chart-empty"><strong>Belum ada keputusan pada periode ini</strong><span>Grafik akan terisi dari review dokumen dan release agent.</span></div> : null}</div><div className="alos-performance-legend"><span><i className="healthy" />Approved</span><span><i className="neutral" />Returned / Rejected</span><small>{dashboard.performance.context}</small></div></article>;
+}
+
+function ExecutiveProjectDistributionPanel({ dashboard }: { dashboard: ExecutiveDashboardSnapshot }) {
+  const distribution = dashboard.project_distribution;
+  const colors = { BLUE: "#1687e8", GREEN: "#07934e", AMBER: "#f2a00d", RED: "#e72b23" } as const;
+  let cursor = 0;
+  const stops = distribution.items.map((item) => {
+    const start = cursor;
+    cursor += distribution.total ? item.count / distribution.total * 100 : 0;
+    return `${colors[item.tone]} ${start}% ${cursor}%`;
+  });
+  const background = distribution.available && distribution.total
+    ? `conic-gradient(${stops.join(", ")})`
+    : "conic-gradient(#e5e9e5 0 100%)";
+  return <article className="alos-executive-panel alos-executive-distribution"><div className="alos-executive-panel-heading"><div><h2>Distribusi Proyek</h2><p>Status portofolio saat ini</p></div><Link href="/projects">Lihat Detail <span>→</span></Link></div><div className="alos-project-distribution-body"><div className={`alos-project-donut${distribution.available ? "" : " unavailable"}`} style={{ background }}><div><strong>{distribution.available ? distribution.total : "—"}</strong><span>Proyek</span></div></div><div className="alos-project-legend">{distribution.items.map((item) => <div key={item.key}><i style={{ background: colors[item.tone] }} /><span>{item.label}</span><strong>{item.count} {distribution.total ? `(${Math.round(item.count / distribution.total * 100)}%)` : "(0%)"}</strong></div>)}</div></div>{!distribution.available ? <p className="alos-data-notice">{distribution.context}</p> : null}</article>;
+}
+
+function ExecutiveDivisionPanel({ dashboard }: { dashboard: ExecutiveDashboardSnapshot }) {
+  return <article className="alos-executive-panel alos-executive-divisions"><div className="alos-executive-panel-heading"><div><h2>Ringkasan Per Divisi</h2><p>Data yang sudah tercatat di ALOS</p></div></div><div className="alos-division-summary-grid">{dashboard.divisions.map((division) => <div className="alos-division-summary" key={division.division_code}><strong>{shortDivisionName(division.division_name)}</strong><span className={division.health.toLowerCase()}><i />{divisionHealthLabel(division.health)}</span><dl><div><dt>Dokumen</dt><dd>{division.document_count}</dd></div><div><dt>Approval</dt><dd>{division.pending_approvals}</dd></div><div><dt>Analisis</dt><dd>{division.active_genesis_workflows}</dd></div></dl></div>)}</div>{dashboard.divisions.length === 0 ? <ExecutiveEmpty text="Belum ada divisi yang dapat diakses." /> : null}</article>;
+}
+
+function ExecutiveAttentionPanel({ dashboard }: { dashboard: ExecutiveDashboardSnapshot }) {
+  return <article className="alos-executive-panel alos-executive-attention"><div className="alos-executive-panel-heading"><div><h2>Proyek yang Perlu Perhatian</h2><p>Risiko portofolio aktif</p></div></div>{dashboard.attention_projects.length ? <div className="alos-attention-list">{dashboard.attention_projects.map((project) => <div key={project.project_id}><span><strong>{project.name}</strong><small>{formatExecutivePercent(project.progress_percent)}</small></span><i><b style={{ width: `${project.progress_percent}%` }} /></i><em className={project.status.toLowerCase()}>{projectStatusLabel(project.status)}</em></div>)}</div> : <ExecutiveEmpty text="Sumber proyek belum terhubung; tidak ada risiko proyek yang dibuat-buat." />}</article>;
+}
+
+function ExecutiveApprovalPanel({ dashboard }: { dashboard: ExecutiveDashboardSnapshot }) {
+  return <article className="alos-executive-panel alos-executive-approvals"><div className="alos-executive-panel-heading"><div><h2>Approval Pending</h2><p>Dokumen dan release agent</p></div><Link href="/approvals">Lihat Semua <span>→</span></Link></div>{dashboard.pending_approvals.length ? <div className="alos-approval-table-wrap"><table><thead><tr><th>ID</th><th>Jenis</th><th>Permintaan</th><th>Umur</th></tr></thead><tbody>{dashboard.pending_approvals.map((approval) => <tr key={approval.approval_id}><td><code>{approval.approval_id.slice(0, 8).toUpperCase()}</code></td><td>{approvalKindLabel(approval.kind)}</td><td><strong>{approval.title}</strong><small>{approval.requested_by} · {approval.workspace_name}</small></td><td><span className={approval.urgency.toLowerCase()}>{approvalAgeLabel(approval.age_days)}</span></td></tr>)}</tbody></table></div> : <ExecutiveEmpty text="Tidak ada approval yang menunggu keputusan." />}</article>;
+}
+
+function ExecutiveEmpty({ text }: { text: string }) {
+  return <div className="alos-executive-empty"><span>✓</span><p>{text}</p></div>;
+}
+
+function divisionHealthLabel(health: ExecutiveDashboardSnapshot["divisions"][number]["health"]) {
+  if (health === "HEALTHY") return "Healthy";
+  if (health === "ATTENTION") return "Attention";
+  return "Belum terhubung";
+}
+
+function projectStatusLabel(status: ExecutiveDashboardSnapshot["attention_projects"][number]["status"]) {
+  if (status === "ON_TRACK") return "On Track";
+  if (status === "AT_RISK") return "At Risk";
+  return "Critical";
+}
+
+function shortDivisionName(name: string) {
+  return name.replace("Sales & Marketing", "Marketing").replace("Human Resources", "HR").replace("Information Technology", "IT");
+}
+
+function formatExecutivePercent(value: number) {
+  return `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 1 }).format(value)}%`;
+}
+
+function formatDashboardTimestamp(value: string) {
+  return new Intl.DateTimeFormat("id-ID", { day: "2-digit", hour: "2-digit", minute: "2-digit", month: "short" }).format(new Date(value));
 }
 
 function DashboardScope({ profile }: { profile: DashboardProfile }) {

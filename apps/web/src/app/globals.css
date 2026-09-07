@@ -755,3 +755,129 @@ th { color: #aac0d5; font-weight: 700; }
   .alos-nav a .alos-icon { height: 19px; width: 19px; }
   .alos-sidebar-footer { grid-template-columns: 1fr; }
 }
+
+/* Executive home — source-aware reproduction of the approved dashboard reference. */
+.alos-nav a { position: relative; }
+.alos-nav-label { flex: 1; min-width: 0; }
+.alos-nav-badge { align-items: center; background: #ee3328; border: 2px solid rgba(255,255,255,.15); border-radius: 999px; color: #fff; display: inline-flex; font-size: .64rem; height: 24px; justify-content: center; min-width: 24px; padding: 0 5px; }
+.alos-executive-content { max-width: 1720px; padding-top: 14px; }
+.alos-executive-freshness { align-items: center; color: #6d7c76; display: flex; font-size: .65rem; justify-content: flex-end; margin: 0 2px 8px; min-height: 20px; }
+.alos-executive-freshness > span { align-items: center; color: #24724c; display: inline-flex; font-weight: 750; gap: 6px; }
+.alos-executive-freshness > span i { background: #12a05a; border-radius: 50%; box-shadow: 0 0 0 3px #dff3e7; height: 6px; width: 6px; }
+.alos-executive-freshness small { border-left: 1px solid #dfe5df; font-size: inherit; margin-left: 9px; padding-left: 9px; }
+.alos-executive-metrics { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.alos-executive-metric { align-items: center; background: #fffefa; border: 1px solid #dfe5df; border-radius: 13px; display: flex; gap: 17px; min-height: 114px; overflow: hidden; padding: 17px 19px; position: relative; }
+.alos-executive-metric::after { background: currentColor; content: ""; height: 3px; inset: auto 18px 0; opacity: .16; position: absolute; }
+.alos-executive-metric.success { background: linear-gradient(135deg, #fffefa, #f5fbf6); color: #078143; }
+.alos-executive-metric.warning { background: linear-gradient(135deg, #fffefa, #fff8ed); color: #d48608; }
+.alos-executive-metric.danger { background: linear-gradient(135deg, #fffefa, #fff5f3); color: #e42f2a; }
+.alos-executive-metric.info { background: linear-gradient(135deg, #fffefa, #f2f8ff); color: #1d79d8; }
+.alos-executive-metric.not_connected { color: #8b9892; }
+.alos-executive-metric-icon { align-items: center; background: color-mix(in srgb, currentColor 11%, #fff); border: 1px solid color-mix(in srgb, currentColor 18%, #fff); border-radius: 50%; display: inline-flex; flex: 0 0 auto; height: 58px; justify-content: center; width: 58px; }
+.alos-executive-metric-icon .alos-icon { height: 27px; width: 27px; }
+.alos-executive-metric > div { display: grid; gap: 3px; min-width: 0; }
+.alos-executive-metric strong { color: #102f28; font-size: 1.76rem; letter-spacing: -.035em; line-height: 1; }
+.alos-executive-metric p { color: #243e36; font-size: .74rem; font-weight: 750; margin: 0; }
+.alos-executive-metric small { align-items: flex-start; color: currentColor; display: flex; font-size: .61rem; gap: 5px; line-height: 1.28; }
+.alos-executive-metric small i { background: currentColor; border-radius: 50%; flex: 0 0 auto; height: 5px; margin-top: 3px; width: 5px; }
+.alos-executive-primary-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1.04fr) minmax(390px, .96fr); margin-top: 14px; }
+.alos-executive-bottom-grid { display: grid; gap: 14px; grid-template-columns: minmax(430px, 1.28fr) minmax(285px, .82fr) minmax(360px, 1fr); margin-top: 14px; }
+.alos-executive-panel { background: #fffefa; border: 1px solid #dfe3dd; border-radius: 13px; box-shadow: 0 8px 30px rgba(29,57,45,.025); min-width: 0; padding: 16px 18px; }
+.alos-executive-primary-grid .alos-executive-panel { min-height: 292px; }
+.alos-executive-bottom-grid .alos-executive-panel { min-height: 238px; }
+.alos-executive-panel-heading { align-items: flex-start; display: flex; gap: 14px; justify-content: space-between; }
+.alos-executive-panel-heading h2 { color: #162f29; font-size: .9rem; line-height: 1.25; margin: 0; }
+.alos-executive-panel-heading p { color: #7a8781; font-size: .61rem; margin: 4px 0 0; }
+.alos-executive-panel-heading > span { align-items: center; background: #fff; border: 1px solid #dfe3de; border-radius: 7px; color: #53645d; display: flex; font-size: .61rem; font-weight: 700; gap: 4px; padding: 7px 9px; }
+.alos-executive-panel-heading > span .alos-icon { height: 11px; transform: rotate(90deg); width: 11px; }
+.alos-executive-panel-heading a { color: #087745; font-size: .62rem; font-weight: 750; text-decoration: none; white-space: nowrap; }
+.alos-executive-panel-heading a:hover { text-decoration: underline; }
+.alos-performance-chart { height: 205px; margin-top: 5px; position: relative; }
+.alos-performance-chart svg { display: block; height: 100%; overflow: visible; width: 100%; }
+.alos-performance-chart text { fill: #66756f; font-size: 10px; }
+.alos-performance-chart text.month { fill: #42574f; font-size: 10px; }
+.alos-chart-empty { align-items: center; color: #75827c; display: flex; flex-direction: column; inset: 58px 45px 40px 64px; justify-content: center; position: absolute; text-align: center; }
+.alos-chart-empty strong { color: #4c6259; font-size: .7rem; }
+.alos-chart-empty span { font-size: .61rem; margin-top: 4px; }
+.alos-performance-legend { align-items: center; display: flex; flex-wrap: wrap; gap: 14px; margin: -1px 8px 0 46px; }
+.alos-performance-legend > span { align-items: center; color: #354b43; display: flex; font-size: .61rem; gap: 6px; }
+.alos-performance-legend i { border-radius: 50%; height: 8px; width: 8px; }
+.alos-performance-legend i.healthy { background: #099352; }
+.alos-performance-legend i.neutral { background: #e29a13; }
+.alos-performance-legend small { color: #849089; font-size: .57rem; margin-left: auto; }
+.alos-project-distribution-body { align-items: center; display: grid; gap: clamp(25px, 4vw, 70px); grid-template-columns: 185px minmax(220px, 1fr); justify-content: center; min-height: 220px; padding: 8px 25px 0; }
+.alos-project-donut { align-items: center; border-radius: 50%; display: flex; height: 160px; justify-content: center; position: relative; width: 160px; }
+.alos-project-donut::after { background: #fffefa; border-radius: 50%; box-shadow: inset 0 0 0 1px #edf0eb; content: ""; height: 103px; position: absolute; width: 103px; }
+.alos-project-donut > div { align-items: center; display: flex; flex-direction: column; position: relative; z-index: 1; }
+.alos-project-donut strong { color: #17352d; font-size: 1.55rem; line-height: 1; }
+.alos-project-donut span { color: #4f625b; font-size: .68rem; margin-top: 4px; }
+.alos-project-donut.unavailable { filter: grayscale(.4); }
+.alos-project-legend { display: grid; gap: 15px; }
+.alos-project-legend > div { align-items: center; color: #263c35; display: grid; font-size: .68rem; gap: 8px; grid-template-columns: 10px minmax(80px, 1fr) auto; }
+.alos-project-legend i { border-radius: 50%; height: 9px; width: 9px; }
+.alos-project-legend strong { color: #263c35; font-size: .65rem; font-weight: 700; }
+.alos-data-notice { background: #f6f7f3; border-radius: 7px; color: #75827c; font-size: .6rem; margin: -5px 0 0; padding: 7px 9px; text-align: center; }
+.alos-division-summary-grid { display: grid; grid-template-columns: repeat(6, minmax(92px, 1fr)); margin-top: 16px; overflow-x: auto; }
+.alos-division-summary { border-right: 1px solid #e7eae5; display: grid; gap: 8px; min-width: 92px; padding: 2px 10px 4px; }
+.alos-division-summary:first-child { padding-left: 2px; }
+.alos-division-summary:last-child { border-right: 0; }
+.alos-division-summary > strong { color: #1e3931; font-size: .63rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alos-division-summary > span { align-items: center; display: flex; font-size: .57rem; font-weight: 750; gap: 5px; }
+.alos-division-summary > span i { border-radius: 50%; height: 6px; width: 6px; }
+.alos-division-summary > span.healthy { color: #078b4a; }.alos-division-summary > span.healthy i { background: #078b4a; }
+.alos-division-summary > span.attention { color: #db8a09; }.alos-division-summary > span.attention i { background: #db8a09; }
+.alos-division-summary > span.not_connected { color: #8b9691; }.alos-division-summary > span.not_connected i { background: #aab2ae; }
+.alos-division-summary dl { display: grid; gap: 7px; margin: 3px 0 0; }
+.alos-division-summary dl div { align-items: center; display: flex; justify-content: space-between; }
+.alos-division-summary dt { color: #7b8983; font-size: .56rem; }
+.alos-division-summary dd { color: #223d35; font-size: .61rem; font-weight: 750; margin: 0; }
+.alos-executive-empty { align-items: center; color: #78867f; display: flex; flex-direction: column; justify-content: center; min-height: 157px; padding: 18px; text-align: center; }
+.alos-executive-empty > span { align-items: center; background: #eaf4ec; border-radius: 50%; color: #16814a; display: inline-flex; font-size: .75rem; height: 28px; justify-content: center; width: 28px; }
+.alos-executive-empty p { font-size: .62rem; line-height: 1.45; margin: 8px 0 0; max-width: 255px; }
+.alos-attention-list { display: grid; gap: 9px; margin-top: 14px; }
+.alos-attention-list > div { align-items: center; display: grid; gap: 7px; grid-template-columns: minmax(0, 1fr) 65px; }
+.alos-attention-list > div > span { align-items: center; display: flex; gap: 7px; justify-content: space-between; }
+.alos-attention-list strong { color: #32483f; font-size: .61rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alos-attention-list small { color: #596d64; font-size: .58rem; }
+.alos-attention-list > div > i { background: #edf0ec; border-radius: 99px; display: block; grid-column: 1; height: 5px; overflow: hidden; }
+.alos-attention-list > div > i b { background: #e49a0e; border-radius: inherit; display: block; height: 100%; }
+.alos-attention-list em { border-radius: 5px; color: #fff; font-size: .55rem; font-style: normal; grid-column: 2; grid-row: 1 / span 2; justify-self: end; padding: 5px 7px; }
+.alos-attention-list em.on_track { background: #0c9a53; }.alos-attention-list em.at_risk { background: #ee9d0d; }.alos-attention-list em.critical { background: #e83a2f; }
+.alos-approval-table-wrap { margin-top: 12px; overflow-x: auto; }
+.alos-approval-table-wrap table { border-collapse: collapse; min-width: 430px; width: 100%; }
+.alos-approval-table-wrap th { color: #596b64; font-size: .56rem; font-weight: 800; padding: 6px 6px 8px; text-align: left; }
+.alos-approval-table-wrap td { border-top: 1px solid #edf0ec; color: #374d45; font-size: .59rem; padding: 8px 6px; vertical-align: top; }
+.alos-approval-table-wrap code { color: #3a5148; font-family: inherit; font-size: .56rem; }
+.alos-approval-table-wrap td > strong, .alos-approval-table-wrap td > small { display: block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alos-approval-table-wrap td > strong { color: #273f36; font-size: .59rem; }
+.alos-approval-table-wrap td > small { color: #829089; font-size: .52rem; margin-top: 3px; }
+.alos-approval-table-wrap td > span { font-size: .55rem; font-weight: 750; white-space: nowrap; }
+.alos-approval-table-wrap td > span.normal { color: #466059; }.alos-approval-table-wrap td > span.due_soon { color: #d98605; }.alos-approval-table-wrap td > span.overdue { color: #e3342d; }
+.alos-executive-skeleton { animation: executive-skeleton 1.2s ease-in-out infinite alternate; background: linear-gradient(90deg, #edf0eb, #f8f8f4, #edf0eb); background-size: 200% 100%; border: 1px solid #e2e6df; border-radius: 13px; }
+.alos-executive-skeleton.metric { min-height: 114px; }.alos-executive-skeleton.panel { min-height: 292px; }
+.alos-executive-error { background: #fff5f2; border: 1px solid #efc5bb; border-radius: 12px; color: #8b3f31; display: grid; gap: 5px; padding: 14px 16px; }
+.alos-executive-error strong { font-size: .78rem; }.alos-executive-error span { font-size: .68rem; }
+@keyframes executive-skeleton { from { background-position: 0 0; } to { background-position: 100% 0; } }
+@media (max-width: 1360px) {
+  .alos-executive-bottom-grid { grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); }
+  .alos-executive-approvals { grid-column: 1 / -1; }
+}
+@media (max-width: 1120px) {
+  .alos-executive-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .alos-executive-primary-grid { grid-template-columns: 1fr; }
+  .alos-project-distribution-body { grid-template-columns: 180px minmax(220px, 360px); }
+}
+@media (max-width: 850px) {
+  .alos-executive-bottom-grid { grid-template-columns: 1fr; }
+  .alos-executive-approvals { grid-column: auto; }
+  .alos-executive-freshness { justify-content: flex-start; }
+}
+@media (max-width: 600px) {
+  .alos-executive-content { padding-inline: 15px; }
+  .alos-executive-metrics { grid-template-columns: 1fr; }
+  .alos-executive-metric { min-height: 98px; }
+  .alos-project-distribution-body { gap: 24px; grid-template-columns: 1fr; justify-items: center; }
+  .alos-project-legend { width: min(100%, 280px); }
+  .alos-performance-legend { margin-left: 8px; }
+  .alos-performance-legend small { flex-basis: 100%; margin-left: 0; }
+}
