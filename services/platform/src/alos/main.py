@@ -281,7 +281,8 @@ def get_release_repository() -> ReleaseGovernanceRepository:
 
 
 def get_source_registry_repository() -> SourceRegistryRepository:
-    return SourceRegistryRepository(get_settings().database_url)
+    settings = get_settings()
+    return SourceRegistryRepository(settings.database_url, settings=settings)
 
 
 def get_audit_reader() -> AuditReader:

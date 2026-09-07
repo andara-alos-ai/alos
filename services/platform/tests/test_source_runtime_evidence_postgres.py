@@ -45,6 +45,8 @@ def _settings(database_url: str) -> Settings:
         llm_daily_request_limit=10,
         llm_daily_output_token_limit=3_000,
         llm_daily_cost_cap_usd=Decimal("1.00"),
+        source_chunk_max_chars=256,
+        source_retrieval_max_chars=800,
     )
 
 
@@ -124,7 +126,47 @@ def test_verified_source_permission_and_citation_guardrails_are_persisted() -> N
         settings = _settings(temporary_url)
         registry = AgentRegistryRepository(temporary_url)
         context = registry.bootstrap_local_context(LocalBootstrapRequest(), uuid4())
-        sources = SourceRegistryRepository(temporary_url)
+        sources = SourceRegistryRepository(temporary_url, settings=settings)
+        bounded = sources.register(
+            SourceRegistrationRequest(
+                workspace_id=context.workspace_id,
+                source_key="BOUNDED_EVIDENCE",
+                name="Bounded Evidence Fixture",
+                version_label="v1",
+                locator="synthetic://bounded/evidence-v1",
+                content="\n".join(
+                    f"Evidence {index}: " + ("x" * 500) for index in range(10)
+                ),
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        sources.verify(
+            context.workspace_id,
+            "BOUNDED_EVIDENCE",
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+            reason="Bounded retrieval fixture verified for the context guard test.",
+        )
+        bounded_evidence = sources.search_evidence(
+            context.workspace_id,
+            "Evidence",
+            organization_id=context.organization_id,
+            limit=50,
+        )
+        assert bounded.citation_count > len(bounded_evidence)
+        assert sum(len(item.excerpt) for item in bounded_evidence) <= 800
+        with psycopg.connect(temporary_url) as connection:
+            assert connection.execute(
+                """
+                SELECT max(length(content_text))
+                FROM sources.content_chunks
+                WHERE source_version_id = %s
+                """,
+                (bounded.source_version_id,),
+            ).fetchone() == (256,)
         registered = sources.register(
             SourceRegistrationRequest(
                 workspace_id=context.workspace_id,

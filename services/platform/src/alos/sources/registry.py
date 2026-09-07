@@ -21,6 +21,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from alos.config import Settings, get_settings
 from alos.persistence.database import psycopg_url
 
 SourceType = Literal["DOCX", "PDF", "TEXT", "URL"]
@@ -137,8 +138,9 @@ class EvidenceCitation(BaseModel):
 class SourceRegistryRepository:
     """PostgreSQL Source Registry with explicit human verification."""
 
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, settings: Settings | None = None) -> None:
         self._database_url = psycopg_url(database_url)
+        self._settings = settings or get_settings()
 
     def register(
         self,
@@ -150,7 +152,12 @@ class SourceRegistryRepository:
     ) -> SourceVersionRecord:
         """Register a new immutable version; registering resets verification."""
         content_sha = _digest(request.content)
-        chunks = _chunk_content(request.source_key, request.version_label, request.content)
+        chunks = _chunk_content(
+            request.source_key,
+            request.version_label,
+            request.content,
+            max_chars=self._settings.source_chunk_max_chars,
+        )
         with self._transaction() as connection:
             self._require_workspace_actor(
                 connection, organization_id, actor_user_id, request.workspace_id
@@ -477,21 +484,32 @@ class SourceRegistryRepository:
                   AND source.status = 'VERIFIED'
                   AND (%s = '' OR chunk.content_text ILIKE ('%%' || %s || '%%'))
                 ORDER BY version.received_at DESC, chunk.chunk_index ASC
-                LIMIT %s
+                LIMIT 50
                 """,
-                (organization_id, workspace_id, normalized, normalized, limit),
+                (organization_id, workspace_id, normalized, normalized),
             ).fetchall()
-        return [
-            EvidenceCitation(
-                citation_key=row["citation_key"],
-                source_key=row["source_key"],
-                version_label=row["version_label"],
-                locator=row["locator"],
-                anchor=row["anchor"],
-                excerpt=_excerpt(row["content_text"]),
+        citations: list[EvidenceCitation] = []
+        remaining_chars = self._settings.source_retrieval_max_chars
+        for row in rows:
+            excerpt = _excerpt(row["content_text"])
+            if len(excerpt) > remaining_chars:
+                excerpt = excerpt[:remaining_chars].rstrip()
+            if not excerpt:
+                break
+            citations.append(
+                EvidenceCitation(
+                    citation_key=row["citation_key"],
+                    source_key=row["source_key"],
+                    version_label=row["version_label"],
+                    locator=row["locator"],
+                    anchor=row["anchor"],
+                    excerpt=excerpt,
+                )
             )
-            for row in rows
-        ]
+            remaining_chars -= len(excerpt)
+            if len(citations) >= limit or remaining_chars <= 0:
+                break
+        return citations
 
     @staticmethod
     def _source_for_workspace(
@@ -633,20 +651,70 @@ class SourceRegistryRepository:
 
 
 def _chunk_content(
-    source_key: str, version_label: str, content: str
+    source_key: str, version_label: str, content: str, *, max_chars: int = 1_500
 ) -> list[tuple[int, str, str, str]]:
-    """Produce bounded line-based citations without a model or parser."""
+    """Produce stable line citations with bounded chunks and no model call."""
+    if max_chars < 1:
+        raise ValueError("source chunk character limit must be positive")
     lines = [line.strip() for line in content.splitlines() if line.strip()]
     if not lines:
         lines = [content.strip()]
-    chunks: list[tuple[int, str, str, str]] = []
+
+    segments: list[tuple[int, int, str]] = []
+    for line_number, line in enumerate(lines, start=1):
+        for part_number, part in enumerate(_split_bounded_text(line, max_chars), start=1):
+            segments.append((line_number, part_number, part))
+
     group_size = 8
-    for chunk_index, start in enumerate(range(0, len(lines), group_size)):
-        end = min(start + group_size, len(lines))
-        text = "\n".join(lines[start:end])
-        citation_key = f"{source_key}@{version_label}#L{start + 1}-L{end}"
-        chunks.append((chunk_index, citation_key, f"lines {start + 1}-{end}", text))
+    groups: list[list[tuple[int, int, str]]] = []
+    current: list[tuple[int, int, str]] = []
+    current_chars = 0
+    for segment in segments:
+        separator_chars = 1 if current else 0
+        next_chars = current_chars + separator_chars + len(segment[2])
+        if current and (len(current) >= group_size or next_chars > max_chars):
+            groups.append(current)
+            current = []
+            current_chars = 0
+            separator_chars = 0
+        current.append(segment)
+        current_chars += separator_chars + len(segment[2])
+    if current:
+        groups.append(current)
+
+    chunks: list[tuple[int, str, str, str]] = []
+    anchor_occurrences: dict[tuple[int, int], int] = {}
+    for chunk_index, group in enumerate(groups):
+        start_line, end_line = group[0][0], group[-1][0]
+        anchor_key = (start_line, end_line)
+        occurrence = anchor_occurrences.get(anchor_key, 0) + 1
+        anchor_occurrences[anchor_key] = occurrence
+        suffix = "" if occurrence == 1 else f"-P{occurrence}"
+        citation_key = f"{source_key}@{version_label}#L{start_line}-L{end_line}{suffix}"
+        anchor = f"lines {start_line}-{end_line}"
+        if occurrence > 1:
+            anchor += f" (part {occurrence})"
+        chunks.append(
+            (chunk_index, citation_key, anchor, "\n".join(segment[2] for segment in group))
+        )
     return chunks
+
+
+def _split_bounded_text(value: str, max_chars: int) -> list[str]:
+    """Split one long logical line without truncating its content."""
+    remaining = value.strip()
+    parts: list[str] = []
+    while len(remaining) > max_chars:
+        split_at = remaining.rfind(" ", 0, max_chars + 1)
+        if split_at < max_chars // 2:
+            split_at = max_chars
+        part = remaining[:split_at].strip()
+        if part:
+            parts.append(part)
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        parts.append(remaining)
+    return parts
 
 
 def _digest(value: str) -> str:

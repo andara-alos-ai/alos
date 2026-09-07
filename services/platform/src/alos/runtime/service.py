@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from math import ceil
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
@@ -340,6 +341,26 @@ class AgentRuntimeRepository:
                     reason=tool_evaluation.reason,
                 )
             decisions, fixture_context = tool_evaluation
+            model_input = _model_input_text(request, fixture_context)
+            estimated_context_tokens = _estimated_context_tokens(
+                _model_instructions(execution.contract), model_input
+            )
+            if estimated_context_tokens > self._settings.llm_max_context_tokens:
+                return self._block_run(
+                    connection,
+                    execution,
+                    organization_id,
+                    request.workspace_id,
+                    actor_user_id,
+                    correlation_id,
+                    input_hash,
+                    tool_key="BUDGET_POLICY",
+                    reason=(
+                        "model context token cap exceeded: "
+                        f"estimated {estimated_context_tokens}, "
+                        f"limit {self._settings.llm_max_context_tokens}"
+                    ),
+                )
             model, output_limit = _resolve_model_policy(
                 execution.contract, self._settings, max_output_tokens
             )
@@ -347,7 +368,7 @@ class AgentRuntimeRepository:
                 model=model,
                 input_tokens=_conservative_input_token_bound(
                     _model_instructions(execution.contract),
-                    _model_input_text(request, fixture_context),
+                    model_input,
                 ),
                 output_tokens=output_limit,
             )
@@ -788,7 +809,9 @@ class AgentRuntimeRepository:
                 fixture_context.append(_read_only_fixture(fixture_input))
             elif handler == "SOURCE_REGISTRY_SEARCH":
                 query = _source_query(fixture_input)
-                citations = SourceRegistryRepository(self._database_url).search_evidence(
+                citations = SourceRegistryRepository(
+                    self._database_url, settings=self._settings
+                ).search_evidence(
                     workspace_id,
                     query,
                     organization_id=organization_id,
@@ -1195,6 +1218,11 @@ def _conservative_input_token_bound(instructions: str, input_text: str) -> int:
     byte sequence, so it cannot understate the user-controlled textual input.
     """
     return len((instructions + input_text).encode("utf-8"))
+
+
+def _estimated_context_tokens(instructions: str, input_text: str) -> int:
+    """Estimate context use before a provider call using a documented heuristic."""
+    return max(1, ceil(len((instructions + input_text).encode("utf-8")) / 4))
 
 
 def _parse_and_validate_output(value: str, schema: dict[str, Any]) -> dict[str, Any]:

@@ -21,7 +21,7 @@ def bootstrap_validation_sources() -> list[dict[str, str]]:
         raise RuntimeError("validation source bootstrap is limited to local/test")
     agents = AgentRegistryRepository(settings.database_url)
     context = agents.bootstrap_local_context(LocalBootstrapRequest(), uuid4())
-    sources = SourceRegistryRepository(settings.database_url)
+    sources = SourceRegistryRepository(settings.database_url, settings=settings)
     definitions = (
         (
             "DAILY_BRIEF_FIXTURE",

@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     llm_store_responses: bool = False
     llm_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "medium"
     llm_max_output_tokens: int = Field(default=3_000, ge=256, le=128_000)
+    llm_max_context_tokens: int = Field(default=12_000, ge=256, le=1_000_000)
     llm_max_data_classification: Literal[
         "PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"
     ] = "INTERNAL"
@@ -74,6 +75,8 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(default=1, ge=0, le=3)
     genesis_semantic_analysis_enabled: bool = False
     genesis_semantic_max_output_tokens: int = Field(default=1_200, ge=256, le=8_000)
+    source_chunk_max_chars: int = Field(default=1_500, ge=256, le=10_000)
+    source_retrieval_max_chars: int = Field(default=10_000, ge=800, le=100_000)
     budget_timezone: str = "Asia/Jakarta"
 
     repository_root: Path = Field(default_factory=repository_root)

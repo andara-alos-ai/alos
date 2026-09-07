@@ -50,12 +50,23 @@ ALOS_LLM_MODEL_CRITICAL=gpt-5.6-sol
 ALOS_LLM_STORE_RESPONSES=false
 ALOS_LLM_REASONING_EFFORT=low
 ALOS_LLM_MAX_OUTPUT_TOKENS=1200
+ALOS_LLM_MAX_CONTEXT_TOKENS=12000
 ALOS_LLM_DAILY_REQUEST_LIMIT=2
 ALOS_LLM_DAILY_OUTPUT_TOKEN_LIMIT=2400
 ALOS_LLM_DAILY_COST_CAP_USD=5.00
 ALOS_GENESIS_SEMANTIC_ANALYSIS_ENABLED=false
 ALOS_GENESIS_SEMANTIC_MAX_OUTPUT_TOKENS=1200
+ALOS_SOURCE_CHUNK_MAX_CHARS=1500
+ALOS_SOURCE_RETRIEVAL_MAX_CHARS=10000
 ```
+
+`ALOS_LLM_MAX_CONTEXT_TOKENS` memblokir Agent Run sebelum request provider
+jika gabungan instruksi, input, dan evidence diperkirakan melampaui batas.
+Sumber versi baru dipecah maksimal `ALOS_SOURCE_CHUNK_MAX_CHARS`, sedangkan
+retrieval membatasi total cuplikan menggunakan
+`ALOS_SOURCE_RETRIEVAL_MAX_CHARS`. Versi sumber lama tidak diubah; daftarkan
+konten sebagai versi baru jika perlu di-chunk ulang, sementara batas retrieval
+tetap melindungi versi lama.
 
 `store=false` menghindari penyimpanan response state yang dikontrol aplikasi
 provider, tetapi bukan pengganti review data governance. OpenAI menjelaskan

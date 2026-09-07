@@ -36,7 +36,9 @@ pytestmark = [
 ]
 
 
-def _settings(database_url: str, *, environment: str = "test") -> Settings:
+def _settings(
+    database_url: str, *, environment: str = "test", max_context_tokens: int = 12_000
+) -> Settings:
     return Settings(
         _env_file=None,
         environment=environment,
@@ -52,6 +54,7 @@ def _settings(database_url: str, *, environment: str = "test") -> Settings:
         llm_daily_request_limit=1,
         llm_daily_output_token_limit=1_000,
         llm_daily_cost_cap_usd=Decimal("1.00"),
+        llm_max_context_tokens=max_context_tokens,
     )
 
 
@@ -323,3 +326,69 @@ def test_runtime_persists_usage_and_blocks_tools_and_budget() -> None:
                 (database_name,),
             )
             connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database_name)))
+
+
+def test_runtime_context_cap_is_persisted_as_budget_policy_blocked() -> None:
+    base_url = psycopg_url(get_settings().database_url)
+    database_name = f"alos_context_cap_{uuid4().hex}"
+    maintenance_url = base_url.rsplit("/", 1)[0] + "/postgres"
+    temporary_url = base_url.rsplit("/", 1)[0] + f"/{database_name}"
+    with psycopg.connect(maintenance_url, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE DATABASE {} ").format(sql.Identifier(database_name)))
+    try:
+        repository_root = Path(__file__).resolve().parents[3]
+        apply_migrations(temporary_url, repository_root / "infra" / "database")
+        settings = _settings(temporary_url, max_context_tokens=256)
+        registry = AgentRegistryRepository(temporary_url)
+        context = registry.bootstrap_local_context(LocalBootstrapRequest(), uuid4())
+        registry.create_draft(
+            _contract(context.workspace_id, context.user_id),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+            reason="Context cap integration fixture",
+        )
+        delegate = FakeModelGateway()
+        runtime = AgentRuntime(
+            AgentRuntimeRepository(temporary_url, settings),
+            GuardedModelGateway(
+                RetryingModelGateway(delegate, max_retries=0),
+                settings,
+                UsageBudget(request_limit=1, output_token_limit=300),
+            ),
+            settings,
+        )
+
+        result = runtime.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "x" * 1_000},
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+
+        assert result.status == "BLOCKED"
+        assert result.tool_decisions[0].tool_key == "BUDGET_POLICY"
+        assert "context token cap exceeded" in result.tool_decisions[0].reason
+        assert delegate.requests == []
+        with psycopg.connect(temporary_url) as connection:
+            assert connection.execute(
+                """
+                SELECT status, output_reference ->> 'reason'
+                FROM runtime.agent_runs
+                WHERE agent_run_id = %s
+                """,
+                (result.agent_run_id,),
+            ).fetchone() == (
+                "BLOCKED",
+                result.tool_decisions[0].reason,
+            )
+    finally:
+        with psycopg.connect(maintenance_url, autocommit=True) as connection:
+            connection.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s",
+                (database_name,),
+            )
+            connection.execute(sql.SQL("DROP DATABASE {} ").format(sql.Identifier(database_name)))

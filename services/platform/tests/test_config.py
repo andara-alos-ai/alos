@@ -14,6 +14,9 @@ def test_staging_rejects_default_signing_secret() -> None:
 def test_local_allows_disabled_model_gateway() -> None:
     settings = Settings(_env_file=None, environment="local", llm_provider="disabled")
     assert settings.llm_provider == "disabled"
+    assert settings.llm_max_context_tokens == 12_000
+    assert settings.source_chunk_max_chars == 1_500
+    assert settings.source_retrieval_max_chars == 10_000
 
 
 def test_staging_openai_requires_a_model_policy() -> None:
