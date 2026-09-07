@@ -17,4 +17,8 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "008_h6_staging_authentication.sql",
         "009_h5_source_vault_policy.sql",
         "010_document_center.sql",
+        "011_genesis_document_workflows.sql",
+        "012_genesis_document_uploads.sql",
+        "013_genesis_upload_document_drafts.sql",
+        "014_genesis_upload_withdrawal.sql",
     ]

@@ -1,7 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   canApproveDocument,
@@ -12,6 +20,12 @@ import {
   type DocumentRecord,
   type DocumentWorkspace,
 } from "@/lib/documents";
+import {
+  formatUploadSize,
+  supportsGenesisUpload,
+  uploadExtractionLabel,
+  type GenesisUploadRecord,
+} from "@/lib/genesis-uploads";
 import type { SessionActor } from "@/lib/governance";
 
 type DocumentCenterProps = {
@@ -37,8 +51,13 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const [checkNotes, setCheckNotes] = useState("Evidence dan scope telah diperiksa oleh checker independen.");
   const [reviewNotes, setReviewNotes] = useState("Review independen telah selesai.");
   const [submitting, setSubmitting] = useState(false);
+  const [uploads, setUploads] = useState<GenesisUploadRecord[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [promotingUpload, setPromotingUpload] = useState(false);
+  const [withdrawingUpload, setWithdrawingUpload] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [documentQuery, setDocumentQuery] = useState("");
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const visibleDocuments = useMemo(
     () => mode === "genesis" ? documents.filter((document) => document.origin === "GENESIS") : documents,
@@ -60,6 +79,8 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     total: documents.length,
   }), [documents]);
   const pendingChecks = selected?.checklist.filter((item) => item.required && item.status !== "PASSED").length ?? 0;
+  const latestUpload = uploads[0] ?? null;
+  const canUploadToGenesis = actor.roles.includes("DIRECTOR");
 
   const refreshDocuments = useCallback(async (nextWorkspaceId: string) => {
     setError(null);
@@ -81,6 +102,23 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     }
   }, []);
 
+  const refreshGenesisUploads = useCallback(async (nextWorkspaceId: string) => {
+    if (!nextWorkspaceId) {
+      setUploads([]);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/v1/genesis/uploads?workspace_id=${encodeURIComponent(nextWorkspaceId)}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(await errorDetail(response));
+      setUploads((await response.json()) as GenesisUploadRecord[]);
+    } catch (failure) {
+      setError(messageFrom(failure));
+    }
+  }, []);
+
   useEffect(() => {
     async function initialize() {
       try {
@@ -97,6 +135,14 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
           );
           if (!documentResponse.ok) throw new Error(await errorDetail(documentResponse));
           setDocuments((await documentResponse.json()) as DocumentRecord[]);
+          if (mode === "genesis" && canUploadToGenesis) {
+            const uploadResponse = await fetch(
+              `/api/v1/genesis/uploads?workspace_id=${encodeURIComponent(firstWorkspaceId)}`,
+              { credentials: "same-origin", cache: "no-store" },
+            );
+            if (!uploadResponse.ok) throw new Error(await errorDetail(uploadResponse));
+            setUploads((await uploadResponse.json()) as GenesisUploadRecord[]);
+          }
         }
       } catch (failure) {
         setError(messageFrom(failure));
@@ -105,7 +151,17 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       }
     }
     void initialize();
-  }, []);
+  }, [canUploadToGenesis, mode]);
+
+  function selectWorkspace(nextWorkspaceId: string) {
+    setWorkspaceId(nextWorkspaceId);
+    void refreshDocuments(nextWorkspaceId);
+    if (mode === "genesis" && canUploadToGenesis) {
+      void refreshGenesisUploads(nextWorkspaceId);
+      return;
+    }
+    setUploads([]);
+  }
 
   async function selectDocument(documentId: string) {
     setError(null);
@@ -149,6 +205,92 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       setError(messageFrom(failure));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function openUploadPicker() {
+    uploadInputRef.current?.click();
+  }
+
+  async function uploadGenesisFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file || !workspaceId) return;
+    if (!supportsGenesisUpload(file.name)) {
+      setError("Format belum didukung. Gunakan PDF, DOCX, XLS/XLSX, CSV, JSON, MD, atau TXT.");
+      return;
+    }
+    setUploading(true);
+    setError(null);
+    setNotice(null);
+    const payload = new FormData();
+    payload.set("workspace_id", workspaceId);
+    payload.set("file", file);
+    try {
+      const response = await fetch("/api/v1/genesis/uploads", {
+        method: "POST",
+        credentials: "same-origin",
+        body: payload,
+      });
+      if (!response.ok) throw new Error(await errorDetail(response));
+      const uploaded = (await response.json()) as GenesisUploadRecord;
+      setUploads((current) => [uploaded, ...current.filter((item) => item.genesis_upload_id !== uploaded.genesis_upload_id)]);
+      setNotice(
+        uploaded.extraction_complete
+          ? "Dokumen diterima. Periksa preview sebelum menjadikannya DRAFT resmi."
+          : "Dokumen diterima, tetapi teksnya belum lengkap. Tinjau status ekstraksi sebelum melanjutkan.",
+      );
+    } catch (failure) {
+      setError(messageFrom(failure));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function createDraftFromUpload(upload: GenesisUploadRecord) {
+    if (!workspaceId) return;
+    setPromotingUpload(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/v1/genesis/uploads/${upload.genesis_upload_id}/document-draft`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) throw new Error(await errorDetail(response));
+      const document = (await response.json()) as DocumentRecord;
+      setNotice("DRAFT resmi dibuat. Selanjutnya, checker independen melengkapi checklist sebelum review.");
+      await refreshDocuments(workspaceId);
+      await refreshGenesisUploads(workspaceId);
+      await selectDocument(document.document_id);
+    } catch (failure) {
+      setError(messageFrom(failure));
+    } finally {
+      setPromotingUpload(false);
+    }
+  }
+
+  async function withdrawGenesisUpload(upload: GenesisUploadRecord) {
+    if (!window.confirm(`Batalkan unggahan “${upload.original_filename}”? Berkas asli dan preview teks akan dihapus.`)) {
+      return;
+    }
+    setWithdrawingUpload(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/v1/genesis/uploads/${upload.genesis_upload_id}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error(await errorDetail(response));
+      setUploads((current) => current.filter((item) => item.genesis_upload_id !== upload.genesis_upload_id));
+      setNotice("Unggahan dibatalkan. Berkas asli dan preview teks telah dihapus.");
+    } catch (failure) {
+      setError(messageFrom(failure));
+    } finally {
+      setWithdrawingUpload(false);
     }
   }
 
@@ -203,7 +345,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       <section className="alos-content alos-document-library" aria-label="Document Center">
         <header className="alos-workspace-heading">
           <div><p className="alos-kicker">ALOS / DOCUMENT CENTER</p><h2>Documents</h2><p>Kelola, temukan, dan tindak lanjuti dokumen perusahaan dari satu repositori resmi.</p></div>
-          <div className="alos-workspace-actions"><select aria-label="Workspace dokumen" onChange={(event) => { const nextWorkspaceId = event.target.value; setWorkspaceId(nextWorkspaceId); void refreshDocuments(nextWorkspaceId); }} value={workspaceId}>{workspaces.map((workspace) => <option key={workspace.workspace_id} value={workspace.workspace_id}>{workspace.name}</option>)}</select><button className="alos-workspace-primary" onClick={() => setComposerOpen((open) => !open)} type="button">{composerOpen ? "Tutup form" : "+ Buat dokumen"}</button></div>
+          <div className="alos-workspace-actions"><select aria-label="Workspace dokumen" onChange={(event) => selectWorkspace(event.target.value)} value={workspaceId}>{workspaces.map((workspace) => <option key={workspace.workspace_id} value={workspace.workspace_id}>{workspace.name}</option>)}</select><button className="alos-workspace-primary" onClick={() => setComposerOpen((open) => !open)} type="button">{composerOpen ? "Tutup form" : "+ Buat dokumen"}</button></div>
         </header>
 
         {error ? <p className="alos-inline-error">{error}</p> : null}
@@ -234,6 +376,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   return (
     <section className="alos-content alos-genesis-workspace" aria-label="GENESIS">
       <header className="alos-genesis-workspace-heading"><span className="alos-genesis-workspace-star">✦</span><div><h2>GENESIS</h2><p>Your AI Executive Assistant</p></div><button className="alos-genesis-mode" disabled type="button">♢ Enterprise Mode <span>⌄</span></button></header>
+      <input accept=".pdf,.docx,.xlsx,.xls,.csv,.json,.md,.txt" className="sr-only" onChange={uploadGenesisFile} ref={uploadInputRef} tabIndex={-1} type="file" />
       {error ? <p className="alos-inline-error">{error}</p> : null}
       {notice ? <p className="alos-inline-success">{notice}</p> : null}
 
@@ -243,18 +386,37 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
             <div className="alos-genesis-user-message"><span>{actor.roles[0]?.slice(0, 1) ?? "A"}</span><div><p>Mulai percakapan dengan tujuan atau pertanyaan Anda.</p><small>GENESIS akan menggunakan sumber yang telah diizinkan untuk menyusun DRAFT yang dapat ditinjau.</small></div></div>
             <div className="alos-genesis-assistant-message"><span>✦</span><div><p>GENESIS siap membantu menyusun insight dan DRAFT secara terkendali.</p><div className="alos-genesis-brief"><div><span>Dokumen workspace</span><strong>{documentStats.total || "—"}</strong><small>{documentStats.total ? "Tercatat pada repositori aktif" : "Belum ada data"}</small></div><div><span>Draft dari GENESIS</span><strong>{documentStats.genesis || "—"}</strong><small>{documentStats.genesis ? "Menunggu pemeriksaan" : "Belum ada DRAFT"}</small></div><div><span>Sumber evidence</span><strong>—</strong><small>Belum terhubung</small></div></div><div className="alos-genesis-attention"><strong>Langkah berikutnya</strong><span>Berikan konteks yang cukup; hasil awal tidak akan dipublikasikan atau mengubah data secara otomatis.</span></div></div></div>
           </div>
+          <div className="alos-genesis-upload-toolbar">
+            <button disabled={!workspaceId || !canUploadToGenesis || uploading} onClick={openUploadPicker} type="button">
+              <span aria-hidden="true">⌇</span>{uploading ? "Mengunggah dokumen…" : "Unggah Dokumen"}
+            </button>
+            <small>{canUploadToGenesis ? "PDF, Word, Excel, CSV, JSON, MD, atau TXT · maks. 25 MB" : "Unggah sumber Genesis hanya tersedia untuk Direktur."}</small>
+          </div>
+          {latestUpload ? <article className="alos-genesis-upload-preview" aria-live="polite">
+            <div className="alos-genesis-upload-preview-heading">
+              <span aria-hidden="true">▤</span>
+              <div><strong>{latestUpload.original_filename}</strong><small>{latestUpload.extension.toUpperCase()} · {formatUploadSize(latestUpload.byte_size)} · SHA-256 tersimpan</small></div>
+              <em className={latestUpload.extraction_complete ? "ready" : "review"}>{uploadExtractionLabel(latestUpload)}</em>
+            </div>
+            {latestUpload.preview ? <details><summary>Lihat preview teks</summary><pre>{latestUpload.preview}</pre></details> : <p>{latestUpload.extraction_note ?? "Tidak ada preview yang dapat ditampilkan. Periksa berkas asli sebelum melanjutkan."}</p>}
+            {latestUpload.status === "SOURCE_RECEIVED" ? <div className="alos-genesis-upload-actions">
+              {latestUpload.extraction_complete ? <button className="alos-genesis-upload-promote" disabled={promotingUpload || withdrawingUpload} onClick={() => void createDraftFromUpload(latestUpload)} type="button">{promotingUpload ? "Menyimpan DRAFT…" : "Simpan sebagai DRAFT untuk ditinjau"}</button> : null}
+              <button className="alos-genesis-upload-withdraw" disabled={promotingUpload || withdrawingUpload} onClick={() => void withdrawGenesisUpload(latestUpload)} type="button">{withdrawingUpload ? "Menghapus berkas…" : "Batalkan & hapus berkas"}</button>
+            </div> : null}
+            <p className="alos-genesis-upload-preview-note">{latestUpload.status === "DRAFT_CREATED" ? "DRAFT sudah tersimpan di Document Center dan menunggu checklist serta review independen." : "Berkas ini belum menjadi dokumen resmi dan belum dibaca GENESIS. Jika salah unggah, batalkan untuk menghapus berkas dan preview; jika sudah tepat, simpan sebagai DRAFT untuk menjalani checklist serta review independen."}</p>
+          </article> : null}
           {!workspaceId ? <p className="alos-empty-copy">Akun ini belum memiliki workspace aktif untuk membuat DRAFT.</p> : <form className="alos-genesis-draft-form" onSubmit={createDraft}><label><span className="sr-only">Tujuan atau kebutuhan untuk Genesis</span><textarea aria-label="Tujuan atau kebutuhan untuk Genesis" maxLength={10000} minLength={20} onChange={(event) => setRequirement(event.target.value)} placeholder="Ketik pertanyaan atau kebutuhan Anda untuk GENESIS…" required value={requirement} /></label><div><span className="alos-genesis-composer-tools" aria-hidden="true">⌕　▦　▥</span><small>Hasil awal selalu DRAFT dan membutuhkan pemeriksaan manusia.</small><button aria-label="Buat DRAFT dari kebutuhan" disabled={submitting} type="submit">{submitting ? "…" : "➤"}</button></div></form>}
           <p className="alos-genesis-disclaimer">GENESIS dapat membuat kesalahan. Verifikasi informasi penting sebelum membuat keputusan.</p>
         </article>
 
         <aside className="alos-genesis-workspace-side">
-          <article className="alos-panel alos-genesis-recent"><div className="alos-panel-heading-row"><div><h3>Percakapan Terbaru</h3></div><span>Lihat Semua →</span></div><p className="alos-empty-copy">Belum ada percakapan tersimpan. Histori akan tersedia saat capability percakapan diaktifkan.</p></article>
+          <article className="alos-panel alos-genesis-recent"><div className="alos-panel-heading-row"><div><h3>Percakapan Terbaru</h3></div><span>Lihat Semua →</span></div><p className="alos-empty-copy">Belum ada percakapan tersimpan. {uploads.length ? `${uploads.length} sumber unggahan menunggu ditinjau.` : "Histori akan tersedia saat capability percakapan diaktifkan."}</p></article>
           <article className="alos-panel alos-genesis-agents"><div className="alos-panel-heading-row"><div><h3>Agen Aktif</h3></div><Link href="/agents">Kelola Agen →</Link></div><div className="alos-genesis-agent-empty"><span>◌</span><div><strong>Belum ada agent ACTIVE</strong><small>Agent hanya muncul setelah melewati release dan approval.</small></div></div></article>
           <article className="alos-panel alos-genesis-quick-prompts"><p className="alos-kicker">QUICK PROMPTS</p><h3>Mulai dengan cepat</h3>{["Tampilkan dokumen yang perlu diperiksa", "Susun draft SOP untuk proses yang belum terdokumentasi", "Daftarkan kebutuhan data untuk target divisi", "Buat brief untuk agent read-only"].map((prompt) => <button key={prompt} onClick={() => setRequirement(prompt)} type="button"><span>{prompt}</span><b>›</b></button>)}</article>
         </aside>
       </div>
 
-      <section className="alos-genesis-context"><div className="alos-panel-heading-row"><div><p className="alos-kicker">SUMBER PENGETAHUAN</p><h3>Context</h3></div><Link href="/h5">Kelola Sumber →</Link></div><div className="alos-genesis-context-sources"><Link href="/documents"><span className="internal">●</span><div><strong>Internal ALOS</strong><small>Dokumen, DRAFT, dan evidence terdaftar</small></div><em>{documentStats.total ? `${documentStats.total} dokumen` : "Belum terhubung"}</em></Link><span className="alos-genesis-context-plus">+</span><Link href="/h5"><span className="external">◎</span><div><strong>External</strong><small>Market data, regulasi, dan insight yang disetujui</small></div><em>Belum terhubung</em></Link></div></section>
+      <section className="alos-genesis-context"><div className="alos-panel-heading-row"><div><p className="alos-kicker">SUMBER PENGETAHUAN</p><h3>Context</h3></div><Link href="/h5">Kelola Sumber →</Link></div><div className="alos-genesis-context-sources"><Link href="/documents"><span className="internal">●</span><div><strong>Internal ALOS</strong><small>Dokumen, DRAFT, dan evidence terdaftar</small></div><em>{documentStats.total ? `${documentStats.total} dokumen` : "Belum terhubung"}</em></Link><span className="alos-genesis-context-plus">+</span><button className="alos-genesis-upload-source" disabled={!workspaceId || !canUploadToGenesis || uploading} onClick={openUploadPicker} type="button"><span className="external">⇧</span><div><strong>Unggah sumber</strong><small>{uploads.length ? `${uploads.length} sumber menunggu tinjauan` : "Tambahkan dokumen untuk diperiksa"}</small></div><em>›</em></button></div></section>
 
       {selected ? <section className="alos-document-detail-drawer" aria-label={`Rincian ${selected.document.title}`}><DocumentDetailPanel actor={actor} detail={selected} pendingChecks={pendingChecks} checkNotes={checkNotes} reviewNotes={reviewNotes} submitting={submitting} onCheckNotes={setCheckNotes} onReviewNotes={setReviewNotes} onCompleteCheck={completeCheck} onSubmit={submitForReview} onDecide={decide} /></section> : null}
     </section>

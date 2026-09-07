@@ -17,7 +17,7 @@ function detail(status: DocumentDetail["document"]["status"]): DocumentDetail {
   return {
     document: {
       document_id: "doc", organization_id: "org", workspace_id: "workspace", division_code: null,
-      genesis_conversation_id: null, title: "SOP", category: "GENERAL", classification: "INTERNAL",
+      genesis_conversation_id: null, genesis_upload_id: null, title: "SOP", category: "GENERAL", classification: "INTERNAL",
       origin: "GENESIS", status, owner_user_id: "maker", created_by_user_id: "maker",
       version_number: 1, created_at: "2026-09-05T00:00:00Z", updated_at: "2026-09-05T00:00:00Z",
     },

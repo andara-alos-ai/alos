@@ -546,6 +546,194 @@ th { color: #aac0d5; font-weight: 700; }
 .alos-genesis-draft-form { border-color: #9eafa7; border-radius: 13px; gap: 7px; margin: auto 0 0; min-height: 76px; padding: 12px 14px; }.alos-genesis-draft-form textarea { font-size: .77rem; min-height: 30px; resize: none; }.alos-genesis-draft-form > div { border: 0; min-height: 21px; padding: 0; }.alos-genesis-composer-tools { color: #587068; font-size: .97rem; letter-spacing: .04em; }.alos-genesis-draft-form small { margin-left: auto; text-align: right; }.alos-genesis-draft-form button { align-items: center; border-radius: 9px; font-size: .95rem; height: 36px; justify-content: center; min-height: 36px; padding: 0; width: 39px; }.alos-genesis-disclaimer { margin: 0; }
 .alos-genesis-workspace-side { gap: 15px; }.alos-genesis-workspace-side .alos-panel { border-radius: 12px; padding: 17px; }.alos-genesis-workspace-side .alos-panel-heading-row h3 { color: #1f4035; font-size: .92rem; }.alos-genesis-workspace-side .alos-panel-heading-row > span, .alos-genesis-recent .alos-panel-heading-row > span { color: #0a7645; font-size: .67rem; font-weight: 750; white-space: nowrap; }.alos-genesis-recent { min-height: 205px !important; }.alos-genesis-recent .alos-empty-copy { border-top: 1px solid #e9ede8; font-size: .71rem; margin: 13px 0 0; padding-top: 14px; }.alos-genesis-agents { min-height: 155px !important; }.alos-genesis-agents .alos-panel-heading-row a, .alos-genesis-context > .alos-panel-heading-row a { color: #087647; font-size: .67rem; font-weight: 750; text-decoration: none; white-space: nowrap; }.alos-genesis-agent-empty { align-items: center; border-top: 1px solid #e9ede8; display: flex; gap: 11px; margin-top: 13px; padding-top: 13px; }.alos-genesis-agent-empty > span { align-items: center; background: #eff3ef; border-radius: 50%; color: #72857d; display: inline-flex; font-size: 1rem; height: 32px; justify-content: center; width: 32px; }.alos-genesis-agent-empty div { display: grid; gap: 3px; }.alos-genesis-agent-empty strong { color: #38564b; font-size: .72rem; }.alos-genesis-agent-empty small { color: #7d8e87; font-size: .64rem; line-height: 1.35; }.alos-genesis-quick-prompts { min-height: 230px !important; }.alos-genesis-quick-prompts h3 { margin-bottom: 11px; }.alos-genesis-quick-prompts button { border-radius: 8px; font-size: .69rem; margin-top: 8px; min-height: 39px; padding: 8px 10px; }
 .alos-genesis-context { background: #fffefa; border: 1px solid #e3e4de; border-radius: 13px; display: grid; gap: 15px; margin-top: 1px; padding: 19px; }.alos-genesis-context h3 { color: #244339; font-size: .94rem; margin: 0; }.alos-genesis-context-sources { align-items: center; display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr); }.alos-genesis-context-sources a { align-items: center; background: #fffefa; border: 1px solid #e2e8e1; border-radius: 11px; color: #29483d; display: flex; gap: 11px; min-height: 67px; padding: 11px; text-decoration: none; }.alos-genesis-context-sources a:hover { background: #f4f9f4; border-color: #bbd5c2; }.alos-genesis-context-sources > a > span { align-items: center; border-radius: 50%; display: inline-flex; flex: 0 0 auto; font-size: 1.1rem; height: 38px; justify-content: center; width: 38px; }.alos-genesis-context-sources .internal { background: #e7f3e8; color: #0e8547; }.alos-genesis-context-sources .external { background: #e4f0ff; color: #1973d2; }.alos-genesis-context-sources a div { display: grid; gap: 3px; min-width: 0; }.alos-genesis-context-sources a strong { font-size: .74rem; }.alos-genesis-context-sources a small { color: #7a8c84; font-size: .63rem; line-height: 1.32; }.alos-genesis-context-sources a em { color: #788b83; font-size: .63rem; font-style: normal; margin-left: auto; text-align: right; }.alos-genesis-context-plus { align-items: center; color: #4a675c; display: inline-flex; font-size: 1.4rem; justify-content: center; }
+.alos-genesis-upload-toolbar { align-items: center; border-top: 1px solid #ecefe9; display: flex; gap: 12px; margin: 2px 10px 0; padding-top: 14px; }.alos-genesis-upload-toolbar button { align-items: center; background: #fffefa; border: 1px solid #0b4b3b; border-radius: 8px; color: #15483a; display: inline-flex; font: inherit; font-size: .72rem; font-weight: 800; gap: 7px; min-height: 36px; padding: 8px 12px; }.alos-genesis-upload-toolbar button:hover:not(:disabled) { background: #eff7f0; }.alos-genesis-upload-toolbar button:disabled { border-color: #d8e0da; color: #9aa9a1; cursor: not-allowed; }.alos-genesis-upload-toolbar button span { font-size: 1.15rem; line-height: .8; transform: rotate(45deg); }.alos-genesis-upload-toolbar small { color: #778a81; font-size: .65rem; line-height: 1.35; }.alos-genesis-upload-preview { background: #fffefa; border: 1px solid #dfe7df; border-radius: 11px; display: grid; gap: 10px; margin: 0 10px; padding: 13px 14px; }.alos-genesis-upload-preview-heading { align-items: center; display: grid; gap: 9px; grid-template-columns: 28px minmax(0, 1fr) auto; }.alos-genesis-upload-preview-heading > span { align-items: center; background: #e8f4ea; border-radius: 8px; color: #087546; display: inline-flex; font-size: 1rem; height: 28px; justify-content: center; width: 28px; }.alos-genesis-upload-preview-heading div { display: grid; gap: 3px; min-width: 0; }.alos-genesis-upload-preview-heading strong { color: #29483d; font-size: .73rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.alos-genesis-upload-preview-heading small { color: #7c8d85; font-size: .61rem; }.alos-genesis-upload-preview-heading em { border-radius: 999px; font-size: .61rem; font-style: normal; font-weight: 800; padding: 5px 8px; white-space: nowrap; }.alos-genesis-upload-preview-heading em.ready { background: #e6f5e9; color: #087647; }.alos-genesis-upload-preview-heading em.review { background: #fff3dd; color: #9a6210; }.alos-genesis-upload-preview details { border-top: 1px solid #edf0ec; color: #426257; padding-top: 9px; }.alos-genesis-upload-preview summary { cursor: pointer; font-size: .67rem; font-weight: 800; }.alos-genesis-upload-preview pre { background: #f7f8f5; border: 1px solid #e8ebe6; border-radius: 7px; color: #435d53; font: .64rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 9px 0 0; max-height: 180px; overflow: auto; padding: 9px; white-space: pre-wrap; }.alos-genesis-upload-preview > p { color: #667a70; font-size: .67rem; line-height: 1.45; margin: 0; }.alos-genesis-upload-preview .alos-genesis-upload-preview-note { border-top: 1px solid #edf0ec; color: #76877f; padding-top: 9px; }.alos-genesis-upload-source { align-items: center; background: #fffefa; border: 1px solid #e2e8e1; border-radius: 11px; color: #29483d; display: flex; font: inherit; gap: 11px; min-height: 67px; padding: 11px; text-align: left; width: 100%; }.alos-genesis-upload-source:hover:not(:disabled) { background: #f4f9f4; border-color: #bbd5c2; }.alos-genesis-upload-source:disabled { cursor: not-allowed; opacity: .64; }.alos-genesis-upload-source > span { align-items: center; border-radius: 50%; display: inline-flex; flex: 0 0 auto; font-size: 1.1rem; height: 38px; justify-content: center; width: 38px; }.alos-genesis-upload-source div { display: grid; gap: 3px; min-width: 0; }.alos-genesis-upload-source strong { font-size: .74rem; }.alos-genesis-upload-source small { color: #7a8c84; font-size: .63rem; line-height: 1.32; }.alos-genesis-upload-source em { color: #788b83; font-size: .9rem; font-style: normal; margin-left: auto; }
+.alos-genesis-upload-promote { background: #0b4b3b; border-radius: 8px; color: #fff; font: inherit; font-size: .7rem; font-weight: 800; justify-self: start; min-height: 34px; padding: 8px 12px; }.alos-genesis-upload-promote:hover:not(:disabled) { background: #087647; }.alos-genesis-upload-promote:disabled { cursor: progress; opacity: .65; }
+.alos-genesis-upload-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 9px; }.alos-genesis-upload-withdraw { background: #fffefa; border: 1px solid #c87865; border-radius: 8px; color: #a34631; font: inherit; font-size: .7rem; font-weight: 800; min-height: 34px; padding: 8px 12px; }.alos-genesis-upload-withdraw:hover:not(:disabled) { background: #fff3ef; }.alos-genesis-upload-withdraw:disabled { cursor: progress; opacity: .65; }
 @media (max-width: 1180px) { .alos-genesis-workspace-grid { grid-template-columns: minmax(0, 1fr) 325px; } }
 @media (max-width: 950px) { .alos-genesis-workspace-grid { grid-template-columns: 1fr; }.alos-genesis-workspace-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }.alos-genesis-quick-prompts { grid-column: 1 / -1; } }
-@media (max-width: 620px) { .alos-genesis-workspace-heading { margin-inline: 0; }.alos-genesis-mode { display: none; }.alos-genesis-conversation { min-height: 0; padding: 17px 11px 12px; }.alos-genesis-chat-stream { gap: 16px; padding: 0; }.alos-genesis-brief { grid-template-columns: 1fr; }.alos-genesis-brief > div { border-bottom: 1px solid #ece7dc; border-right: 0; }.alos-genesis-brief > div:last-child { border-bottom: 0; }.alos-genesis-draft-form small { display: none; }.alos-genesis-context-sources { grid-template-columns: 1fr; }.alos-genesis-context-plus { display: none; }.alos-genesis-context-sources a em { display: none; } }
+@media (max-width: 620px) { .alos-genesis-workspace-heading { margin-inline: 0; }.alos-genesis-mode { display: none; }.alos-genesis-conversation { min-height: 0; padding: 17px 11px 12px; }.alos-genesis-chat-stream { gap: 16px; padding: 0; }.alos-genesis-brief { grid-template-columns: 1fr; }.alos-genesis-brief > div { border-bottom: 1px solid #ece7dc; border-right: 0; }.alos-genesis-brief > div:last-child { border-bottom: 0; }.alos-genesis-draft-form small { display: none; }.alos-genesis-context-sources { grid-template-columns: 1fr; }.alos-genesis-context-plus { display: none; }.alos-genesis-context-sources a em, .alos-genesis-upload-source em { display: none; }.alos-genesis-upload-toolbar { align-items: flex-start; flex-direction: column; }.alos-genesis-upload-preview-heading { align-items: flex-start; grid-template-columns: 28px minmax(0, 1fr); }.alos-genesis-upload-preview-heading em { grid-column: 2; justify-self: start; } }
+
+/* Sidebar follows the approved ALOS navigation: a calm green field, gold
+   accents, and a clear separation between operational and system controls. */
+.alos-app-shell { grid-template-columns: 312px minmax(0, 1fr); }
+.alos-sidebar {
+  background:
+    radial-gradient(circle at 104% 47%, rgba(95, 184, 131, .17), transparent 25%),
+    radial-gradient(ellipse at -15% 103%, rgba(213, 168, 69, .2), transparent 34%),
+    linear-gradient(160deg, #00483c 0%, #003b32 54%, #003c30 100%);
+  box-sizing: border-box;
+  min-height: 100vh;
+  overflow-y: auto;
+  padding: 33px 20px 28px;
+}
+.alos-sidebar::after {
+  background: repeating-radial-gradient(ellipse at 0 100%, transparent 0 13px, rgba(224, 175, 65, .15) 14px 15px, transparent 16px 20px);
+  bottom: 0;
+  content: "";
+  height: 174px;
+  left: 0;
+  opacity: .72;
+  pointer-events: none;
+  position: absolute;
+  width: 100%;
+}
+.alos-sidebar > * { position: relative; z-index: 1; }
+.alos-brand { align-items: center; gap: 15px; padding: 0 12px 18px; }
+.alos-brand img { height: 70px; width: 70px; }
+.alos-brand span { gap: 4px; }
+.alos-brand strong { color: #fff9e9; font-size: 2.25rem; letter-spacing: .035em; }
+.alos-brand small { color: rgba(255, 250, 235, .9); font-size: .78rem; line-height: 1.24; }
+.alos-brand-motto {
+  border-top: 1px solid rgba(238, 242, 220, .3);
+  color: #e9c775;
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .36em;
+  margin: 0 12px;
+  padding: 18px 0 29px;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.alos-brand-motto i { color: #f7d785; font-style: normal; letter-spacing: 0; }
+.alos-sidebar-section-label {
+  color: rgba(225, 238, 229, .68) !important;
+  font-size: .68rem !important;
+  font-weight: 800;
+  letter-spacing: .28em;
+  margin: 0 12px 13px !important;
+  padding: 0 !important;
+  text-transform: uppercase;
+}
+.alos-nav { gap: 7px; }
+.alos-nav a, .alos-genesis-nav a, .alos-sidebar-footer a, .alos-sidebar-footer button {
+  border-radius: 14px;
+  font-size: 1rem;
+  font-weight: 650;
+  gap: 17px;
+  min-height: 58px;
+  padding: 11px 18px;
+}
+.alos-nav a .alos-icon, .alos-genesis-nav a .alos-icon, .alos-sidebar-footer a .alos-icon, .alos-sidebar-footer button .alos-icon {
+  color: #f4c669;
+  height: 25px;
+  stroke-width: 1.75;
+  width: 25px;
+}
+.alos-nav a { color: rgba(255, 255, 255, .96); position: relative; }
+.alos-nav a:hover { background: rgba(60, 137, 106, .29); border-color: rgba(240, 202, 112, .18); }
+.alos-nav a.active {
+  background: linear-gradient(90deg, rgba(207, 159, 50, .32), rgba(14, 89, 66, .63));
+  border-color: rgba(144, 208, 163, .38);
+  box-shadow: inset 4px 0 #f5c95d, 0 8px 18px rgba(0, 30, 23, .18);
+  color: #fff9e9;
+  font-weight: 800;
+}
+.alos-nav a.active .alos-icon {
+  background: rgba(7, 71, 53, .65);
+  border-radius: 50%;
+  box-shadow: 0 0 0 8px rgba(209, 170, 65, .13);
+}
+.alos-genesis-nav {
+  border-bottom: 1px solid rgba(238, 245, 237, .22);
+  border-top: 1px solid rgba(238, 245, 237, .22);
+  margin: 24px 12px 0;
+  padding: 23px 0 22px;
+}
+.alos-genesis-nav a {
+  background:
+    radial-gradient(circle at 76% 42%, rgba(36, 143, 101, .23), transparent 28%),
+    linear-gradient(110deg, rgba(14, 85, 64, .75), rgba(0, 67, 53, .58));
+  border: 1px solid #dcad47;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px rgba(255, 239, 189, .08), 0 8px 18px rgba(0, 29, 22, .13);
+  color: #f8d375;
+  grid-template-columns: 30px minmax(0, 1fr) 18px;
+  min-height: 84px;
+  padding: 15px 18px;
+}
+.alos-genesis-nav a:hover, .alos-genesis-nav a.active { background-color: transparent; border-color: #f3cc68; }
+.alos-genesis-nav a .alos-icon { color: #ffcf68; height: 28px; width: 28px; }
+.alos-genesis-nav a .alos-icon:last-child { color: #fff4d4; height: 22px; width: 22px; }
+.alos-genesis-label { gap: 4px; }
+.alos-genesis-label strong { color: #f8cf70; font-size: 1.2rem; letter-spacing: .06em; }
+.alos-genesis-label small { color: #fff9ea; font-size: .87rem; }
+.alos-genesis-nav > p {
+  color: #efc86d;
+  font-size: .67rem;
+  font-weight: 800;
+  letter-spacing: .34em;
+  margin: 22px 0 0;
+  text-align: center;
+  text-transform: uppercase;
+}
+.alos-sidebar-footer {
+  border-top: 0;
+  gap: 7px;
+  margin: auto 12px 0;
+  padding: 31px 0 0;
+}
+.alos-sidebar-footer::before {
+  background: rgba(238, 245, 237, .22);
+  content: "";
+  height: 1px;
+  margin-bottom: 1px;
+  width: 100%;
+}
+.alos-sidebar-footer .alos-sidebar-section-label { margin: 0 0 10px !important; }
+.alos-sidebar-footer a, .alos-sidebar-footer button {
+  color: rgba(255, 255, 255, .95);
+  font-size: .93rem;
+  min-height: 50px;
+  padding: 9px 5px;
+}
+.alos-sidebar-footer a:hover, .alos-sidebar-footer a.active, .alos-sidebar-footer button:hover {
+  background: rgba(60, 137, 106, .22);
+  border-color: transparent;
+}
+.alos-sidebar-footer .alos-icon { height: 24px; width: 24px; }
+.alos-sidebar-signoff {
+  border-top: 1px solid rgba(238, 245, 237, .22);
+  color: #f2cc74 !important;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.18rem !important;
+  line-height: 1.2;
+  margin: 26px 0 0 !important;
+  padding: 28px 0 20px !important;
+  text-align: right;
+}
+.alos-sidebar-signoff em { color: #f7e4b8; font-size: .98rem; }
+.alos-sidebar-signoff span { background: #f0bd49; display: block; height: 3px; margin: 21px 22% 0 auto; width: 40px; }
+.alos-topbar { justify-content: flex-end; }
+@media (max-width: 1120px) {
+  .alos-app-shell { grid-template-columns: 264px minmax(0, 1fr); }
+  .alos-sidebar { padding-inline: 14px; }
+  .alos-brand { gap: 11px; padding-inline: 9px; }
+  .alos-brand img { height: 58px; width: 58px; }
+  .alos-brand strong { font-size: 1.9rem; }
+  .alos-brand small { font-size: .68rem; }
+  .alos-nav a, .alos-genesis-nav a, .alos-sidebar-footer a, .alos-sidebar-footer button { font-size: .86rem; gap: 13px; padding-inline: 13px; }
+  .alos-nav a .alos-icon, .alos-genesis-nav a .alos-icon, .alos-sidebar-footer a .alos-icon, .alos-sidebar-footer button .alos-icon { height: 21px; width: 21px; }
+}
+@media (max-width: 800px) {
+  .alos-sidebar { min-height: auto; overflow: visible; padding: 23px 16px; }
+  .alos-sidebar::after { display: none; }
+  .alos-brand-motto { margin-bottom: 20px; padding-bottom: 17px; }
+  .alos-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); }
+  .alos-nav .alos-sidebar-section-label { grid-column: 1 / -1; }
+  .alos-nav a, .alos-genesis-nav a, .alos-sidebar-footer a, .alos-sidebar-footer button { min-height: 46px; }
+  .alos-nav a.active .alos-icon { box-shadow: 0 0 0 6px rgba(209, 170, 65, .13); }
+  .alos-genesis-nav { margin-inline: 0; padding-bottom: 18px; }
+  .alos-genesis-nav a { min-height: 70px; }
+  .alos-sidebar-footer { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin: 0; padding-top: 21px; }
+  .alos-sidebar-footer::before, .alos-sidebar-footer .alos-sidebar-section-label, .alos-sidebar-signoff { grid-column: 1 / -1; }
+  .alos-sidebar-signoff { display: block !important; text-align: left; }
+}
+@media (max-width: 520px) {
+  .alos-sidebar { padding: 19px 14px; }
+  .alos-brand-motto { font-size: .58rem; letter-spacing: .27em; }
+  .alos-nav { grid-template-columns: 1fr 1fr; }
+  .alos-nav a { font-size: .78rem; gap: 9px; padding-inline: 10px; }
+  .alos-nav a .alos-icon { height: 19px; width: 19px; }
+  .alos-sidebar-footer { grid-template-columns: 1fr; }
+}

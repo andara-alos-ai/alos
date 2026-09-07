@@ -39,6 +39,10 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             "008_h6_staging_authentication.sql",
             "009_h5_source_vault_policy.sql",
             "010_document_center.sql",
+            "011_genesis_document_workflows.sql",
+            "012_genesis_document_uploads.sql",
+            "013_genesis_upload_document_drafts.sql",
+            "014_genesis_upload_withdrawal.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
@@ -70,6 +74,12 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             assert connection.execute(
                 "SELECT to_regclass('sources.vault_policies')"
             ).fetchone() == ("sources.vault_policies",)
+            assert connection.execute(
+                "SELECT to_regclass('genesis.document_workflows')"
+            ).fetchone() == ("genesis.document_workflows",)
+            assert connection.execute(
+                "SELECT to_regclass('genesis.document_uploads')"
+            ).fetchone() == ("genesis.document_uploads",)
             assert connection.execute(
                 """
                 SELECT column_name FROM information_schema.columns

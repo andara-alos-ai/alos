@@ -9,6 +9,7 @@ export type DocumentRecord = {
   workspace_id: string;
   division_code: string | null;
   genesis_conversation_id: string | null;
+  genesis_upload_id: string | null;
   title: string;
   category: string;
   classification: "PUBLIC" | "INTERNAL" | "CONFIDENTIAL" | "RESTRICTED";

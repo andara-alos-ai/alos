@@ -70,7 +70,6 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
   const displayRoleLabel = profile?.roleLabel ?? roleLabel;
   const pageTitle = page?.title ?? profile?.homeTitle ?? "Selamat datang di ALOS";
   const pageDescription = page?.description ?? profile?.homeDescription ?? "Satu ruang kerja untuk melihat kondisi perusahaan, keputusan, dan aksi yang telah terdaftar.";
-  const searchPlaceholder = page?.searchPlaceholder ?? "Cari proyek, dokumen, divisi, atau tanya GENESIS…";
   const isFocusedWorkspace = module === "documents" || module === "genesis";
   const navigation = profile
     ? [{ href: "/", key: "executive" as const, label: profile.homeLabel, icon: "home" as const }, ...navItems]
@@ -92,7 +91,10 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
           <span><strong>ALOS</strong><small>Andara Leverage Operating System</small><small>PT Andara Rejo Makmur</small></span>
         </Link>
 
-        <nav className="alos-nav">
+        <p className="alos-brand-motto">People <i>•</i> Process <i>•</i> Impact</p>
+
+        <nav className="alos-nav" aria-label="Workspace">
+          <p className="alos-sidebar-section-label">Workspace</p>
           {navigation.map((item) => (
             <Link className={item.key === (module ?? "executive") ? "active" : ""} href={item.href} key={item.key}>
               <AppIcon name={item.icon} />{item.label}
@@ -106,23 +108,20 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
             <span className="alos-genesis-label"><strong>GENESIS</strong><small>AI Executive</small></span>
             <AppIcon name="chevron" />
           </Link>
+          <p>A smarter tomorrow</p>
         </div>
 
-        <div className="alos-sidebar-footer">
+        <div className="alos-sidebar-footer" aria-label="System">
+          <p className="alos-sidebar-section-label">System</p>
           <Link className={module === "settings" ? "active" : ""} href="/settings"><AppIcon name="settings" />Pengaturan</Link>
           {profile?.governanceVisible ? <Link href="/governance"><AppIcon name="governance" />Governance &amp; Agent Control</Link> : null}
           <button onClick={() => void logout()} type="button"><AppIcon name="logout" />Keluar</button>
-          <p>Building Better Living<br /><em>for a Brighter Tomorrow</em></p>
+          <p className="alos-sidebar-signoff">Building Better Living<br /><em>for a Brighter Tomorrow</em><span aria-hidden="true" /></p>
         </div>
       </aside>
 
       <section className="alos-main">
         <header className="alos-topbar">
-          <label className="alos-search" aria-label="Pencarian ALOS">
-            <AppIcon name="search" />
-            <input disabled placeholder={searchPlaceholder} />
-            <kbd>⌘ K</kbd>
-          </label>
           <div className="alos-profile">
             <div className="alos-date"><strong>{formatCurrentDate()}</strong><span>{formatCurrentTime()}</span></div>
             <button aria-label="Notifikasi belum tersedia" className="alos-notifications" disabled type="button"><AppIcon name="bell" /><i /></button>
