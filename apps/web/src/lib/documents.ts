@@ -71,16 +71,25 @@ const checkerRoles = new Set([
   "QA_SECURITY",
 ]);
 
+function usesDirectorStreamlinedFlow(document: DocumentRecord): boolean {
+  return document.classification === "PUBLIC" || document.classification === "INTERNAL";
+}
+
 export function canCheckDocument(actor: SessionActor, detail: DocumentDetail): boolean {
-  return detail.document.status === "DRAFT"
-    && detail.document.created_by_user_id !== actor.user_id
-    && actor.roles.some((role) => checkerRoles.has(role));
+  if (detail.document.status !== "DRAFT" || !actor.roles.some((role) => checkerRoles.has(role))) {
+    return false;
+  }
+  return detail.document.created_by_user_id !== actor.user_id
+    || (actor.roles.includes("DIRECTOR") && usesDirectorStreamlinedFlow(detail.document));
 }
 
 export function canApproveDocument(actor: SessionActor, detail: DocumentDetail): boolean {
+  if (!actor.roles.includes("DIRECTOR")) return false;
+  if (usesDirectorStreamlinedFlow(detail.document)) {
+    return detail.document.status === "DRAFT" || detail.document.status === "IN_REVIEW";
+  }
   return detail.document.status === "IN_REVIEW"
-    && detail.document.created_by_user_id !== actor.user_id
-    && actor.roles.some((role) => role === "DIRECTOR" || role === "DIVISION_OWNER");
+    && detail.document.created_by_user_id !== actor.user_id;
 }
 
 export function isChecklistComplete(detail: DocumentDetail): boolean {

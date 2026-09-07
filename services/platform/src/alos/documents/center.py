@@ -20,6 +20,7 @@ DocumentStatus = Literal["DRAFT", "IN_REVIEW", "APPROVED", "ACTIVE", "REJECTED",
 DocumentOrigin = Literal["MANUAL", "GENESIS"]
 DocumentClassification = Literal["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"]
 ChecklistStatus = Literal["PENDING", "PASSED", "WAIVED"]
+_DIRECTOR_STREAMLINED_CLASSIFICATIONS = {"PUBLIC", "INTERNAL"}
 
 
 class DocumentCenterError(RuntimeError):
@@ -332,6 +333,7 @@ class DocumentCenterRepository:
         organization_id: UUID,
         actor_user_id: UUID,
         correlation_id: UUID,
+        allow_director_self_check: bool = False,
     ) -> DocumentDetail:
         with self._transaction() as connection:
             document, version = self._load_document(
@@ -341,7 +343,11 @@ class DocumentCenterRepository:
                 raise DocumentConflictError(
                     "checklist can only be completed while the document is DRAFT"
                 )
-            if document["created_by_user_id"] == actor_user_id:
+            direct_director_check = (
+                allow_director_self_check
+                and document["classification"] in _DIRECTOR_STREAMLINED_CLASSIFICATIONS
+            )
+            if document["created_by_user_id"] == actor_user_id and not direct_director_check:
                 raise DocumentConflictError("draft creator cannot complete a human checklist item")
             check = connection.execute(
                 """
@@ -376,8 +382,18 @@ class DocumentCenterRepository:
                 entity_type="DOCUMENT",
                 entity_id=document_id,
                 correlation_id=correlation_id,
-                reason="Independent human checker completed a required document checklist item",
-                metadata={"check_key": check_key, "document_version": version["version_number"]},
+                reason=(
+                    "Director completed a required checklist item before direct approval"
+                    if direct_director_check
+                    else "Independent human checker completed a required document checklist item"
+                ),
+                metadata={
+                    "check_key": check_key,
+                    "document_version": version["version_number"],
+                    "review_route": (
+                        "DIRECTOR_STREAMLINED" if direct_director_check else "INDEPENDENT"
+                    ),
+                },
             )
         return self.get_document(
             document_id, organization_id=organization_id, actor_user_id=actor_user_id
@@ -453,26 +469,58 @@ class DocumentCenterRepository:
         organization_id: UUID,
         actor_user_id: UUID,
         correlation_id: UUID,
+        allow_director_direct_approval: bool = False,
     ) -> DocumentDetail:
         with self._transaction() as connection:
             document, version = self._load_document(
                 connection, document_id, organization_id, actor_user_id, for_update=True
             )
-            if document["status"] != "IN_REVIEW":
-                raise DocumentConflictError("document is not waiting for review")
-            if document["created_by_user_id"] == actor_user_id:
+            direct_director_approval = (
+                allow_director_direct_approval
+                and document["classification"] in _DIRECTOR_STREAMLINED_CLASSIFICATIONS
+            )
+            if document["status"] not in {"DRAFT", "IN_REVIEW"}:
+                raise DocumentConflictError("document is not waiting for approval")
+            if document["status"] == "DRAFT" and not direct_director_approval:
+                raise DocumentConflictError("document must be submitted for independent review")
+            if (
+                document["created_by_user_id"] == actor_user_id
+                and not direct_director_approval
+            ):
                 raise DocumentConflictError("draft creator cannot decide its own document review")
-            review = connection.execute(
+            incomplete = connection.execute(
                 """
-                SELECT document_review_request_id
-                FROM documents.review_requests
-                WHERE document_id = %s AND document_version_id = %s AND status = 'PENDING'
-                ORDER BY submitted_at DESC
-                LIMIT 1
-                FOR UPDATE
+                SELECT check_key FROM documents.checklist_items
+                WHERE document_version_id = %s AND required AND status <> 'PASSED'
+                ORDER BY check_key
                 """,
-                (document_id, version["document_version_id"]),
-            ).fetchone()
+                (version["document_version_id"],),
+            ).fetchall()
+            if incomplete:
+                keys = ", ".join(row["check_key"] for row in incomplete)
+                raise DocumentConflictError(f"required checklist items are incomplete: {keys}")
+            if document["status"] == "DRAFT":
+                review = connection.execute(
+                    """
+                    INSERT INTO documents.review_requests (
+                        document_id, document_version_id, submitted_by_user_id
+                    ) VALUES (%s, %s, %s)
+                    RETURNING document_review_request_id
+                    """,
+                    (document_id, version["document_version_id"], actor_user_id),
+                ).fetchone()
+            else:
+                review = connection.execute(
+                    """
+                    SELECT document_review_request_id
+                    FROM documents.review_requests
+                    WHERE document_id = %s AND document_version_id = %s AND status = 'PENDING'
+                    ORDER BY submitted_at DESC
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+                    (document_id, version["document_version_id"]),
+                ).fetchone()
             if review is None:
                 raise DocumentConflictError("pending document review is not available")
             review_status = "APPROVED" if approved else "REJECTED"
@@ -500,11 +548,20 @@ class DocumentCenterRepository:
                 entity_id=document_id,
                 correlation_id=correlation_id,
                 reason=(
-                    "Independent human approved the document"
+                    "Director completed checklist and approved the internal document"
+                    if approved and direct_director_approval
+                    else "Director completed checklist and rejected the internal document"
+                    if direct_director_approval
+                    else "Independent human approved the document"
                     if approved
                     else "Independent human rejected the document"
                 ),
-                metadata={"document_version": version["version_number"]},
+                metadata={
+                    "document_version": version["version_number"],
+                    "review_route": (
+                        "DIRECTOR_STREAMLINED" if direct_director_approval else "INDEPENDENT"
+                    ),
+                },
             )
         return self.get_document(
             document_id, organization_id=organization_id, actor_user_id=actor_user_id

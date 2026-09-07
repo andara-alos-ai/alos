@@ -403,10 +403,10 @@ def require_genesis_director(actor: ActorContext) -> None:
 
 
 def require_document_approver(actor: ActorContext) -> None:
-    if not {HumanRole.DIRECTOR, HumanRole.DIVISION_OWNER}.intersection(actor.roles):
+    if HumanRole.DIRECTOR not in actor.roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="document approver role required",
+            detail="Director authority required for document approval",
         )
 
 
@@ -1163,6 +1163,7 @@ def complete_document_checklist_item(
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
             correlation_id=uuid4(),
+            allow_director_self_check=HumanRole.DIRECTOR in actor.roles,
         )
     except DocumentCenterError as error:
         raise document_http_error(error) from error
@@ -1199,6 +1200,7 @@ def approve_document(
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
             correlation_id=uuid4(),
+            allow_director_direct_approval=HumanRole.DIRECTOR in actor.roles,
         )
     except DocumentCenterError as error:
         raise document_http_error(error) from error
@@ -1219,6 +1221,7 @@ def reject_document(
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
             correlation_id=uuid4(),
+            allow_director_direct_approval=HumanRole.DIRECTOR in actor.roles,
         )
     except DocumentCenterError as error:
         raise document_http_error(error) from error

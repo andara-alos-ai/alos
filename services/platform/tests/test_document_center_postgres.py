@@ -13,6 +13,7 @@ from alos.documents.center import (
     ChecklistCompletionRequest,
     DocumentCenterRepository,
     DocumentConflictError,
+    DocumentDraftRequest,
     DocumentReviewDecisionRequest,
     GenesisDocumentDraftRequest,
 )
@@ -134,6 +135,40 @@ def test_document_center_keeps_genesis_draft_checklist_and_approval_separate() -
         assert approved.document.status == "APPROVED"
         assert approved.reviews[0].reviewer_user_id == approver_id
         assert approved.content.startswith("# SOP Brief Operasional")
+
+        direct_document = documents.create_draft(
+            DocumentDraftRequest(
+                workspace_id=context.workspace_id,
+                title="Register Otoritas Internal",
+                content="Register peran dan otoritas untuk pemeriksaan Direktur.",
+                category="GOVERNANCE",
+                classification="INTERNAL",
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=approver_id,
+            correlation_id=uuid4(),
+        )
+        for check_key in ("SOURCE_EVIDENCE", "SCOPE_OWNER", "RISK_CLASSIFICATION"):
+            documents.complete_checklist_item(
+                direct_document.document_id,
+                check_key,
+                ChecklistCompletionRequest(notes=f"Director completed {check_key}."),
+                organization_id=context.organization_id,
+                actor_user_id=approver_id,
+                correlation_id=uuid4(),
+                allow_director_self_check=True,
+            )
+        direct_approved = documents.decide_review(
+            direct_document.document_id,
+            DocumentReviewDecisionRequest(notes="Director approved the internal register."),
+            approved=True,
+            organization_id=context.organization_id,
+            actor_user_id=approver_id,
+            correlation_id=uuid4(),
+            allow_director_direct_approval=True,
+        )
+        assert direct_approved.document.status == "APPROVED"
+        assert direct_approved.reviews[0].reviewer_user_id == approver_id
         events = AuditReader(temporary_url).list_events(context.organization_id)
         assert {event.action for event in events}.issuperset(
             {
