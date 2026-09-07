@@ -895,9 +895,25 @@ class AgentRuntimeRepository:
                 FROM genesis.semantic_analysis_runs
                 WHERE organization_id = %s AND workspace_id = %s AND status = 'SUCCEEDED'
                   AND created_at >= {window_start_sql}
+
+                UNION ALL
+
+                SELECT CASE WHEN status = 'FAILED'
+                              THEN coalesce(output_tokens, requested_output_tokens)
+                            ELSE output_tokens END AS output_tokens,
+                       CASE WHEN status = 'FAILED'
+                              THEN coalesce(estimated_cost_usd, reserved_cost_usd)
+                            ELSE estimated_cost_usd END AS cost_usd
+                FROM genesis.follow_up_runs
+                WHERE organization_id = %s AND workspace_id = %s
+                  AND status IN ('SUCCEEDED', 'FAILED')
+                  AND created_at >= {window_start_sql}
             ) AS completed_usage
             """,
             (
+                organization_id,
+                workspace_id,
+                *parameters,
                 organization_id,
                 workspace_id,
                 *parameters,
@@ -923,9 +939,19 @@ class AgentRuntimeRepository:
                 FROM genesis.semantic_analysis_runs
                 WHERE organization_id = %s AND workspace_id = %s AND status = 'RUNNING'
                   AND created_at >= {window_start_sql}
+
+                UNION ALL
+
+                SELECT requested_output_tokens AS output_tokens, reserved_cost_usd AS cost_usd
+                FROM genesis.follow_up_runs
+                WHERE organization_id = %s AND workspace_id = %s AND status = 'RUNNING'
+                  AND created_at >= {window_start_sql}
             ) AS reserved_usage
             """,
             (
+                organization_id,
+                workspace_id,
+                *parameters,
                 organization_id,
                 workspace_id,
                 *parameters,

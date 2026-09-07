@@ -56,6 +56,8 @@ ALOS_LLM_DAILY_OUTPUT_TOKEN_LIMIT=2400
 ALOS_LLM_DAILY_COST_CAP_USD=5.00
 ALOS_GENESIS_SEMANTIC_ANALYSIS_ENABLED=false
 ALOS_GENESIS_SEMANTIC_MAX_OUTPUT_TOKENS=1200
+ALOS_GENESIS_CONVERSATION_FOLLOW_UP_ENABLED=false
+ALOS_GENESIS_FOLLOW_UP_MAX_OUTPUT_TOKENS=1200
 ALOS_SOURCE_CHUNK_MAX_CHARS=1500
 ALOS_SOURCE_RETRIEVAL_MAX_CHARS=10000
 ```
@@ -84,6 +86,19 @@ aktif. Ubah hanya pada secret file VPS:
 ALOS_GENESIS_SEMANTIC_ANALYSIS_ENABLED=true
 ALOS_GENESIS_SEMANTIC_MAX_OUTPUT_TOKENS=1200
 ```
+
+Percakapan dua arah dikendalikan secara terpisah. Aktifkan hanya setelah
+analisis dokumen dan cost limit workspace telah diverifikasi:
+
+```dotenv
+ALOS_GENESIS_CONVERSATION_FOLLOW_UP_ENABLED=true
+ALOS_GENESIS_FOLLOW_UP_MAX_OUTPUT_TOKENS=1200
+```
+
+Follow-up hanya dapat berjalan selama workflow masih `ANALYSIS_DRAFT`. Ia
+memakai sumber, versi, dan SHA-256 analisis awal; menyertakan maksimal delapan
+turn sukses terbaru atau sekitar 4.000 token riwayat; dan tidak memajukan
+workflow maupun mengubah dokumen.
 
 Satu permintaan hanya dapat memakai dokumen `MANUAL`, berklasifikasi
 `INTERNAL`, berstatus `APPROVED` atau `ACTIVE`, dengan ekstrak teks maksimal

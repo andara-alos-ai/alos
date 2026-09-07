@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   type ChangeEvent,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -26,6 +27,18 @@ import {
   type GenesisDocumentAnalysisResult,
 } from "@/lib/genesis-document-analysis";
 import {
+  followUpMessages,
+  genesisFollowUpFailureTitle,
+  genesisFollowUpLoadingText,
+  isGenesisFollowUpFailure,
+  optimisticDirectorMessage,
+  rollbackOptimisticMessage,
+  settleFollowUpMessages,
+  type GenesisFollowUpFailure,
+  type GenesisFollowUpResponse,
+  type GenesisHistoryMessage,
+} from "@/lib/genesis-follow-up";
+import {
   formatUploadSize,
   supportsGenesisUpload,
   uploadExtractionLabel,
@@ -41,13 +54,6 @@ type DocumentCenterProps = {
 type ApiFailure = { detail?: string };
 
 type GenesisHistoryConversation = GenesisDocumentAnalysisResult["conversation"];
-
-type GenesisHistoryMessage = {
-  message_id: string;
-  actor_kind: "HUMAN" | "SYSTEM";
-  content: string;
-  created_at: string;
-};
 
 type GenesisHistoryArtifact = {
   artifact_id: string;
@@ -74,6 +80,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const [conversationMessages, setConversationMessages] = useState<GenesisHistoryMessage[]>([]);
   const [directorReply, setDirectorReply] = useState("");
   const [sendingDirectorReply, setSendingDirectorReply] = useState(false);
+  const [followUpFailure, setFollowUpFailure] = useState<GenesisFollowUpFailure | null>(null);
   const [checkNotes, setCheckNotes] = useState("Evidence dan scope telah diperiksa oleh checker independen.");
   const [reviewNotes, setReviewNotes] = useState("Review independen telah selesai.");
   const [submitting, setSubmitting] = useState(false);
@@ -85,6 +92,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const [composerOpen, setComposerOpen] = useState(false);
   const [documentQuery, setDocumentQuery] = useState("");
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const directorReplyInFlightRef = useRef(false);
 
   const visibleDocuments = useMemo(
     () => mode === "genesis" ? documents.filter((document) => document.origin === "GENESIS") : documents,
@@ -118,13 +126,12 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at)),
     [documents],
   );
-  const directorReplies = useMemo(() => {
-    if (!analysisResult) return [];
-    return conversationMessages.filter((message) => (
-      message.actor_kind === "HUMAN"
-      && message.content !== analysisResult.analysis.content.prompt
-    ));
-  }, [analysisResult, conversationMessages]);
+  const displayedFollowUps = useMemo(
+    () => analysisResult
+      ? followUpMessages(conversationMessages, analysisResult.analysis.content.prompt)
+      : [],
+    [analysisResult, conversationMessages],
+  );
 
   const refreshDocuments = useCallback(async (nextWorkspaceId: string) => {
     setError(null);
@@ -215,6 +222,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     setAnalysisResult(null);
     setConversationMessages([]);
     setDirectorReply("");
+    setFollowUpFailure(null);
     if (mode === "genesis" && canUploadToGenesis) {
       void refreshGenesisUploads(nextWorkspaceId);
       return;
@@ -284,6 +292,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       setAnalysisResult(result);
       setConversationMessages([]);
       setDirectorReply("");
+      setFollowUpFailure(null);
       setSelected(null);
       setAnalysisPrompt("");
       setNotice("Genesis menyimpan analisis dan rekomendasi terikat ke versi sumber. Konfirmasi Direktur dicatat melalui percakapan.");
@@ -326,6 +335,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       setAnalysisResult(restored);
       setConversationMessages(messages);
       setDirectorReply("");
+      setFollowUpFailure(null);
       setSelected(null);
       setNotice("Percakapan Genesis dipulihkan dari riwayat tersimpan.");
     } catch (failure) {
@@ -339,30 +349,61 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   async function recordDirectorReply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const message = directorReply.trim();
-    if (!analysisResult || !message) return;
+    if (!analysisResult || message.length < 3 || directorReplyInFlightRef.current) return;
+    directorReplyInFlightRef.current = true;
     setSendingDirectorReply(true);
     setError(null);
     setNotice(null);
+    setFollowUpFailure(null);
+    const correlationId = crypto.randomUUID();
+    const optimistic = optimisticDirectorMessage(
+      analysisResult.conversation.conversation_id,
+      correlationId,
+      message,
+    );
+    setConversationMessages((current) => [...current, optimistic]);
+    setDirectorReply("");
     try {
       const response = await fetch(
-        `/api/v1/genesis/conversations/${encodeURIComponent(analysisResult.conversation.conversation_id)}/messages`,
+        `/api/v1/genesis/conversations/${encodeURIComponent(analysisResult.conversation.conversation_id)}/follow-ups`,
         {
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: message }),
+          body: JSON.stringify({ correlation_id: correlationId, content: message }),
         },
       );
-      if (!response.ok) throw new Error(await errorDetail(response));
-      const recorded = (await response.json()) as GenesisHistoryMessage;
-      setConversationMessages((current) => [...current, recorded]);
-      setDirectorReply("");
-      setNotice("Arahan Direktur tersimpan di percakapan. Genesis belum mengubah dokumen sumber atau menandai rekomendasi sebagai selesai.");
+      const payload = await response.json().catch(() => null) as unknown;
+      if (!response.ok && isGenesisFollowUpFailure(payload)) {
+        setFollowUpFailure(payload);
+        setConversationMessages((current) => (
+          rollbackOptimisticMessage(current, correlationId)
+        ));
+        setDirectorReply(message);
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(apiFailureMessage(payload));
+      }
+      const result = payload as GenesisFollowUpResponse;
+      setConversationMessages((current) => (
+        settleFollowUpMessages(current, correlationId, result)
+      ));
+      setNotice("Genesis telah menjawab tanpa mengubah dokumen sumber atau status workflow.");
     } catch (failure) {
+      setConversationMessages((current) => rollbackOptimisticMessage(current, correlationId));
+      setDirectorReply(message);
       setError(messageFrom(failure));
     } finally {
+      directorReplyInFlightRef.current = false;
       setSendingDirectorReply(false);
     }
+  }
+
+  function submitDirectorReplyOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
   }
 
   function openUploadPicker() {
@@ -536,6 +577,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       <input accept=".pdf,.docx,.xlsx,.xls,.csv,.json,.md,.txt" className="sr-only" onChange={uploadGenesisFile} ref={uploadInputRef} tabIndex={-1} type="file" />
       {error ? <p className="alos-inline-error">{error}</p> : null}
       {notice ? <p className="alos-inline-success">{notice}</p> : null}
+      {followUpFailure ? <GenesisFollowUpFeedback failure={followUpFailure} sending={false} /> : null}
 
       <div className="alos-genesis-workspace-grid">
         <article className="alos-panel alos-genesis-conversation">
@@ -561,14 +603,12 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
                   <div className="alos-genesis-attention"><div><strong>Rekomendasi untuk arahan Direktur</strong><span>Daftar perbaikan di atas bukan tugas yang dapat ditandai selesai. Konfirmasi, tolak, atau beri prioritas melalui percakapan di bawah.</span></div></div>
                 </div>
               </div>
-              {directorReplies.map((message) => <div className="alos-genesis-user-message alos-genesis-followup-message" key={message.message_id}>
-                <span>{actor.roles.includes("DIRECTOR") ? "D" : actor.roles[0]?.slice(0, 1) ?? "A"}</span>
-                <div><div className="alos-genesis-message-meta"><strong>Direktur Utama</strong><small>{formatDocumentDate(message.created_at)}</small></div><p>{message.content}</p></div>
-              </div>)}
+              {displayedFollowUps.map((message) => <GenesisFollowUpMessage actorInitial={actor.roles.includes("DIRECTOR") ? "D" : actor.roles[0]?.slice(0, 1) ?? "A"} key={message.message_id} message={message} />)}
+              {sendingDirectorReply ? <GenesisFollowUpFeedback failure={null} sending /> : null}
               <form className="alos-genesis-director-reply" onSubmit={recordDirectorReply}>
-                <label htmlFor="genesis-director-reply">Arahan Direktur untuk rekomendasi Genesis</label>
-                <textarea id="genesis-director-reply" maxLength={10000} minLength={3} onChange={(event) => setDirectorReply(event.target.value)} placeholder="Contoh: Saya setuju rekomendasi 1, 3, dan 5. Prioritaskan SOP IT, lalu siapkan DRAFT pelengkapan tanpa mengubah dokumen sumber." required value={directorReply} />
-                <div><small>Pesan ini menjadi rekam keputusan percakapan. Genesis tidak dapat mengubah sumber, menutup rekomendasi, atau menyetujui dokumen sendiri.</small><button disabled={sendingDirectorReply || !directorReply.trim()} type="submit">{sendingDirectorReply ? "Menyimpan…" : "Kirim arahan"}</button></div>
+                <label htmlFor="genesis-director-reply">Lanjutkan percakapan dengan Genesis</label>
+                <textarea disabled={sendingDirectorReply} id="genesis-director-reply" maxLength={10000} minLength={3} onChange={(event) => setDirectorReply(event.target.value)} onKeyDown={submitDirectorReplyOnEnter} placeholder="Tulis arahan lanjutan. Enter untuk mengirim, Shift+Enter untuk baris baru." required value={directorReply} />
+                <div><small>Genesis akan menjawab berdasarkan sumber terikat. Tidak ada dokumen atau status yang berubah otomatis.</small><button disabled={sendingDirectorReply || directorReply.trim().length < 3} type="submit">{sendingDirectorReply ? "Menganalisis…" : "Kirim ke Genesis"}</button></div>
               </form>
             </> : <>
               <div className="alos-genesis-user-message"><span>{actor.roles[0]?.slice(0, 1) ?? "A"}</span><div><p>Mulai analisis dengan memilih dokumen yang sudah disetujui.</p><small>Genesis hanya membaca sumber kanonis INTERNAL dengan status APPROVED atau ACTIVE.</small></div></div>
@@ -610,6 +650,22 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       {selected ? <section className="alos-document-detail-drawer" aria-label={`Rincian ${selected.document.title}`}><DocumentDetailPanel actor={actor} detail={selected} pendingChecks={pendingChecks} checkNotes={checkNotes} reviewNotes={reviewNotes} submitting={submitting} onCheckNotes={setCheckNotes} onReviewNotes={setReviewNotes} onCompleteCheck={completeCheck} onSubmit={submitForReview} onDecide={decide} /></section> : null}
     </section>
   );
+}
+
+export function GenesisFollowUpMessage({ actorInitial, message }: { actorInitial: string; message: GenesisHistoryMessage }) {
+  if (message.actor_kind === "HUMAN") return <div className="alos-genesis-user-message alos-genesis-followup-message">
+    <span>{actorInitial}</span>
+    <div><div className="alos-genesis-message-meta"><strong>Direktur Utama</strong><small>{formatDocumentDate(message.created_at)}</small></div><p>{message.content}</p></div>
+  </div>;
+  return <div className="alos-genesis-assistant-message alos-genesis-followup-message">
+    <span aria-label="Genesis">✦</span><div><div className="alos-genesis-message-meta alos-genesis-assistant-meta"><strong>GENESIS</strong><small>{formatDocumentDate(message.created_at)}</small><em>Read-only</em></div><GenesisMarkdown content={message.content} /></div>
+  </div>;
+}
+
+export function GenesisFollowUpFeedback({ failure, sending }: { failure: GenesisFollowUpFailure | null; sending: boolean }) {
+  if (failure) return <p className={`alos-genesis-follow-up-error ${failure.status.toLowerCase()}`}><strong>{genesisFollowUpFailureTitle(failure.status)}</strong><span>{failure.error.message}</span></p>;
+  if (!sending) return null;
+  return <div aria-live="polite" className="alos-genesis-assistant-message alos-genesis-followup-loading"><span aria-label="Genesis">✦</span><div><div className="alos-genesis-message-meta alos-genesis-assistant-meta"><strong>GENESIS</strong><small>Sedang bekerja</small></div><p><i aria-hidden="true" />{genesisFollowUpLoadingText}</p></div></div>;
 }
 
 function GenesisMarkdown({ content }: { content: string }) {
@@ -666,11 +722,21 @@ function GenesisMarkdown({ content }: { content: string }) {
       continue;
     }
 
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^\d+\.\s+/, ""));
+        index += 1;
+      }
+      blocks.push(<ol key={`ordered-list-${index}`}>{items.map((item, itemIndex) => <li key={`${item}-${itemIndex}`}>{renderGenesisInline(item)}</li>)}</ol>);
+      continue;
+    }
+
     const paragraph: string[] = [line];
     index += 1;
     while (index < lines.length) {
       const candidate = lines[index].trim();
-      if (!candidate || /^(#{1,3})\s+/.test(candidate) || candidate.startsWith(">") || /^[-*]\s+/.test(candidate)) break;
+      if (!candidate || /^(#{1,3})\s+/.test(candidate) || candidate.startsWith(">") || /^[-*]\s+/.test(candidate) || /^\d+\.\s+/.test(candidate)) break;
       paragraph.push(candidate);
       index += 1;
     }
@@ -846,6 +912,12 @@ function DocumentDetailPanel({ actor, detail, pendingChecks, checkNotes, reviewN
 async function errorDetail(response: Response): Promise<string> {
   const payload = await response.json().catch(() => null) as ApiFailure | null;
   return payload?.detail ?? "Permintaan tidak dapat diproses.";
+}
+
+function apiFailureMessage(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "Permintaan tidak dapat diproses.";
+  const detail = (payload as ApiFailure).detail;
+  return typeof detail === "string" ? detail : "Permintaan tidak dapat diproses.";
 }
 
 function messageFrom(failure: unknown): string {

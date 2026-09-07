@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(default=1, ge=0, le=3)
     genesis_semantic_analysis_enabled: bool = False
     genesis_semantic_max_output_tokens: int = Field(default=1_200, ge=256, le=8_000)
+    genesis_conversation_follow_up_enabled: bool = False
+    genesis_follow_up_max_output_tokens: int = Field(default=1_200, ge=256, le=8_000)
     source_chunk_max_chars: int = Field(default=1_500, ge=256, le=10_000)
     source_retrieval_max_chars: int = Field(default=10_000, ge=800, le=100_000)
     budget_timezone: str = "Asia/Jakarta"
@@ -121,13 +123,25 @@ class Settings(BaseSettings):
                 )
         if self.environment in {"staging", "production"} and self.llm_store_responses:
             raise ValueError("staging/production must keep provider response storage disabled")
-        if self.genesis_semantic_analysis_enabled:
-            if self.llm_provider != "openai":
-                raise ValueError("semantic Genesis analysis requires the OpenAI Model Gateway")
-            if self.genesis_semantic_max_output_tokens > self.llm_max_output_tokens:
-                raise ValueError(
-                    "Genesis semantic output limit cannot exceed the Model Gateway output limit"
-                )
+        if (
+            self.genesis_semantic_analysis_enabled
+            or self.genesis_conversation_follow_up_enabled
+        ) and self.llm_provider != "openai":
+            raise ValueError("model-backed Genesis features require the OpenAI Model Gateway")
+        if (
+            self.genesis_semantic_analysis_enabled
+            and self.genesis_semantic_max_output_tokens > self.llm_max_output_tokens
+        ):
+            raise ValueError(
+                "Genesis semantic output limit cannot exceed the Model Gateway output limit"
+            )
+        if (
+            self.genesis_conversation_follow_up_enabled
+            and self.genesis_follow_up_max_output_tokens > self.llm_max_output_tokens
+        ):
+            raise ValueError(
+                "Genesis follow-up output limit cannot exceed the Model Gateway output limit"
+            )
         return self
 
     def model_for_route(self, route: ModelRoute) -> str:

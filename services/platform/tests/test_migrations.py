@@ -22,4 +22,5 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "013_genesis_upload_document_drafts.sql",
         "014_genesis_upload_withdrawal.sql",
         "015_genesis_semantic_analysis_runs.sql",
+        "016_genesis_conversation_follow_ups.sql",
     ]

@@ -17,6 +17,23 @@ def test_local_allows_disabled_model_gateway() -> None:
     assert settings.llm_max_context_tokens == 12_000
     assert settings.source_chunk_max_chars == 1_500
     assert settings.source_retrieval_max_chars == 10_000
+    assert settings.genesis_conversation_follow_up_enabled is False
+
+
+def test_follow_up_flag_is_independent_from_initial_semantic_analysis() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        auth_signing_secret="a" * 32,
+        llm_provider="openai",
+        llm_api_key="test-only-key",
+        llm_model="test-model",
+        genesis_semantic_analysis_enabled=False,
+        genesis_conversation_follow_up_enabled=True,
+    )
+
+    assert settings.genesis_semantic_analysis_enabled is False
+    assert settings.genesis_conversation_follow_up_enabled is True
 
 
 def test_staging_openai_requires_a_model_policy() -> None:

@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from alos.agents.registry import (
@@ -48,6 +49,15 @@ from alos.genesis.document_workflow import (
     GenesisDocumentWorkflowNotFoundError,
     GenesisDocumentWorkflowRecord,
     GenesisDocumentWorkflowRepository,
+)
+from alos.genesis.follow_up import (
+    GenesisFollowUpBlocked,
+    GenesisFollowUpErrorResponse,
+    GenesisFollowUpFailed,
+    GenesisFollowUpRepository,
+    GenesisFollowUpRequest,
+    GenesisFollowUpResponse,
+    GenesisFollowUpService,
 )
 from alos.genesis.history import (
     GenesisArtifactRecord,
@@ -320,6 +330,15 @@ def get_genesis_document_analysis_service() -> GenesisDocumentAnalysisService:
         get_genesis_history_repository(),
         get_genesis_document_workflow_repository(),
         get_genesis_semantic_analyzer(),
+    )
+
+
+def get_genesis_follow_up_service() -> GenesisFollowUpService:
+    settings = get_settings()
+    return GenesisFollowUpService(
+        settings,
+        GenesisFollowUpRepository(settings.database_url, settings),
+        lambda: create_model_gateway(settings),
     )
 
 
@@ -739,6 +758,69 @@ def list_genesis_messages(
         )
     except GenesisHistoryError as error:
         raise genesis_http_error(error) from error
+
+
+@app.post(
+    "/api/v1/genesis/conversations/{conversation_id}/follow-ups",
+    response_model=GenesisFollowUpResponse,
+    responses={
+        status.HTTP_409_CONFLICT: {"model": GenesisFollowUpErrorResponse},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": GenesisFollowUpErrorResponse},
+        status.HTTP_502_BAD_GATEWAY: {"model": GenesisFollowUpErrorResponse},
+    },
+)
+def create_genesis_follow_up(
+    conversation_id: UUID,
+    request: GenesisFollowUpRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> GenesisFollowUpResponse | JSONResponse:
+    """Return one idempotent, source-bound Genesis reply without advancing workflow."""
+
+    require_genesis_director(actor)
+    try:
+        conversation = get_genesis_history_repository().get_conversation(
+            conversation_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+        if conversation.workspace_id is None:
+            raise GenesisHistoryError("Genesis conversation requires a workspace")
+        require_workspace_access(actor, conversation.workspace_id)
+        return get_genesis_follow_up_service().follow_up(
+            conversation_id,
+            request,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+        )
+    except GenesisFollowUpBlocked as error:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=error.response().model_dump(mode="json"),
+        )
+    except GenesisFollowUpFailed as error:
+        response_status = (
+            status.HTTP_500_INTERNAL_SERVER_ERROR
+            if error.code == "FOLLOW_UP_PERSISTENCE_FAILED"
+            else status.HTTP_502_BAD_GATEWAY
+        )
+        return JSONResponse(
+            status_code=response_status,
+            content=error.response().model_dump(mode="json"),
+        )
+    except GenesisHistoryError as error:
+        raise genesis_http_error(error) from error
+    except HTTPException:
+        raise
+    except Exception:
+        failure = GenesisFollowUpFailed(
+            "FOLLOW_UP_PERSISTENCE_FAILED",
+            "Follow-up Genesis tidak dapat diselesaikan oleh layanan internal.",
+            request.correlation_id,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=failure.response().model_dump(mode="json"),
+        )
 
 
 @app.get(

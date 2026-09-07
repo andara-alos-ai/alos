@@ -44,6 +44,7 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             "013_genesis_upload_document_drafts.sql",
             "014_genesis_upload_withdrawal.sql",
             "015_genesis_semantic_analysis_runs.sql",
+            "016_genesis_conversation_follow_ups.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
@@ -84,6 +85,9 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             assert connection.execute(
                 "SELECT to_regclass('genesis.semantic_analysis_runs')"
             ).fetchone() == ("genesis.semantic_analysis_runs",)
+            assert connection.execute(
+                "SELECT to_regclass('genesis.follow_up_runs')"
+            ).fetchone() == ("genesis.follow_up_runs",)
             assert connection.execute(
                 """
                 SELECT column_name FROM information_schema.columns

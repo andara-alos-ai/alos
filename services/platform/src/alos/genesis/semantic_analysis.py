@@ -288,6 +288,19 @@ class GenesisSemanticAnalysisRepository:
 
                 UNION ALL
 
+                SELECT CASE WHEN status = 'FAILED'
+                              THEN coalesce(output_tokens, requested_output_tokens)
+                            ELSE output_tokens END AS output_tokens,
+                       CASE WHEN status = 'FAILED'
+                              THEN coalesce(estimated_cost_usd, reserved_cost_usd)
+                            ELSE estimated_cost_usd END AS cost_usd
+                FROM genesis.follow_up_runs
+                WHERE organization_id = %s AND workspace_id = %s
+                  AND status IN ('SUCCEEDED', 'FAILED')
+                  AND created_at >= {window}
+
+                UNION ALL
+
                 SELECT reserved_output_tokens AS output_tokens, reserved_cost_usd AS cost_usd
                 FROM runtime.budget_reservations
                 WHERE organization_id = %s AND workspace_id = %s
@@ -299,9 +312,24 @@ class GenesisSemanticAnalysisRepository:
                 FROM genesis.semantic_analysis_runs
                 WHERE organization_id = %s AND workspace_id = %s AND status = 'RUNNING'
                   AND created_at >= {window}
+
+                UNION ALL
+
+                SELECT requested_output_tokens AS output_tokens, reserved_cost_usd AS cost_usd
+                FROM genesis.follow_up_runs
+                WHERE organization_id = %s AND workspace_id = %s AND status = 'RUNNING'
+                  AND created_at >= {window}
             ) AS daily_usage
             """,
             (
+                organization_id,
+                workspace_id,
+                self._settings.budget_timezone,
+                self._settings.budget_timezone,
+                organization_id,
+                workspace_id,
+                self._settings.budget_timezone,
+                self._settings.budget_timezone,
                 organization_id,
                 workspace_id,
                 self._settings.budget_timezone,
@@ -461,7 +489,7 @@ class GenesisSemanticAnalyzer:
                 )
             )
             answer = response.output_text.strip()
-            _validate_answer(answer, source_content)
+            validate_genesis_answer(answer, source_content)
             return GenesisSemanticAnalysisResult(
                 analysis_run_id=run_id,
                 provider=response.provider,
@@ -594,7 +622,7 @@ def _estimated_input_tokens(value: str) -> int:
     return max(1, ceil(len(value) / 4))
 
 
-def _validate_answer(answer: str, source_content: str) -> None:
+def validate_genesis_answer(answer: str, source_content: str) -> None:
     """Reject an answer that cannot be reviewed against the supplied source."""
 
     required_sections = (
@@ -621,6 +649,11 @@ def _validate_answer(answer: str, source_content: str) -> None:
             raise GenesisSemanticAnalysisError(
                 "model answer cites a line outside the approved source"
             )
+
+
+# Keep the former private name for internal compatibility while the public
+# validator is shared by document analysis and conversational follow-ups.
+_validate_answer = validate_genesis_answer
 
 
 def _sha256(value: str) -> str:
