@@ -12,6 +12,7 @@ from alos.config import get_settings
 from alos.documents.center import (
     ChecklistCompletionRequest,
     DocumentCenterRepository,
+    DocumentConflictError,
     DocumentDraftRequest,
     DocumentReviewDecisionRequest,
 )
@@ -131,6 +132,17 @@ def test_director_document_analysis_binds_approved_source_to_a_draft() -> None:
         )
         assert approved_source.content_sha256 in draft_detail.content
         assert "Tidak ada kesimpulan substantif" in draft_detail.content
+        assert draft_detail.checklist == []
+        with pytest.raises(DocumentConflictError, match="confirmed in the Genesis conversation"):
+            documents.complete_checklist_item(
+                result.draft.document_id,
+                "SOURCE_EVIDENCE",
+                ChecklistCompletionRequest(notes="A recommendation cannot be ticked complete."),
+                organization_id=context.organization_id,
+                actor_user_id=director_id,
+                correlation_id=uuid4(),
+                allow_director_self_check=True,
+            )
         with pytest.raises(GenesisDocumentAnalysisError, match="RND_DRAFT"):
             service.create_checklist(
                 result.workflow.workflow_id,

@@ -43,8 +43,10 @@ type ApiFailure = { detail?: string };
 type GenesisHistoryConversation = GenesisDocumentAnalysisResult["conversation"];
 
 type GenesisHistoryMessage = {
+  message_id: string;
   actor_kind: "HUMAN" | "SYSTEM";
   content: string;
+  created_at: string;
 };
 
 type GenesisHistoryArtifact = {
@@ -69,6 +71,9 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const [analysisPrompt, setAnalysisPrompt] = useState("");
   const [analysisSourceId, setAnalysisSourceId] = useState("");
   const [analysisResult, setAnalysisResult] = useState<GenesisDocumentAnalysisResult | null>(null);
+  const [conversationMessages, setConversationMessages] = useState<GenesisHistoryMessage[]>([]);
+  const [directorReply, setDirectorReply] = useState("");
+  const [sendingDirectorReply, setSendingDirectorReply] = useState(false);
   const [checkNotes, setCheckNotes] = useState("Evidence dan scope telah diperiksa oleh checker independen.");
   const [reviewNotes, setReviewNotes] = useState("Review independen telah selesai.");
   const [submitting, setSubmitting] = useState(false);
@@ -113,6 +118,13 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at)),
     [documents],
   );
+  const directorReplies = useMemo(() => {
+    if (!analysisResult) return [];
+    return conversationMessages.filter((message) => (
+      message.actor_kind === "HUMAN"
+      && message.content !== analysisResult.analysis.content.prompt
+    ));
+  }, [analysisResult, conversationMessages]);
 
   const refreshDocuments = useCallback(async (nextWorkspaceId: string) => {
     setError(null);
@@ -201,6 +213,8 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     void refreshDocuments(nextWorkspaceId);
     setAnalysisSourceId("");
     setAnalysisResult(null);
+    setConversationMessages([]);
+    setDirectorReply("");
     if (mode === "genesis" && canUploadToGenesis) {
       void refreshGenesisUploads(nextWorkspaceId);
       return;
@@ -268,10 +282,12 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       if (!response.ok) throw new Error(await errorDetail(response));
       const result = (await response.json()) as GenesisDocumentAnalysisResult;
       setAnalysisResult(result);
+      setConversationMessages([]);
+      setDirectorReply("");
+      setSelected(null);
       setAnalysisPrompt("");
-      setNotice("Genesis membuat DRAFT analisis terikat ke versi dokumen yang disetujui.");
+      setNotice("Genesis menyimpan analisis dan rekomendasi terikat ke versi sumber. Konfirmasi Direktur dicatat melalui percakapan.");
       await refreshDocuments(workspaceId);
-      await selectDocument(result.draft.document_id);
     } catch (failure) {
       setError(messageFrom(failure));
     } finally {
@@ -295,20 +311,57 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       if (!conversationResponse.ok) throw new Error(await errorDetail(conversationResponse));
       if (!messageResponse.ok) throw new Error(await errorDetail(messageResponse));
       if (!artifactResponse.ok) throw new Error(await errorDetail(artifactResponse));
+      const [conversation, messages, artifacts] = await Promise.all([
+        conversationResponse.json() as Promise<GenesisHistoryConversation>,
+        messageResponse.json() as Promise<GenesisHistoryMessage[]>,
+        artifactResponse.json() as Promise<GenesisHistoryArtifact[]>,
+      ]);
       const restored = restoreGenesisAnalysis(
         document,
-        (await conversationResponse.json()) as GenesisHistoryConversation,
-        (await messageResponse.json()) as GenesisHistoryMessage[],
-        (await artifactResponse.json()) as GenesisHistoryArtifact[],
+        conversation,
+        messages,
+        artifacts,
       );
       if (!restored) throw new Error("Riwayat analisis ini belum memiliki artefak yang dapat ditampilkan.");
       setAnalysisResult(restored);
+      setConversationMessages(messages);
+      setDirectorReply("");
+      setSelected(null);
       setNotice("Percakapan Genesis dipulihkan dari riwayat tersimpan.");
     } catch (failure) {
       setError(messageFrom(failure));
     } finally {
       setRestoringConversationId(null);
       setSubmitting(false);
+    }
+  }
+
+  async function recordDirectorReply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = directorReply.trim();
+    if (!analysisResult || !message) return;
+    setSendingDirectorReply(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(
+        `/api/v1/genesis/conversations/${encodeURIComponent(analysisResult.conversation.conversation_id)}/messages`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: message }),
+        },
+      );
+      if (!response.ok) throw new Error(await errorDetail(response));
+      const recorded = (await response.json()) as GenesisHistoryMessage;
+      setConversationMessages((current) => [...current, recorded]);
+      setDirectorReply("");
+      setNotice("Arahan Direktur tersimpan di percakapan. Genesis belum mengubah dokumen sumber atau menandai rekomendasi sebagai selesai.");
+    } catch (failure) {
+      setError(messageFrom(failure));
+    } finally {
+      setSendingDirectorReply(false);
     }
   }
 
@@ -505,9 +558,18 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
                     <summary>Detail sumber &amp; audit analisis</summary>
                     <dl><div><dt>Sumber</dt><dd>{analysisResult.source.title}</dd></div><div><dt>Versi</dt><dd>v{analysisResult.source.version_number} · {analysisResult.source.status}</dd></div><div><dt>Isi diperiksa</dt><dd>{analysisResult.analysis.content.reading.content_characters.toLocaleString("id-ID")} karakter</dd></div><div><dt>Model</dt><dd>{analysisResult.semantic ? `${analysisResult.semantic.provider} / ${analysisResult.semantic.model}` : "Belum dijalankan"}</dd></div></dl>
                   </details>
-                  <div className="alos-genesis-attention"><div><strong>Siap ditinjau</strong><span>Periksa sitasi dan checklist sebelum meneruskan hasil ke R&amp;D.</span></div><button onClick={() => void selectDocument(analysisResult.draft.document_id)} type="button">Tinjau DRAFT →</button></div>
+                  <div className="alos-genesis-attention"><div><strong>Rekomendasi untuk arahan Direktur</strong><span>Daftar perbaikan di atas bukan tugas yang dapat ditandai selesai. Konfirmasi, tolak, atau beri prioritas melalui percakapan di bawah.</span></div></div>
                 </div>
               </div>
+              {directorReplies.map((message) => <div className="alos-genesis-user-message alos-genesis-followup-message" key={message.message_id}>
+                <span>{actor.roles.includes("DIRECTOR") ? "D" : actor.roles[0]?.slice(0, 1) ?? "A"}</span>
+                <div><div className="alos-genesis-message-meta"><strong>Direktur Utama</strong><small>{formatDocumentDate(message.created_at)}</small></div><p>{message.content}</p></div>
+              </div>)}
+              <form className="alos-genesis-director-reply" onSubmit={recordDirectorReply}>
+                <label htmlFor="genesis-director-reply">Arahan Direktur untuk rekomendasi Genesis</label>
+                <textarea id="genesis-director-reply" maxLength={10000} minLength={3} onChange={(event) => setDirectorReply(event.target.value)} placeholder="Contoh: Saya setuju rekomendasi 1, 3, dan 5. Prioritaskan SOP IT, lalu siapkan DRAFT pelengkapan tanpa mengubah dokumen sumber." required value={directorReply} />
+                <div><small>Pesan ini menjadi rekam keputusan percakapan. Genesis tidak dapat mengubah sumber, menutup rekomendasi, atau menyetujui dokumen sendiri.</small><button disabled={sendingDirectorReply || !directorReply.trim()} type="submit">{sendingDirectorReply ? "Menyimpan…" : "Kirim arahan"}</button></div>
+              </form>
             </> : <>
               <div className="alos-genesis-user-message"><span>{actor.roles[0]?.slice(0, 1) ?? "A"}</span><div><p>Mulai analisis dengan memilih dokumen yang sudah disetujui.</p><small>Genesis hanya membaca sumber kanonis INTERNAL dengan status APPROVED atau ACTIVE.</small></div></div>
               <div className="alos-genesis-assistant-message"><span>✦</span><div><p>Genesis akan mengikat pertanyaan Direktur ke versi dokumen yang dipilih, lalu membuat DRAFT analisis untuk ditinjau.</p><div className="alos-genesis-brief"><div><span>Dokumen tersedia</span><strong>{documentStats.total || "—"}</strong><small>{documentStats.total ? "Tercatat pada repositori aktif" : "Belum ada data"}</small></div><div><span>Siap dibaca</span><strong>{analysisSources.length || "—"}</strong><small>{analysisSources.length ? "Disetujui atau aktif" : "Belum ada sumber disetujui"}</small></div><div><span>Draft Genesis</span><strong>{documentStats.genesis || "—"}</strong><small>{documentStats.genesis ? "Menunggu pemeriksaan" : "Belum ada DRAFT"}</small></div></div><div className="alos-genesis-attention"><strong>Batasan</strong><span>Hasil analisis awal selalu DRAFT; dokumen sumber, agent, dan data produksi tidak akan berubah otomatis.</span></div></div></div>
@@ -583,14 +645,14 @@ function GenesisMarkdown({ content }: { content: string }) {
 
     const checklist = line.match(/^[-*]\s+\[([ xX])\]\s+(.+)$/);
     if (checklist) {
-      const items: Array<{ checked: boolean; text: string }> = [];
+      const items: string[] = [];
       while (index < lines.length) {
         const candidate = lines[index].trim().match(/^[-*]\s+\[([ xX])\]\s+(.+)$/);
         if (!candidate) break;
-        items.push({ checked: candidate[1].toLowerCase() === "x", text: candidate[2] });
+        items.push(candidate[2]);
         index += 1;
       }
-      blocks.push(<ul className="alos-genesis-markdown-checklist" key={`checklist-${index}`}>{items.map((item, itemIndex) => <li key={`${item.text}-${itemIndex}`}><i aria-hidden="true">{item.checked ? "✓" : "○"}</i><span>{renderGenesisInline(item.text)}</span></li>)}</ul>);
+      blocks.push(<ul aria-label="Rekomendasi Genesis" className="alos-genesis-markdown-checklist" key={`checklist-${index}`}>{items.map((item, itemIndex) => <li key={`${item}-${itemIndex}`}><i aria-hidden="true">•</i><span>{renderGenesisInline(item)}</span></li>)}</ul>);
       continue;
     }
 
@@ -752,6 +814,13 @@ type DocumentDetailPanelProps = {
 
 function DocumentDetailPanel({ actor, detail, pendingChecks, checkNotes, reviewNotes, submitting, onCheckNotes, onReviewNotes, onCompleteCheck, onSubmit, onDecide }: DocumentDetailPanelProps) {
   if (!detail) return <article className="alos-panel alos-document-detail-panel"><p className="alos-empty-copy">Pilih dokumen untuk melihat versi, isi draft, checklist, dan status review.</p></article>;
+  const isGenesisRecommendation = detail.document.origin === "GENESIS"
+    && ["GENESIS_ANALYSIS", "GENESIS_RND", "GENESIS_CHECKLIST"].includes(detail.document.category);
+  if (isGenesisRecommendation) return <article className="alos-panel alos-document-detail-panel">
+    <div className="alos-panel-heading-row"><div><p className="alos-kicker">REKOMENDASI GENESIS · READ-ONLY</p><h3>{detail.document.title}</h3><p className="alos-document-meta">v{detail.document.version_number} · {detail.document.category} · dibuat {formatDocumentDate(detail.document.created_at)}</p></div><em className="alos-document-status draft">REKOMENDASI</em></div>
+    <pre className="alos-document-content">{detail.content}</pre>
+    <div className="alos-genesis-recommendation-note"><strong>Bukan checklist persetujuan dokumen</strong><p>Genesis hanya memberikan analisis, R&amp;D, atau daftar rekomendasi. Direktur mengonfirmasi, menolak, atau memberi prioritas melalui percakapan Genesis; tidak ada item yang ditandai selesai di sini.</p><Link href="/genesis">Lanjutkan percakapan di GENESIS →</Link></div>
+  </article>;
   const isMaker = detail.document.created_by_user_id === actor.user_id;
   const canCheck = canCheckDocument(actor, detail);
   const canApprove = canApproveDocument(actor, detail);

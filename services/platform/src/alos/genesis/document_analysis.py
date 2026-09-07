@@ -313,6 +313,7 @@ class GenesisDocumentAnalysisService:
             conversation_id=workflow.conversation_id,
             audit_action="GENESIS_DOCUMENT_RND_DRAFT_CREATED",
             audit_reason="Genesis prepared a bounded R&D draft that remains DRAFT",
+            requires_document_review=False,
         )
         updated = self._workflows.advance(
             workflow_id,
@@ -368,6 +369,7 @@ class GenesisDocumentAnalysisService:
             conversation_id=workflow.conversation_id,
             audit_action="GENESIS_DOCUMENT_CHECKLIST_DRAFT_CREATED",
             audit_reason="Genesis prepared a remediation checklist draft that remains DRAFT",
+            requires_document_review=False,
         )
         updated = self._workflows.advance(
             workflow_id,
@@ -424,6 +426,7 @@ class GenesisDocumentAnalysisService:
             conversation_id=workflow.conversation_id,
             audit_action="GENESIS_DOCUMENT_COMPLETION_DRAFT_CREATED",
             audit_reason="Genesis prepared a remediation draft that remains DRAFT",
+            requires_document_review=True,
         )
         updated = self._workflows.advance(
             workflow_id,

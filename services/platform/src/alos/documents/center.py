@@ -21,6 +21,11 @@ DocumentOrigin = Literal["MANUAL", "GENESIS"]
 DocumentClassification = Literal["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"]
 ChecklistStatus = Literal["PENDING", "PASSED", "WAIVED"]
 _DIRECTOR_STREAMLINED_CLASSIFICATIONS = {"PUBLIC", "INTERNAL"}
+_GENESIS_RECOMMENDATION_CATEGORIES = {
+    "GENESIS_ANALYSIS",
+    "GENESIS_RND",
+    "GENESIS_CHECKLIST",
+}
 
 
 class DocumentCenterError(RuntimeError):
@@ -192,6 +197,7 @@ class DocumentCenterRepository:
             conversation_id=conversation_id,
             audit_action="GENESIS_DOCUMENT_ANALYSIS_DRAFT_CREATED",
             audit_reason="Genesis prepared a source-bound analysis draft that remains DRAFT",
+            requires_document_review=False,
         )
 
     def create_uploaded_source_draft(
@@ -230,6 +236,7 @@ class DocumentCenterRepository:
         conversation_id: UUID,
         audit_action: str,
         audit_reason: str,
+        requires_document_review: bool = False,
     ) -> DocumentRecord:
         """Persist a Genesis workflow artifact as a canonical DRAFT only.
 
@@ -247,6 +254,7 @@ class DocumentCenterRepository:
             audit_actor_kind="SYSTEM",
             system_audit_action=audit_action,
             system_audit_reason=audit_reason,
+            with_governance_checklist=requires_document_review,
         )
 
     def list_documents(
@@ -339,6 +347,7 @@ class DocumentCenterRepository:
             document, version = self._load_document(
                 connection, document_id, organization_id, actor_user_id, for_update=True
             )
+            self._require_reviewable_document(document)
             if document["status"] != "DRAFT":
                 raise DocumentConflictError(
                     "checklist can only be completed while the document is DRAFT"
@@ -411,6 +420,7 @@ class DocumentCenterRepository:
             document, version = self._load_document(
                 connection, document_id, organization_id, actor_user_id, for_update=True
             )
+            self._require_reviewable_document(document)
             if document["status"] != "DRAFT":
                 raise DocumentConflictError("only a DRAFT document can be submitted for review")
             if document["created_by_user_id"] != actor_user_id:
@@ -475,6 +485,7 @@ class DocumentCenterRepository:
             document, version = self._load_document(
                 connection, document_id, organization_id, actor_user_id, for_update=True
             )
+            self._require_reviewable_document(document)
             direct_director_approval = (
                 allow_director_direct_approval
                 and document["classification"] in _DIRECTOR_STREAMLINED_CLASSIFICATIONS
@@ -585,6 +596,7 @@ class DocumentCenterRepository:
         ),
         human_audit_action: str = "DOCUMENT_DRAFT_CREATED",
         human_audit_reason: str = "Human created a canonical Document Center draft",
+        with_governance_checklist: bool = True,
     ) -> DocumentRecord:
         with self._transaction() as connection:
             workspace = self._require_workspace_actor(
@@ -636,7 +648,8 @@ class DocumentCenterRepository:
             ).fetchone()
             if version is None:
                 raise DocumentCenterError("document draft version could not be created")
-            self._create_default_checklist(connection, version["document_version_id"])
+            if with_governance_checklist:
+                self._create_default_checklist(connection, version["document_version_id"])
             metadata = {"origin": origin, "document_version": version["version_number"]}
             if genesis_conversation_id is not None:
                 metadata["conversation_id"] = str(genesis_conversation_id)
@@ -720,6 +733,25 @@ class DocumentCenterRepository:
                 ) VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (document_version_id, *check),
+            )
+
+    @staticmethod
+    def _require_reviewable_document(document: dict[str, Any]) -> None:
+        """Keep Genesis recommendations outside the document-approval workflow.
+
+        Analysis, R&D, and remediation checklists are advice for the Director.
+        They are immutable audit records, not documents that a person can mark
+        complete or approve.  A later GENESIS_COMPLETION draft remains a normal
+        reviewable document and therefore retains the governance checklist.
+        """
+
+        if (
+            document["origin"] == "GENESIS"
+            and document["category"] in _GENESIS_RECOMMENDATION_CATEGORIES
+        ):
+            raise DocumentConflictError(
+                "Genesis recommendations are confirmed in the Genesis conversation, "
+                "not through the document checklist or approval flow"
             )
 
     def _load_document(

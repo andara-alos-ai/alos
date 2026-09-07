@@ -556,7 +556,11 @@ Write concise Markdown with these headings:
 For each material factual statement, cite the matching source lines exactly as
 `[Sumber L12-L18]`. If the source does not contain an answer, explicitly say
 `Tidak ditemukan pada sumber yang disetujui.` Recommendations must be marked
-as recommendations, not facts. The result is a DRAFT for human review.
+as recommendations, not facts. Under "Checklist perbaikan", use a numbered
+list of passive recommendations; do not use Markdown task checkboxes, do not
+claim that any item is complete, and do not ask a user to tick an item. The
+Director confirms, rejects, or prioritises recommendations through the Genesis
+conversation. The result is a DRAFT for human review.
 """
 
 
