@@ -6,6 +6,7 @@ import {
   GenesisEmptyWelcome,
   GenesisFollowUpFeedback,
   GenesisFollowUpMessage,
+  GenesisKnowledgeSource,
 } from "./document-center";
 import type { GenesisFollowUpFailure, GenesisHistoryMessage } from "../lib/genesis-follow-up";
 
@@ -38,15 +39,19 @@ describe("Genesis follow-up view", () => {
     const attach = renderToStaticMarkup(
       <GenesisAttachButton disabled={false} onClick={() => undefined} uploading={false} />,
     );
+    const source = renderToStaticMarkup(<GenesisKnowledgeSource />);
 
     expect(welcome).toContain("Mulai percakapan dengan GENESIS");
     expect(welcome).toContain("Analisis Dokumen");
     expect(welcome).toContain("Ringkas Laporan");
     expect(welcome).toContain("Susun Draft SOP");
     expect(welcome).toContain("Riset Strategis");
+    expect(welcome).toContain("alos-genesis-icon");
     expect(attach).toContain('aria-label="Unggah dokumen"');
     expect(attach).toContain("alos-genesis-attach-button");
     expect(attach).not.toContain("PDF, Word");
+    expect(source).toContain("Sumber: <strong>Internal ALOS</strong>");
+    expect(source).not.toContain("Dokumen INTERNAL");
   });
 
   it("renders restored Director and Genesis bubbles with citations", () => {

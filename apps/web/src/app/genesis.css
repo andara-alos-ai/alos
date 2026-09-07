@@ -80,7 +80,8 @@
 
 .alos-genesis-welcome-art i:nth-child(2) { right: 45px; top: 17px; transform: rotate(-1deg); }
 .alos-genesis-welcome-art i:nth-child(3) { right: 53px; top: 9px; transform: rotate(-5deg); }
-.alos-genesis-welcome-art strong { color: #be811b; font-size: 2rem; position: absolute; right: 108px; top: 49px; z-index: 2; }
+.alos-genesis-welcome-art strong { color: #be811b; position: absolute; right: 107px; top: 48px; z-index: 2; }
+.alos-genesis-welcome-art strong .alos-genesis-icon { height: 30px; width: 30px; }
 .alos-genesis-welcome-art::before,
 .alos-genesis-welcome-art::after {
   background: #e7e7e3;
@@ -176,11 +177,18 @@
   padding: 17px 16px 12px;
 }
 
-.alos-genesis-analysis-form .alos-genesis-prompt-field textarea {
+.alos-genesis-draft-form .alos-genesis-prompt-field textarea {
   font-size: .8rem;
   line-height: 1.5;
   min-height: 58px;
   width: 100%;
+}
+
+.alos-genesis-chat-composer {
+  border-color: #b3c4bb;
+  box-shadow: 0 7px 24px rgba(23, 63, 50, .06);
+  margin-top: auto;
+  min-height: 112px;
 }
 
 .alos-genesis-draft-form > .alos-genesis-composer-actions {
@@ -206,28 +214,20 @@
 .alos-genesis-draft-form .alos-genesis-attach-button:disabled { color: #a8b5af; cursor: not-allowed; }
 .alos-genesis-attach-button svg { height: 21px; width: 21px; }
 
-.alos-genesis-analysis-form .alos-genesis-source-picker {
+.alos-genesis-knowledge-source {
   align-items: center;
   background: #f1f5f3;
-  border: 0;
   border-radius: 9px;
+  color: #416259;
   display: flex;
+  font-size: .66rem;
   gap: 6px;
   min-width: 0;
-  padding: 2px 6px 2px 9px;
+  padding: 8px 10px;
 }
-.alos-genesis-source-database { color: #08764a; font-size: .86rem; }
-.alos-genesis-analysis-form .alos-genesis-source-picker select {
-  background: transparent;
-  border: 0;
-  color: #245244;
-  font-size: .67rem;
-  min-height: 31px;
-  max-width: 245px;
-  outline: 0;
-  padding: 4px 3px;
-}
-.alos-genesis-analysis-form .alos-genesis-composer-actions > small {
+.alos-genesis-knowledge-source .alos-genesis-icon { color: #08764a; height: 16px; width: 16px; }
+.alos-genesis-knowledge-source strong { color: #174b3b; font-weight: 800; }
+.alos-genesis-composer-actions > small {
   margin-left: auto;
   max-width: 170px;
   text-align: right;
@@ -248,11 +248,16 @@
 .alos-genesis-send-button svg { height: 21px; width: 21px; }
 
 .alos-genesis-recent .alos-panel-heading-row h3 { align-items: center; display: flex; gap: 7px; }
-.alos-genesis-recent .alos-panel-heading-row h3 > span { color: #08754a; }
+.alos-genesis-recent .alos-panel-heading-row h3 > .alos-genesis-icon { color: #08754a; height: 16px; width: 16px; }
 .alos-genesis-sidebar-empty { align-items: center; border-top: 1px solid #e9ede8; display: flex; flex-direction: column; margin-top: 13px; padding: 18px 9px 5px; text-align: center; }
 .alos-genesis-sidebar-empty > span { align-items: center; background: #eff3f2; border-radius: 50%; color: #5e7880; display: inline-flex; font-size: 1.25rem; height: 55px; justify-content: center; margin-bottom: 11px; width: 55px; }
+.alos-genesis-sidebar-empty > span .alos-genesis-icon { height: 25px; width: 25px; }
 .alos-genesis-sidebar-empty strong { color: #244438; font-size: .73rem; }
 .alos-genesis-sidebar-empty p { color: #71867d; font-size: .66rem; line-height: 1.45; margin: 6px 0 0; max-width: 240px; }
+
+.alos-genesis-agents .alos-panel-heading-row h3 { align-items: center; display: flex; gap: 7px; }
+.alos-genesis-agents .alos-panel-heading-row h3 .alos-genesis-icon { color: #08754a; height: 18px; width: 18px; }
+.alos-genesis-agent-empty > span .alos-genesis-icon { height: 18px; width: 18px; }
 
 .alos-genesis-executive-focus { min-height: 0 !important; }
 .alos-genesis-focus-heading { align-items: center; display: flex; gap: 10px; }
@@ -271,8 +276,26 @@
 .alos-genesis-focus-list strong { color: #153f33; font-size: .82rem; }
 .alos-genesis-focus-list p { color: #38564b; font-size: .67rem; margin: 0; }
 .alos-genesis-focus-list b { color: #6c8279; font-size: .9rem; }
+.alos-genesis-focus-list b .alos-genesis-icon { height: 14px; width: 14px; }
 
-.alos-genesis-context-sources.alos-genesis-context-single { grid-template-columns: minmax(0, 1fr); }
+.alos-genesis-icon {
+  display: block;
+  height: 20px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
+  width: 20px;
+}
+
+.alos-genesis-workspace-star .alos-genesis-icon { height: 34px; width: 34px; }
+.alos-genesis-assistant-message > span .alos-genesis-icon { height: 21px; width: 21px; }
+.alos-genesis-source-chip i .alos-genesis-icon { height: 12px; width: 12px; }
+.alos-genesis-capabilities button > span .alos-genesis-icon { height: 20px; width: 20px; }
+.alos-genesis-focus-heading > span .alos-genesis-icon { height: 25px; width: 25px; }
+.alos-genesis-focus-list span .alos-genesis-icon { height: 16px; width: 16px; }
+.alos-genesis-recent-list button > span .alos-genesis-icon { height: 13px; width: 13px; }
+.alos-genesis-recent-list button em .alos-genesis-icon { height: 14px; width: 14px; }
 
 @media (max-width: 1280px) {
   .alos-genesis-capabilities > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -287,9 +310,7 @@
   .alos-genesis-capabilities button { min-height: 75px; }
   .alos-genesis-draft-form > .alos-genesis-composer-actions { align-items: stretch; flex-direction: row; }
   .alos-genesis-composer-left { flex: 1; }
-  .alos-genesis-analysis-form .alos-genesis-source-picker { flex: 1; }
-  .alos-genesis-analysis-form .alos-genesis-source-picker select { max-width: none; width: 100%; }
-  .alos-genesis-analysis-form .alos-genesis-composer-actions > small { display: none; }
+  .alos-genesis-composer-actions > small { display: none; }
 }
 
 @media (max-width: 450px) {
