@@ -573,7 +573,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
 
   return (
     <section className="alos-content alos-genesis-workspace" aria-label="GENESIS">
-      <header className="alos-genesis-workspace-heading"><span className="alos-genesis-workspace-star">✦</span><div><h2>GENESIS</h2><p>Your AI Executive Assistant</p></div><button className="alos-genesis-mode" disabled type="button">♢ Enterprise Mode <span>⌄</span></button></header>
+      <header className="alos-genesis-workspace-heading"><span className="alos-genesis-workspace-star">✦</span><div><h2>GENESIS</h2><p>Your AI Executive Assistant</p></div></header>
       <input accept=".pdf,.docx,.xlsx,.xls,.csv,.json,.md,.txt" className="sr-only" onChange={uploadGenesisFile} ref={uploadInputRef} tabIndex={-1} type="file" />
       {error ? <p className="alos-inline-error">{error}</p> : null}
       {notice ? <p className="alos-inline-success">{notice}</p> : null}
@@ -610,16 +610,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
                 <textarea disabled={sendingDirectorReply} id="genesis-director-reply" maxLength={10000} minLength={3} onChange={(event) => setDirectorReply(event.target.value)} onKeyDown={submitDirectorReplyOnEnter} placeholder="Tulis arahan lanjutan. Enter untuk mengirim, Shift+Enter untuk baris baru." required value={directorReply} />
                 <div><small>Genesis akan menjawab berdasarkan sumber terikat. Tidak ada dokumen atau status yang berubah otomatis.</small><button disabled={sendingDirectorReply || directorReply.trim().length < 3} type="submit">{sendingDirectorReply ? "Menganalisis…" : "Kirim ke Genesis"}</button></div>
               </form>
-            </> : <>
-              <div className="alos-genesis-user-message"><span>{actor.roles[0]?.slice(0, 1) ?? "A"}</span><div><p>Mulai analisis dengan memilih dokumen yang sudah disetujui.</p><small>Genesis hanya membaca sumber kanonis INTERNAL dengan status APPROVED atau ACTIVE.</small></div></div>
-              <div className="alos-genesis-assistant-message"><span>✦</span><div><p>Genesis akan mengikat pertanyaan Direktur ke versi dokumen yang dipilih, lalu membuat DRAFT analisis untuk ditinjau.</p><div className="alos-genesis-brief"><div><span>Dokumen tersedia</span><strong>{documentStats.total || "—"}</strong><small>{documentStats.total ? "Tercatat pada repositori aktif" : "Belum ada data"}</small></div><div><span>Siap dibaca</span><strong>{analysisSources.length || "—"}</strong><small>{analysisSources.length ? "Disetujui atau aktif" : "Belum ada sumber disetujui"}</small></div><div><span>Draft Genesis</span><strong>{documentStats.genesis || "—"}</strong><small>{documentStats.genesis ? "Menunggu pemeriksaan" : "Belum ada DRAFT"}</small></div></div><div className="alos-genesis-attention"><strong>Batasan</strong><span>Hasil analisis awal selalu DRAFT; dokumen sumber, agent, dan data produksi tidak akan berubah otomatis.</span></div></div></div>
-            </>}
-          </div>
-          <div className="alos-genesis-upload-toolbar">
-            <button disabled={!workspaceId || !canUploadToGenesis || uploading} onClick={openUploadPicker} type="button">
-              <span aria-hidden="true">⌇</span>{uploading ? "Mengunggah dokumen…" : "Unggah Dokumen"}
-            </button>
-            <small>{canUploadToGenesis ? "PDF, Word, Excel, CSV, JSON, MD, atau TXT · maks. 25 MB" : "Unggah sumber Genesis hanya tersedia untuk Direktur."}</small>
+            </> : <GenesisEmptyWelcome onSelectPrompt={setAnalysisPrompt} />}
           </div>
           {latestUpload ? <article className="alos-genesis-upload-preview" aria-live="polite">
             <div className="alos-genesis-upload-preview-heading">
@@ -634,22 +625,65 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
             </div> : null}
             <p className="alos-genesis-upload-preview-note">{latestUpload.status === "DRAFT_CREATED" ? "DRAFT sudah tersimpan di Document Center dan menunggu checklist serta review independen." : "Berkas ini belum menjadi dokumen resmi dan belum dibaca GENESIS. Jika salah unggah, batalkan untuk menghapus berkas dan preview; jika sudah tepat, simpan sebagai DRAFT untuk menjalani checklist serta review independen."}</p>
           </article> : null}
-          {!workspaceId ? <p className="alos-empty-copy">Akun ini belum memiliki workspace aktif untuk membuat analisis.</p> : <form className="alos-genesis-draft-form alos-genesis-analysis-form" onSubmit={createDocumentAnalysis}><label className="alos-genesis-source-picker">Dokumen INTERNAL yang disetujui<select aria-label="Dokumen sumber Genesis" disabled={!canUploadToGenesis || analysisSources.length === 0 || submitting} onChange={(event) => setAnalysisSourceId(event.target.value)} required value={analysisSourceId}><option value="">Pilih dokumen sumber…</option>{analysisSources.map((document) => <option key={document.document_id} value={document.document_id}>{document.title} · v{document.version_number} · {document.status}</option>)}</select></label><label><span className="sr-only">Pertanyaan untuk Genesis</span><textarea aria-label="Pertanyaan untuk Genesis" maxLength={10000} minLength={20} onChange={(event) => setAnalysisPrompt(event.target.value)} placeholder="Contoh: Analisa dokumen ini dan berikan rekomendasi kekurangan yang perlu diperbaiki." required value={analysisPrompt} /></label><div><span className="alos-genesis-composer-tools" aria-hidden="true">⌕　▦　▥</span><small>{!canUploadToGenesis ? "Analisis dokumen Genesis saat ini hanya tersedia untuk Direktur." : analysisSources.length === 0 ? "Belum ada dokumen INTERNAL berstatus APPROVED atau ACTIVE." : "Genesis membuat DRAFT analisis; hasilnya memerlukan pemeriksaan manusia."}</small><button aria-label="Buat analisis Genesis" disabled={submitting || !analysisSourceId || !canUploadToGenesis} type="submit">{submitting ? "…" : "➤"}</button></div></form>}
+          {!workspaceId ? <p className="alos-empty-copy">Akun ini belum memiliki workspace aktif untuk membuat analisis.</p> : <form className={`alos-genesis-draft-form alos-genesis-analysis-form${analysisResult ? "" : " alos-genesis-empty-composer"}`} onSubmit={createDocumentAnalysis}>
+            <label className="alos-genesis-prompt-field"><span className="sr-only">Pertanyaan untuk Genesis</span><textarea aria-label="Pertanyaan untuk Genesis" maxLength={10000} minLength={20} onChange={(event) => setAnalysisPrompt(event.target.value)} placeholder="Ketik pertanyaan atau kebutuhan Anda untuk GENESIS…" required value={analysisPrompt} /></label>
+            <div className="alos-genesis-composer-actions">
+              <div className="alos-genesis-composer-left">
+                <GenesisAttachButton disabled={!workspaceId || !canUploadToGenesis || uploading} onClick={openUploadPicker} uploading={uploading} />
+                <label className="alos-genesis-source-picker"><span aria-hidden="true" className="alos-genesis-source-database">▤</span><span className="sr-only">Dokumen INTERNAL yang disetujui</span><select aria-label="Dokumen sumber Genesis" disabled={!canUploadToGenesis || analysisSources.length === 0 || submitting} onChange={(event) => setAnalysisSourceId(event.target.value)} required value={analysisSourceId}><option value="">Sumber: pilih dokumen</option>{analysisSources.map((document) => <option key={document.document_id} value={document.document_id}>Sumber: {document.title} · v{document.version_number}</option>)}</select></label>
+              </div>
+              <small>{!canUploadToGenesis ? "Analisis hanya tersedia untuk Direktur." : analysisSources.length === 0 ? "Belum ada sumber INTERNAL yang siap dibaca." : "Sumber Internal ALOS"}</small>
+              <button aria-label="Buat analisis Genesis" className="alos-genesis-send-button" disabled={submitting || !analysisSourceId || !canUploadToGenesis} type="submit">{submitting ? "…" : <SendIcon />}</button>
+            </div>
+          </form>}
           <p className="alos-genesis-disclaimer">GENESIS dapat membuat kesalahan. Verifikasi informasi penting sebelum membuat keputusan.</p>
         </article>
 
         <aside className="alos-genesis-workspace-side">
-          <article className="alos-panel alos-genesis-recent"><div className="alos-panel-heading-row"><div><h3>Percakapan Terbaru</h3></div><span>{recentAnalyses.length ? `${recentAnalyses.length} tersimpan` : "Belum ada"}</span></div>{recentAnalyses.length ? <ol className="alos-genesis-recent-list">{recentAnalyses.slice(0, 5).map((document) => <li key={document.document_id}><button className={analysisResult?.draft.document_id === document.document_id ? "selected" : ""} disabled={restoringConversationId === document.genesis_conversation_id} onClick={() => void restoreAnalysis(document)} type="button"><span aria-hidden="true">✦</span><div><strong>{document.title.replace(/^Analisis Genesis —\s*/i, "")}</strong><small>Analisis DRAFT · {formatDocumentDate(document.updated_at)}</small></div><em>{restoringConversationId === document.genesis_conversation_id ? "…" : "›"}</em></button></li>)}</ol> : <p className="alos-empty-copy">Belum ada analisis tersimpan. {uploads.length ? `${uploads.length} sumber unggahan menunggu ditinjau.` : "Pilih dokumen yang disetujui untuk memulai."}</p>}</article>
+          <article className="alos-panel alos-genesis-recent"><div className="alos-panel-heading-row"><div><h3><span aria-hidden="true">▤</span>Percakapan Terbaru</h3></div><span>{recentAnalyses.length ? `${recentAnalyses.length} tersimpan` : "Lihat Semua →"}</span></div>{recentAnalyses.length ? <ol className="alos-genesis-recent-list">{recentAnalyses.slice(0, 5).map((document) => <li key={document.document_id}><button className={analysisResult?.draft.document_id === document.document_id ? "selected" : ""} disabled={restoringConversationId === document.genesis_conversation_id} onClick={() => void restoreAnalysis(document)} type="button"><span aria-hidden="true">✦</span><div><strong>{document.title.replace(/^Analisis Genesis —\s*/i, "")}</strong><small>Analisis DRAFT · {formatDocumentDate(document.updated_at)}</small></div><em>{restoringConversationId === document.genesis_conversation_id ? "…" : "›"}</em></button></li>)}</ol> : <div className="alos-genesis-sidebar-empty"><span aria-hidden="true">▦</span><strong>Belum ada percakapan tersimpan</strong><p>Histori percakapan Anda akan muncul di sini setelah Anda mulai menggunakan GENESIS.</p></div>}</article>
           <article className="alos-panel alos-genesis-agents"><div className="alos-panel-heading-row"><div><h3>Agen Aktif</h3></div><Link href="/agents">Kelola Agen →</Link></div><div className="alos-genesis-agent-empty"><span>◌</span><div><strong>Belum ada agent ACTIVE</strong><small>Agent hanya muncul setelah melewati release dan approval.</small></div></div></article>
-          <article className="alos-panel alos-genesis-quick-prompts"><p className="alos-kicker">CONTOH PERTANYAAN</p><h3>Mulai dengan cepat</h3>{["Analisa kelengkapan dokumen ini dan identifikasi gap utamanya.", "Periksa risiko, owner, KPI, dan evidence yang belum tercantum.", "Buatkan daftar rekomendasi perbaikan yang perlu ditinjau manusia.", "Tentukan apakah dokumen ini perlu dilanjutkan ke tahap R&D."].map((prompt) => <button key={prompt} onClick={() => setAnalysisPrompt(prompt)} type="button"><span>{prompt}</span><b>›</b></button>)}</article>
+          <article className="alos-panel alos-genesis-executive-focus"><div className="alos-genesis-focus-heading"><span aria-hidden="true">ϟ</span><div><h3>Fokus Eksekutif</h3><p>Prioritas hari ini</p></div></div><div className="alos-genesis-focus-list"><div><span className="document" aria-hidden="true">▤</span><strong>{analysisSources.length}</strong><p>Dokumen siap dianalisis</p><b>›</b></div><div><span className="approval" aria-hidden="true">✓</span><strong>{documentStats.review}</strong><p>DRAFT menunggu review</p><b>›</b></div><div><span className="risk" aria-hidden="true">△</span><strong>{uploads.filter((upload) => upload.status === "SOURCE_RECEIVED").length}</strong><p>Sumber menunggu tinjauan</p><b>›</b></div><button onClick={() => setAnalysisPrompt("Buatkan ringkasan eksekutif dari dokumen ini untuk tinjauan minggu ini.")} type="button"><span aria-hidden="true">▥</span><p>Lihat ringkasan minggu ini</p><b>›</b></button></div></article>
         </aside>
       </div>
 
-      <section className="alos-genesis-context"><div className="alos-panel-heading-row"><div><p className="alos-kicker">SUMBER PENGETAHUAN</p><h3>Context</h3></div><Link href="/h5">Kelola Sumber →</Link></div><div className="alos-genesis-context-sources"><Link href="/documents"><span className="internal">●</span><div><strong>Internal ALOS</strong><small>Dokumen, DRAFT, dan evidence terdaftar</small></div><em>{documentStats.total ? `${documentStats.total} dokumen` : "Belum terhubung"}</em></Link><span className="alos-genesis-context-plus">+</span><button className="alos-genesis-upload-source" disabled={!workspaceId || !canUploadToGenesis || uploading} onClick={openUploadPicker} type="button"><span className="external">⇧</span><div><strong>Unggah sumber</strong><small>{uploads.length ? `${uploads.length} sumber menunggu tinjauan` : "Tambahkan dokumen untuk diperiksa"}</small></div><em>›</em></button></div></section>
+      <section className="alos-genesis-context"><div className="alos-panel-heading-row"><div><p className="alos-kicker">SUMBER PENGETAHUAN</p><h3>Context</h3></div><Link href="/h5">Kelola Sumber →</Link></div><div className="alos-genesis-context-sources alos-genesis-context-single"><Link href="/documents"><span className="internal">●</span><div><strong>Internal ALOS</strong><small>Dokumen, DRAFT, dan evidence terdaftar</small></div><em>{documentStats.total ? `${documentStats.total} dokumen` : "Belum terhubung"}</em></Link></div></section>
 
       {selected ? <section className="alos-document-detail-drawer" aria-label={`Rincian ${selected.document.title}`}><DocumentDetailPanel actor={actor} detail={selected} pendingChecks={pendingChecks} checkNotes={checkNotes} reviewNotes={reviewNotes} submitting={submitting} onCheckNotes={setCheckNotes} onReviewNotes={setReviewNotes} onCompleteCheck={completeCheck} onSubmit={submitForReview} onDecide={decide} /></section> : null}
     </section>
   );
+}
+
+type GenesisEmptyWelcomeProps = {
+  onSelectPrompt: (prompt: string) => void;
+};
+
+const genesisCapabilities = [
+  { icon: "▤", title: "Analisis Dokumen", description: "Menganalisis isi dokumen dan mengekstraksi insight penting", prompt: "Analisa kelengkapan dokumen ini dan identifikasi gap utamanya." },
+  { icon: "▥", title: "Ringkas Laporan", description: "Merangkum laporan panjang menjadi insight yang jelas", prompt: "Buat ringkasan eksekutif dari dokumen ini dengan poin keputusan utamanya." },
+  { icon: "✎", title: "Susun Draft SOP", description: "Membantu menyusun draft dokumen dan SOP", prompt: "Susun rekomendasi struktur SOP berdasarkan dokumen ini untuk ditinjau manusia." },
+  { icon: "◇", title: "Riset Strategis", description: "Memberikan analisis dan rekomendasi berbasis data", prompt: "Analisa risiko strategis, KPI, owner, dan evidence yang belum tersedia pada dokumen ini." },
+];
+
+export function GenesisEmptyWelcome({ onSelectPrompt }: GenesisEmptyWelcomeProps) {
+  return <section className="alos-genesis-empty-welcome" aria-label="Mulai percakapan dengan GENESIS">
+    <div className="alos-genesis-welcome-hero">
+      <div className="alos-genesis-welcome-copy"><p>AI UNTUK KEPUTUSAN YANG LEBIH BAIK</p><h3>Mulai percakapan dengan GENESIS</h3><span>Ajukan pertanyaan atau minta bantuan untuk menganalisis sumber internal. GENESIS siap membantu Anda dengan insight yang relevan dan terpercaya.</span></div>
+      <div className="alos-genesis-welcome-art" aria-hidden="true"><i /><i /><i /><strong>✦</strong><span>Dari data<br />menuju keputusan<br />yang lebih baik.</span></div>
+    </div>
+    <div className="alos-genesis-capabilities"><h4>GENESIS dapat membantu Anda:</h4><div>{genesisCapabilities.map((capability) => <button key={capability.title} onClick={() => onSelectPrompt(capability.prompt)} type="button"><span aria-hidden="true">{capability.icon}</span><div><strong>{capability.title}</strong><small>{capability.description}</small></div></button>)}</div></div>
+  </section>;
+}
+
+export function GenesisAttachButton({ disabled, onClick, uploading }: { disabled: boolean; onClick: () => void; uploading: boolean }) {
+  return <button aria-label={uploading ? "Sedang mengunggah dokumen" : "Unggah dokumen"} className="alos-genesis-attach-button" disabled={disabled} onClick={onClick} title="Unggah dokumen" type="button"><PaperclipIcon /></button>;
+}
+
+function PaperclipIcon() {
+  return <svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="m8.7 12.8 5.8-5.8a3.2 3.2 0 0 1 4.5 4.5l-7.4 7.4a5 5 0 0 1-7.1-7.1l7.1-7.1" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" /></svg>;
+}
+
+function SendIcon() {
+  return <svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="m4 4 16 8-16 8 3-8-3-8Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" /><path d="M7 12h13" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></svg>;
 }
 
 export function GenesisFollowUpMessage({ actorInitial, message }: { actorInitial: string; message: GenesisHistoryMessage }) {

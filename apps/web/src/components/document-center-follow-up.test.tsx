@@ -1,7 +1,12 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { GenesisFollowUpFeedback, GenesisFollowUpMessage } from "./document-center";
+import {
+  GenesisAttachButton,
+  GenesisEmptyWelcome,
+  GenesisFollowUpFeedback,
+  GenesisFollowUpMessage,
+} from "./document-center";
 import type { GenesisFollowUpFailure, GenesisHistoryMessage } from "../lib/genesis-follow-up";
 
 function message(actorKind: "HUMAN" | "SYSTEM", content: string): GenesisHistoryMessage {
@@ -28,6 +33,22 @@ function failure(status: "BLOCKED" | "FAILED"): GenesisFollowUpFailure {
 }
 
 describe("Genesis follow-up view", () => {
+  it("renders the empty welcome and uses a compact paperclip upload control", () => {
+    const welcome = renderToStaticMarkup(<GenesisEmptyWelcome onSelectPrompt={() => undefined} />);
+    const attach = renderToStaticMarkup(
+      <GenesisAttachButton disabled={false} onClick={() => undefined} uploading={false} />,
+    );
+
+    expect(welcome).toContain("Mulai percakapan dengan GENESIS");
+    expect(welcome).toContain("Analisis Dokumen");
+    expect(welcome).toContain("Ringkas Laporan");
+    expect(welcome).toContain("Susun Draft SOP");
+    expect(welcome).toContain("Riset Strategis");
+    expect(attach).toContain('aria-label="Unggah dokumen"');
+    expect(attach).toContain("alos-genesis-attach-button");
+    expect(attach).not.toContain("PDF, Word");
+  });
+
   it("renders restored Director and Genesis bubbles with citations", () => {
     const director = renderToStaticMarkup(
       <GenesisFollowUpMessage actorInitial="D" message={message("HUMAN", "Prioritaskan owner.")} />,
