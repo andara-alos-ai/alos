@@ -36,6 +36,14 @@ def test_follow_up_flag_is_independent_from_initial_semantic_analysis() -> None:
     assert settings.genesis_conversation_follow_up_enabled is True
 
 
+def test_staging_compose_forwards_follow_up_settings() -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    compose = (repository_root / "infra" / "compose" / "compose.staging.yaml").read_text()
+
+    assert "ALOS_GENESIS_CONVERSATION_FOLLOW_UP_ENABLED:" in compose
+    assert "ALOS_GENESIS_FOLLOW_UP_MAX_OUTPUT_TOKENS:" in compose
+
+
 def test_staging_openai_requires_a_model_policy() -> None:
     with pytest.raises(ValueError, match="model policy"):
         Settings(
