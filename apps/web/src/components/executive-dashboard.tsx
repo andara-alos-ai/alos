@@ -17,6 +17,10 @@ import {
 } from "@/lib/dashboard-access";
 import { DocumentCenter } from "@/components/document-center";
 import {
+  DivisionsOverviewDashboard,
+  ProjectPortfolioDashboard,
+} from "@/components/portfolio-dashboards";
+import {
   approvalAgeLabel,
   approvalKindLabel,
   executiveFirstName,
@@ -442,6 +446,8 @@ function ModuleDashboard({ actor, module }: { actor: SessionActor; module: Dashb
   if (module === "genesis") return <GenesisDashboard actor={actor} />;
   if (module === "settings") return <SettingsDashboard actor={actor} />;
   if (module === "documents") return <DocumentCenter actor={actor} mode="documents" />;
+  if (module === "divisions") return <DivisionsOverviewDashboard />;
+  if (module === "projects") return <ProjectPortfolioDashboard />;
 
   const page = dashboardModules[module];
   return (

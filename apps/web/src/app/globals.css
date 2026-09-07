@@ -624,6 +624,15 @@ th { color: #aac0d5; font-weight: 700; }
   padding: 8px 12px;
   position: relative;
 }
+.alos-nav a .alos-nav-label {
+  color: inherit;
+  display: inline-flex;
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  text-align: left;
+  width: auto;
+}
 .alos-nav a .alos-icon, .alos-genesis-nav a .alos-icon, .alos-sidebar-footer a .alos-icon, .alos-sidebar-footer button .alos-icon {
   color: rgba(255, 255, 255, .88);
   flex: 0 0 auto;
@@ -665,7 +674,7 @@ th { color: #aac0d5; font-weight: 700; }
 .alos-sidebar-footer {
   border-top: 0;
   gap: 2px;
-  margin: auto 4px 0;
+  margin: 12px 4px 0;
   padding: 16px 0 0;
 }
 .alos-sidebar-footer::before {

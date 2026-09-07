@@ -195,6 +195,47 @@ class ExecutiveDashboardRepository:
                 approval_counts["agent_pending"]
             )
 
+            project_stats = connection.execute(
+                """
+                SELECT count(*) AS project_count,
+                       count(*) FILTER (WHERE status <> 'COMPLETED') AS active_projects,
+                       avg(progress_percent)
+                           FILTER (WHERE status <> 'COMPLETED') AS average_progress,
+                       coalesce(sum(overdue_tasks)
+                           FILTER (WHERE status <> 'COMPLETED'), 0) AS overdue_tasks
+                FROM portfolio.projects
+                WHERE organization_id = %s
+                  AND workspace_id = ANY(%s::uuid[])
+                  AND status <> 'ARCHIVED'
+                """,
+                (organization_id, accessible_workspaces),
+            ).fetchone()
+            assert project_stats is not None
+            distribution_rows = connection.execute(
+                """
+                SELECT status, count(*) AS count
+                FROM portfolio.projects
+                WHERE organization_id = %s
+                  AND workspace_id = ANY(%s::uuid[])
+                  AND status <> 'ARCHIVED'
+                GROUP BY status
+                """,
+                (organization_id, accessible_workspaces),
+            ).fetchall()
+            attention_rows = connection.execute(
+                """
+                SELECT project_id, name, progress_percent, status
+                FROM portfolio.projects
+                WHERE organization_id = %s
+                  AND workspace_id = ANY(%s::uuid[])
+                  AND status IN ('AT_RISK', 'CRITICAL')
+                ORDER BY CASE status WHEN 'CRITICAL' THEN 1 ELSE 2 END,
+                         deadline NULLS LAST, name
+                LIMIT 5
+                """,
+                (organization_id, accessible_workspaces),
+            ).fetchall()
+
             division_rows = connection.execute(
                 """
                 SELECT division.code AS division_code,
@@ -322,11 +363,13 @@ class ExecutiveDashboardRepository:
                 display_name=identity["display_name"],
                 organization_name=identity["organization_name"],
             ),
-            metrics=_metrics(pending_count),
+            metrics=_metrics(pending_count, project_stats),
             performance=_performance_series(month_starts, trend_rows),
-            project_distribution=_empty_project_distribution(),
+            project_distribution=_project_distribution(distribution_rows),
             divisions=_division_summaries(division_rows),
-            attention_projects=[],
+            attention_projects=[
+                ExecutiveAttentionProject.model_validate(row) for row in attention_rows
+            ],
             pending_approvals=[_pending_approval(row, now.date()) for row in pending_rows],
         )
 
@@ -336,34 +379,53 @@ class ExecutiveDashboardRepository:
             yield connection
 
 
-def _metrics(pending_count: int) -> list[ExecutiveDashboardMetric]:
+def _metrics(
+    pending_count: int, project_stats: dict[str, Any]
+) -> list[ExecutiveDashboardMetric]:
+    projects_connected = int(project_stats["project_count"]) > 0
     return [
         ExecutiveDashboardMetric(
             key="active_projects",
             label="Total Proyek Aktif",
-            value=None,
+            value=(float(project_stats["active_projects"]) if projects_connected else None),
             unit="COUNT",
             tone="SUCCESS",
-            state="NOT_CONNECTED",
-            context="Sumber proyek belum terhubung",
+            state="LIVE" if projects_connected else "NOT_CONNECTED",
+            context=(
+                "Proyek aktif pada workspace yang dapat diakses"
+                if projects_connected
+                else "Sumber proyek belum terhubung"
+            ),
         ),
         ExecutiveDashboardMetric(
             key="average_progress",
             label="Progress Rata-rata",
-            value=None,
+            value=(
+                round(float(project_stats["average_progress"]), 1)
+                if project_stats["average_progress"] is not None
+                else None
+            ),
             unit="PERCENT",
             tone="WARNING",
-            state="NOT_CONNECTED",
-            context="Milestone proyek belum terhubung",
+            state="LIVE" if projects_connected else "NOT_CONNECTED",
+            context=(
+                "Rata-rata proyek aktif"
+                if projects_connected
+                else "Milestone proyek belum terhubung"
+            ),
         ),
         ExecutiveDashboardMetric(
             key="overdue_tasks",
             label="Task Overdue",
-            value=None,
+            value=(float(project_stats["overdue_tasks"]) if projects_connected else None),
             unit="COUNT",
             tone="DANGER",
-            state="NOT_CONNECTED",
-            context="Sumber task belum terhubung",
+            state="LIVE" if projects_connected else "NOT_CONNECTED",
+            context=(
+                "Akumulasi task overdue pada proyek aktif"
+                if projects_connected
+                else "Sumber task belum terhubung"
+            ),
         ),
         ExecutiveDashboardMetric(
             key="pending_approvals",
@@ -406,23 +468,41 @@ def _performance_series(
     )
 
 
-def _empty_project_distribution() -> ExecutiveProjectDistribution:
+def _project_distribution(rows: list[dict[str, Any]]) -> ExecutiveProjectDistribution:
+    counts = {str(row["status"]): int(row["count"]) for row in rows}
+    total = sum(counts.values())
     return ExecutiveProjectDistribution(
-        available=False,
-        total=0,
-        context="Distribusi akan aktif setelah sumber proyek kanonis terhubung.",
+        available=total > 0,
+        total=total,
+        context=(
+            "Berdasarkan status proyek pada workspace yang dapat diakses."
+            if total
+            else "Distribusi akan aktif setelah sumber proyek kanonis terhubung."
+        ),
         items=[
             ExecutiveProjectDistributionItem(
-                key="COMPLETED", label="Selesai", count=0, tone="BLUE"
+                key="COMPLETED",
+                label="Selesai",
+                count=counts.get("COMPLETED", 0),
+                tone="BLUE",
             ),
             ExecutiveProjectDistributionItem(
-                key="ON_TRACK", label="On Track", count=0, tone="GREEN"
+                key="ON_TRACK",
+                label="On Track",
+                count=counts.get("ON_TRACK", 0),
+                tone="GREEN",
             ),
             ExecutiveProjectDistributionItem(
-                key="AT_RISK", label="At Risk", count=0, tone="AMBER"
+                key="AT_RISK",
+                label="At Risk",
+                count=counts.get("AT_RISK", 0),
+                tone="AMBER",
             ),
             ExecutiveProjectDistributionItem(
-                key="CRITICAL", label="Critical", count=0, tone="RED"
+                key="CRITICAL",
+                label="Critical",
+                count=counts.get("CRITICAL", 0),
+                tone="RED",
             ),
         ],
     )

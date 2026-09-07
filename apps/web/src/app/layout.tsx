@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import "./globals.css";
+import "./portfolio.css";
 
 export const metadata: Metadata = {
   title: "ALOS | Andara Leverage Operating System",

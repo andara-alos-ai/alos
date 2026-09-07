@@ -1,3 +1,4 @@
+from datetime import date
 from hashlib import sha256
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -110,6 +111,12 @@ from alos.permissions.registry import (
     PermissionRegistryRepository,
 )
 from alos.persistence.database import database_is_ready
+from alos.portfolio import (
+    DivisionsOverviewSnapshot,
+    PortfolioRepository,
+    ProjectPortfolioSnapshot,
+    ProjectStatus,
+)
 from alos.release.governance import (
     AgentTestRunner,
     LifecycleConflictError,
@@ -313,6 +320,10 @@ def get_document_center_repository() -> DocumentCenterRepository:
 
 def get_executive_dashboard_repository() -> ExecutiveDashboardRepository:
     return ExecutiveDashboardRepository(get_settings().database_url)
+
+
+def get_portfolio_repository() -> PortfolioRepository:
+    return PortfolioRepository(get_settings().database_url)
 
 
 def get_genesis_document_workflow_repository() -> GenesisDocumentWorkflowRepository:
@@ -631,6 +642,55 @@ def get_executive_dashboard(
         organization_id=actor.organization_id,
         actor_user_id=actor.user_id,
         workspace_ids=actor.workspace_ids,
+    )
+
+
+@app.get("/api/v1/divisions/overview", response_model=DivisionsOverviewSnapshot)
+def get_divisions_overview(
+    response: Response,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> DivisionsOverviewSnapshot:
+    """Return division health derived only from the actor's accessible workspaces."""
+
+    response.headers["Cache-Control"] = "no-store"
+    return get_portfolio_repository().divisions_overview(
+        organization_id=actor.organization_id,
+        workspace_ids=actor.workspace_ids,
+    )
+
+
+@app.get("/api/v1/projects/portfolio", response_model=ProjectPortfolioSnapshot)
+def get_project_portfolio(
+    response: Response,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    division_code: Annotated[str | None, Query(max_length=40)] = None,
+    project_status: Annotated[ProjectStatus | None, Query(alias="status")] = None,
+    category: Annotated[str | None, Query(max_length=80)] = None,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+    search: Annotated[str | None, Query(max_length=160)] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> ProjectPortfolioSnapshot:
+    """Return the filtered project portfolio without crossing workspace boundaries."""
+
+    if date_from and date_to and date_to < date_from:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="date_to must be on or after date_from",
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return get_portfolio_repository().project_portfolio(
+        organization_id=actor.organization_id,
+        workspace_ids=actor.workspace_ids,
+        division_code=division_code,
+        project_status=project_status,
+        category=category,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        page=page,
+        page_size=page_size,
     )
 
 
