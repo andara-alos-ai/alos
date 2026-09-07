@@ -58,6 +58,10 @@ from alos.genesis.history import (
     GenesisMessageRecord,
     GenesisMessageRequest,
 )
+from alos.genesis.semantic_analysis import (
+    GenesisSemanticAnalysisRepository,
+    GenesisSemanticAnalyzer,
+)
 from alos.genesis.uploads import (
     FilesystemGenesisUploadStorage,
     GenesisUploadConflictError,
@@ -296,11 +300,25 @@ def get_genesis_document_workflow_repository() -> GenesisDocumentWorkflowReposit
     return GenesisDocumentWorkflowRepository(get_settings().database_url)
 
 
+def get_genesis_semantic_analyzer() -> GenesisSemanticAnalyzer | None:
+    """Build the opt-in external-model boundary for one Genesis request."""
+
+    settings = get_settings()
+    if not settings.genesis_semantic_analysis_enabled:
+        return None
+    return GenesisSemanticAnalyzer(
+        settings,
+        lambda: create_model_gateway(settings),
+        GenesisSemanticAnalysisRepository(settings.database_url, settings),
+    )
+
+
 def get_genesis_document_analysis_service() -> GenesisDocumentAnalysisService:
     return GenesisDocumentAnalysisService(
         get_document_center_repository(),
         get_genesis_history_repository(),
         get_genesis_document_workflow_repository(),
+        get_genesis_semantic_analyzer(),
     )
 
 

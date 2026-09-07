@@ -857,25 +857,59 @@ class AgentRuntimeRepository:
         completed = connection.execute(
             f"""
             SELECT count(*) AS requests,
-                   coalesce(sum(ledger.output_tokens), 0) AS output_tokens,
-                   coalesce(sum(ledger.estimated_cost_usd), 0) AS cost_usd
-            FROM observability.usage_ledger AS ledger
-            JOIN runtime.agent_runs AS run ON run.agent_run_id = ledger.agent_run_id
-            WHERE run.organization_id = %s AND run.workspace_id = %s
-              AND run.created_at >= {window_start_sql}
+                   coalesce(sum(output_tokens), 0) AS output_tokens,
+                   coalesce(sum(cost_usd), 0) AS cost_usd
+            FROM (
+                SELECT ledger.output_tokens, ledger.estimated_cost_usd AS cost_usd
+                FROM observability.usage_ledger AS ledger
+                JOIN runtime.agent_runs AS run ON run.agent_run_id = ledger.agent_run_id
+                WHERE run.organization_id = %s AND run.workspace_id = %s
+                  AND run.created_at >= {window_start_sql}
+
+                UNION ALL
+
+                SELECT output_tokens, estimated_cost_usd AS cost_usd
+                FROM genesis.semantic_analysis_runs
+                WHERE organization_id = %s AND workspace_id = %s AND status = 'SUCCEEDED'
+                  AND created_at >= {window_start_sql}
+            ) AS completed_usage
             """,
-            (organization_id, workspace_id, *parameters),
+            (
+                organization_id,
+                workspace_id,
+                *parameters,
+                organization_id,
+                workspace_id,
+                *parameters,
+            ),
         ).fetchone()
         reserved = connection.execute(
             f"""
             SELECT count(*) AS requests,
-                   coalesce(sum(reserved_output_tokens), 0) AS output_tokens,
-                   coalesce(sum(reserved_cost_usd), 0) AS cost_usd
-            FROM runtime.budget_reservations
-            WHERE organization_id = %s AND workspace_id = %s
-              AND created_at >= {window_start_sql}
+                   coalesce(sum(output_tokens), 0) AS output_tokens,
+                   coalesce(sum(cost_usd), 0) AS cost_usd
+            FROM (
+                SELECT reserved_output_tokens AS output_tokens, reserved_cost_usd AS cost_usd
+                FROM runtime.budget_reservations
+                WHERE organization_id = %s AND workspace_id = %s
+                  AND created_at >= {window_start_sql}
+
+                UNION ALL
+
+                SELECT requested_output_tokens AS output_tokens, reserved_cost_usd AS cost_usd
+                FROM genesis.semantic_analysis_runs
+                WHERE organization_id = %s AND workspace_id = %s AND status = 'RUNNING'
+                  AND created_at >= {window_start_sql}
+            ) AS reserved_usage
             """,
-            (organization_id, workspace_id, *parameters),
+            (
+                organization_id,
+                workspace_id,
+                *parameters,
+                organization_id,
+                workspace_id,
+                *parameters,
+            ),
         ).fetchone()
         if completed is None or reserved is None:
             raise AgentRuntimeError("daily budget usage could not be read")

@@ -53,12 +53,44 @@ ALOS_LLM_MAX_OUTPUT_TOKENS=1200
 ALOS_LLM_DAILY_REQUEST_LIMIT=2
 ALOS_LLM_DAILY_OUTPUT_TOKEN_LIMIT=2400
 ALOS_LLM_DAILY_COST_CAP_USD=5.00
+ALOS_GENESIS_SEMANTIC_ANALYSIS_ENABLED=false
+ALOS_GENESIS_SEMANTIC_MAX_OUTPUT_TOKENS=1200
 ```
 
 `store=false` menghindari penyimpanan response state yang dikontrol aplikasi
 provider, tetapi bukan pengganti review data governance. OpenAI menjelaskan
 bahwa Responses API dan abuse-monitoring memiliki kontrol retensi tersendiri;
 gunakan data sintetis sampai organisasi menyetujui klasifikasi dan retensi data.
+
+## Genesis semantic document analysis (opt-in)
+
+Fitur ini **mati secara default**, termasuk ketika Model Gateway OpenAI sudah
+tersedia. Aktivasi hanya dilakukan setelah Direktur menyetujui uji satu dokumen
+INTERNAL dan IT memastikan `governance.cost_limits` untuk workspace tersebut
+aktif. Ubah hanya pada secret file VPS:
+
+```dotenv
+ALOS_GENESIS_SEMANTIC_ANALYSIS_ENABLED=true
+ALOS_GENESIS_SEMANTIC_MAX_OUTPUT_TOKENS=1200
+```
+
+Satu permintaan hanya dapat memakai dokumen `MANUAL`, berklasifikasi
+`INTERNAL`, berstatus `APPROVED` atau `ACTIVE`, dengan ekstrak teks maksimal
+60.000 karakter. ALOS mengirim teks ekstrak itu langsung ke satu request
+Responses melalui Model Gateway—bukan file, vector store, tool, browser, atau
+research eksternal. Jawaban serta metadata token/biaya disimpan di ALOS sebagai
+artifact dan dokumen `DRAFT`; dokumen sumber tidak pernah ditulis ulang.
+
+`store=false` mencegah application state response pada Responses API. Itu tidak
+sendiri berarti pemrosesan ber-retensi nol: kebijakan data OpenAI tetap dapat
+memiliki abuse-monitoring logs hingga 30 hari pada konfigurasi standar. Baca
+[OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data)
+sebelum mengganti scope data atau mengaktifkan fitur ini untuk dokumen bisnis.
+
+Urutan uji yang diperbolehkan: gunakan satu dokumen INTERNAL non-sensitif yang
+sudah approved, kirim satu pertanyaan, periksa jawaban dan sitasi di DRAFT,
+lalu nonaktifkan flag jika ada ketidaksesuaian. Jangan gunakan dokumen
+`CONFIDENTIAL` atau `RESTRICTED` pada MVP ini.
 
 `light`, `standard`, dan `critical` adalah route Contract, bukan nama model
 yang dapat ditentukan agent. Backend memetakan route tersebut ke Luna, Terra,

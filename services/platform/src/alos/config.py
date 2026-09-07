@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     llm_daily_output_token_limit: int = Field(default=500_000, ge=1_000)
     llm_daily_cost_cap_usd: Decimal = Field(default=Decimal("5.00"), ge=0)
     llm_max_retries: int = Field(default=1, ge=0, le=3)
+    genesis_semantic_analysis_enabled: bool = False
+    genesis_semantic_max_output_tokens: int = Field(default=1_200, ge=256, le=8_000)
     budget_timezone: str = "Asia/Jakarta"
 
     repository_root: Path = Field(default_factory=repository_root)
@@ -116,6 +118,13 @@ class Settings(BaseSettings):
                 )
         if self.environment in {"staging", "production"} and self.llm_store_responses:
             raise ValueError("staging/production must keep provider response storage disabled")
+        if self.genesis_semantic_analysis_enabled:
+            if self.llm_provider != "openai":
+                raise ValueError("semantic Genesis analysis requires the OpenAI Model Gateway")
+            if self.genesis_semantic_max_output_tokens > self.llm_max_output_tokens:
+                raise ValueError(
+                    "Genesis semantic output limit cannot exceed the Model Gateway output limit"
+                )
         return self
 
     def model_for_route(self, route: ModelRoute) -> str:

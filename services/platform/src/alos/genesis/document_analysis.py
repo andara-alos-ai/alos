@@ -37,6 +37,11 @@ from alos.genesis.history import (
     GenesisConversationRequest,
     GenesisHistoryRepository,
 )
+from alos.genesis.semantic_analysis import (
+    GenesisSemanticAnalysisError,
+    GenesisSemanticAnalysisResult,
+    GenesisSemanticAnalyzer,
+)
 
 
 class GenesisDocumentAnalysisError(RuntimeError):
@@ -68,6 +73,7 @@ class GenesisDocumentAnalysisResult(BaseModel):
     analysis: GenesisArtifactRecord
     draft: DocumentRecord
     workflow: GenesisDocumentWorkflowRecord
+    semantic: GenesisSemanticAnalysisResult | None = None
 
 
 class GenesisDocumentWorkflowStageResult(BaseModel):
@@ -85,10 +91,12 @@ class GenesisDocumentAnalysisService:
         documents: DocumentCenterRepository,
         history: GenesisHistoryRepository,
         workflows: GenesisDocumentWorkflowRepository,
+        semantic_analyzer: GenesisSemanticAnalyzer | None = None,
     ) -> None:
         self._documents = documents
         self._history = history
         self._workflows = workflows
+        self._semantic_analyzer = semantic_analyzer
 
     def create_analysis(
         self,
@@ -118,45 +126,157 @@ class GenesisDocumentAnalysisService:
             actor_user_id=actor_user_id,
             correlation_id=correlation_id,
         )
-        analysis = self._history.record_system_artifact(
-            conversation.conversation_id,
-            "ANALYSIS",
-            _analysis_artifact_content(source_reference, request.prompt, source.content),
-            organization_id=organization_id,
-            actor_user_id=actor_user_id,
-            correlation_id=correlation_id,
-        )
-        draft = self._documents.create_genesis_analysis_draft(
-            DocumentDraftRequest(
+        semantic: GenesisSemanticAnalysisResult | None = None
+        try:
+            semantic = self._create_semantic_analysis(
+                source=source,
+                source_reference=source_reference,
+                prompt=request.prompt,
+                organization_id=organization_id,
                 workspace_id=request.workspace_id,
-                title=_draft_title(source_reference.title),
-                content=_analysis_draft_content(source_reference, request.prompt),
-                category="GENESIS_ANALYSIS",
-                classification=source.document.classification,
-            ),
-            organization_id=organization_id,
-            actor_user_id=actor_user_id,
-            correlation_id=correlation_id,
-            conversation_id=conversation.conversation_id,
-        )
-        workflow = self._workflows.create(
-            organization_id=organization_id,
-            workspace_id=request.workspace_id,
-            conversation_id=conversation.conversation_id,
-            source_document_id=source_reference.document_id,
-            source_version_number=source_reference.version_number,
-            source_content_sha256=source_reference.content_sha256,
-            analysis_document_id=draft.document_id,
-            actor_user_id=actor_user_id,
-            correlation_id=correlation_id,
-        )
+                actor_user_id=actor_user_id,
+                correlation_id=correlation_id,
+            )
+            analysis = self._history.record_system_artifact(
+                conversation.conversation_id,
+                "ANALYSIS",
+                _analysis_artifact_content(
+                    source_reference,
+                    request.prompt,
+                    source.content,
+                    semantic,
+                ),
+                organization_id=organization_id,
+                actor_user_id=actor_user_id,
+                correlation_id=correlation_id,
+            )
+            draft = self._documents.create_genesis_analysis_draft(
+                DocumentDraftRequest(
+                    workspace_id=request.workspace_id,
+                    title=_draft_title(source_reference.title),
+                    content=_analysis_draft_content(source_reference, request.prompt, semantic),
+                    category="GENESIS_ANALYSIS",
+                    classification=source.document.classification,
+                ),
+                organization_id=organization_id,
+                actor_user_id=actor_user_id,
+                correlation_id=correlation_id,
+                conversation_id=conversation.conversation_id,
+            )
+            workflow = self._workflows.create(
+                organization_id=organization_id,
+                workspace_id=request.workspace_id,
+                conversation_id=conversation.conversation_id,
+                source_document_id=source_reference.document_id,
+                source_version_number=source_reference.version_number,
+                source_content_sha256=source_reference.content_sha256,
+                analysis_document_id=draft.document_id,
+                actor_user_id=actor_user_id,
+                correlation_id=correlation_id,
+            )
+            if semantic is not None:
+                self._semantic_analyzer_complete(
+                    semantic,
+                    analysis_artifact_id=analysis.artifact_id,
+                    organization_id=organization_id,
+                    actor_user_id=actor_user_id,
+                    correlation_id=correlation_id,
+                )
+        except Exception as error:
+            self._semantic_analyzer_fail(
+                semantic,
+                error,
+                organization_id=organization_id,
+                actor_user_id=actor_user_id,
+                correlation_id=correlation_id,
+            )
+            raise
         return GenesisDocumentAnalysisResult(
             conversation=conversation,
             source=source_reference,
             analysis=analysis,
             draft=draft,
             workflow=workflow,
+            semantic=semantic,
         )
+
+    def _create_semantic_analysis(
+        self,
+        *,
+        source: DocumentDetail,
+        source_reference: GenesisDocumentSourceReference,
+        prompt: str,
+        organization_id: UUID,
+        workspace_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> GenesisSemanticAnalysisResult | None:
+        if self._semantic_analyzer is None:
+            return None
+        if source_reference.classification != "INTERNAL":
+            raise GenesisDocumentAnalysisError(
+                "semantic Genesis analysis only permits INTERNAL source documents"
+            )
+        try:
+            return self._semantic_analyzer.analyze(
+                organization_id=organization_id,
+                workspace_id=workspace_id,
+                source_document_id=source_reference.document_id,
+                source_version_number=source_reference.version_number,
+                source_content_sha256=source_reference.content_sha256,
+                source_title=source_reference.title,
+                source_content=source.content,
+                prompt=prompt,
+                actor_user_id=actor_user_id,
+                correlation_id=correlation_id,
+            )
+        except GenesisSemanticAnalysisError as error:
+            raise GenesisDocumentAnalysisError(str(error)) from error
+
+    def _semantic_analyzer_complete(
+        self,
+        semantic: GenesisSemanticAnalysisResult,
+        *,
+        analysis_artifact_id: UUID,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> None:
+        if self._semantic_analyzer is None:
+            raise AssertionError("semantic analyzer must exist when completing semantic output")
+        try:
+            self._semantic_analyzer.complete(
+                semantic,
+                analysis_artifact_id=analysis_artifact_id,
+                organization_id=organization_id,
+                actor_user_id=actor_user_id,
+                correlation_id=correlation_id,
+            )
+        except GenesisSemanticAnalysisError as error:
+            raise GenesisDocumentAnalysisError(str(error)) from error
+
+    def _semantic_analyzer_fail(
+        self,
+        semantic: GenesisSemanticAnalysisResult | None,
+        error: Exception,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> None:
+        if semantic is None or self._semantic_analyzer is None:
+            return
+        try:
+            self._semantic_analyzer.fail(
+                semantic,
+                error,
+                organization_id=organization_id,
+                actor_user_id=actor_user_id,
+                correlation_id=correlation_id,
+            )
+        except GenesisSemanticAnalysisError:
+            # Preserve the original persistence failure; the run is still auditable.
+            return
 
     def create_rnd(
         self,
@@ -463,11 +583,14 @@ class GenesisDocumentAnalysisService:
 
 
 def _analysis_artifact_content(
-    source: GenesisDocumentSourceReference, prompt: str, content: str
+    source: GenesisDocumentSourceReference,
+    prompt: str,
+    content: str,
+    semantic: GenesisSemanticAnalysisResult | None,
 ) -> dict[str, Any]:
-    """Return source facts only; semantic R&D needs a later approved step."""
+    """Return immutable source binding plus an optional model answer for review."""
 
-    return {
+    artifact: dict[str, Any] = {
         "kind": "DOCUMENT_ANALYSIS",
         "source": source.model_dump(mode="json"),
         "prompt": prompt.strip(),
@@ -480,10 +603,32 @@ def _analysis_artifact_content(
         "next_stage": "RND_RECOMMENDATION",
         "limitations": [
             "No external research was performed.",
-            "No model inference was performed.",
             "No semantic conclusion is treated as approved without human review.",
         ],
     }
+    if semantic is None:
+        artifact["model_execution"] = {
+            "mode": "DETERMINISTIC_SOURCE_BINDING",
+            "status": "NOT_ENABLED",
+            "reason": "Semantic Model Gateway is not enabled for this environment.",
+        }
+        artifact["limitations"].append("No model inference was performed.")
+    else:
+        artifact["model_execution"] = {
+            "mode": "SOURCE_BOUND_MODEL_GATEWAY",
+            "analysis_run_id": str(semantic.analysis_run_id),
+            "provider": semantic.provider,
+            "model": semantic.model,
+            "input_tokens": semantic.input_tokens,
+            "output_tokens": semantic.output_tokens,
+            "latency_milliseconds": semantic.latency_milliseconds,
+            "estimated_cost_usd": str(semantic.estimated_cost_usd),
+            "provider_storage": "store=false",
+            "tools": "none",
+            "external_web": False,
+        }
+        artifact["answer"] = semantic.answer
+    return artifact
 
 
 def _draft_title(source_title: str) -> str:
@@ -492,26 +637,44 @@ def _draft_title(source_title: str) -> str:
 
 
 def _analysis_draft_content(
-    source: GenesisDocumentSourceReference, prompt: str
+    source: GenesisDocumentSourceReference,
+    prompt: str,
+    semantic: GenesisSemanticAnalysisResult | None,
 ) -> str:
-    return "\n".join(
+    lines = [
+        f"# {_draft_title(source.title)}",
+        "",
+        "## Permintaan Direktur",
+        prompt.strip(),
+        "",
+        "## Sumber terikat (read-only)",
+        f"- Dokumen: {source.title}",
+        f"- Document ID: {source.document_id}",
+        f"- Versi: {source.version_number}",
+        f"- SHA-256: {source.content_sha256}",
+        f"- Status saat dibaca: {source.status}",
+        f"- Klasifikasi: {source.classification}",
+        "",
+        "## Hasil pemeriksaan awal",
+    ]
+    if semantic is None:
+        lines.extend(
+            (
+                "Sumber berhasil diikat ke analisis ini. Belum ada kesimpulan substantif,",
+                "riset eksternal, atau perubahan terhadap dokumen sumber.",
+            )
+        )
+    else:
+        lines.extend(
+            (
+                "Hasil berikut dibuat melalui Model Gateway hanya dari sumber terikat di atas.",
+                "Semua kesimpulan dan rekomendasi tetap DRAFT yang wajib diperiksa manusia.",
+                "",
+                semantic.answer,
+            )
+        )
+    lines.extend(
         (
-            f"# {_draft_title(source.title)}",
-            "",
-            "## Permintaan Direktur",
-            prompt.strip(),
-            "",
-            "## Sumber terikat (read-only)",
-            f"- Dokumen: {source.title}",
-            f"- Document ID: {source.document_id}",
-            f"- Versi: {source.version_number}",
-            f"- SHA-256: {source.content_sha256}",
-            f"- Status saat dibaca: {source.status}",
-            f"- Klasifikasi: {source.classification}",
-            "",
-            "## Hasil pemeriksaan awal",
-            "Sumber berhasil diikat ke analisis ini. Belum ada kesimpulan substantif,",
-            "riset eksternal, atau perubahan terhadap dokumen sumber.",
             "",
             "## Checklist sebelum R&D",
             "- [ ] Checker independen memverifikasi versi dan SHA sumber.",
@@ -523,6 +686,7 @@ def _analysis_draft_content(
             "instruksi untuk membuat atau mengaktifkan agent.",
         )
     )
+    return "\n".join(lines)
 
 
 def _source_reference(source: DocumentDetail) -> GenesisDocumentSourceReference:

@@ -26,10 +26,12 @@ function document(overrides: Partial<DocumentRecord>): DocumentRecord {
 }
 
 describe("Genesis document sources", () => {
-  it("allows approved and active canonical documents only", () => {
+  it("allows approved and active INTERNAL canonical documents only", () => {
     expect(canGenesisReadDocument(document({ status: "APPROVED" }))).toBe(true);
     expect(canGenesisReadDocument(document({ status: "ACTIVE" }))).toBe(true);
     expect(canGenesisReadDocument(document({ status: "DRAFT" }))).toBe(false);
+    expect(canGenesisReadDocument(document({ classification: "CONFIDENTIAL" }))).toBe(false);
+    expect(canGenesisReadDocument(document({ classification: "RESTRICTED" }))).toBe(false);
   });
 
   it("does not read Genesis-generated drafts as source documents", () => {
