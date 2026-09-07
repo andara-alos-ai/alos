@@ -125,7 +125,7 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
       <aside className="alos-sidebar" aria-label="Navigasi utama ALOS">
         <Link className="alos-brand" href="/">
           <Image alt="ALOS" height={64} priority src="/alos-logo-mark.png" width={64} />
-          <span><strong>ALOS</strong><small>Andara Leverage Operating System</small><small>PT Andara Rejo Makmur</small></span>
+          <span><strong>ALOS</strong><small>Integrated Business Platform</small><small>PT Andara Rejo Makmur</small></span>
         </Link>
 
         <nav className="alos-nav">
