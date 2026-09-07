@@ -40,6 +40,20 @@ type DocumentCenterProps = {
 
 type ApiFailure = { detail?: string };
 
+type GenesisHistoryConversation = GenesisDocumentAnalysisResult["conversation"];
+
+type GenesisHistoryMessage = {
+  actor_kind: "HUMAN" | "SYSTEM";
+  content: string;
+};
+
+type GenesisHistoryArtifact = {
+  artifact_id: string;
+  artifact_type: string;
+  digest: string;
+  content: Record<string, unknown>;
+};
+
 const emptyWorkspace: DocumentWorkspace[] = [];
 
 export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
@@ -62,6 +76,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const [uploading, setUploading] = useState(false);
   const [promotingUpload, setPromotingUpload] = useState(false);
   const [withdrawingUpload, setWithdrawingUpload] = useState(false);
+  const [restoringConversationId, setRestoringConversationId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [documentQuery, setDocumentQuery] = useState("");
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -90,6 +105,12 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const canUploadToGenesis = actor.roles.includes("DIRECTOR");
   const analysisSources = useMemo(
     () => documents.filter(canGenesisReadDocument),
+    [documents],
+  );
+  const recentAnalyses = useMemo(
+    () => documents
+      .filter((document) => document.origin === "GENESIS" && document.category === "GENESIS_ANALYSIS" && document.genesis_conversation_id)
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at)),
     [documents],
   );
 
@@ -254,6 +275,39 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     } catch (failure) {
       setError(messageFrom(failure));
     } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function restoreAnalysis(document: DocumentRecord) {
+    if (!document.genesis_conversation_id) return;
+    setRestoringConversationId(document.genesis_conversation_id);
+    setSubmitting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const base = `/api/v1/genesis/conversations/${encodeURIComponent(document.genesis_conversation_id)}`;
+      const [conversationResponse, messageResponse, artifactResponse] = await Promise.all([
+        fetch(base, { credentials: "same-origin", cache: "no-store" }),
+        fetch(`${base}/messages`, { credentials: "same-origin", cache: "no-store" }),
+        fetch(`${base}/artifacts`, { credentials: "same-origin", cache: "no-store" }),
+      ]);
+      if (!conversationResponse.ok) throw new Error(await errorDetail(conversationResponse));
+      if (!messageResponse.ok) throw new Error(await errorDetail(messageResponse));
+      if (!artifactResponse.ok) throw new Error(await errorDetail(artifactResponse));
+      const restored = restoreGenesisAnalysis(
+        document,
+        (await conversationResponse.json()) as GenesisHistoryConversation,
+        (await messageResponse.json()) as GenesisHistoryMessage[],
+        (await artifactResponse.json()) as GenesisHistoryArtifact[],
+      );
+      if (!restored) throw new Error("Riwayat analisis ini belum memiliki artefak yang dapat ditampilkan.");
+      setAnalysisResult(restored);
+      setNotice("Percakapan Genesis dipulihkan dari riwayat tersimpan.");
+    } catch (failure) {
+      setError(messageFrom(failure));
+    } finally {
+      setRestoringConversationId(null);
       setSubmitting(false);
     }
   }
@@ -483,7 +537,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
         </article>
 
         <aside className="alos-genesis-workspace-side">
-          <article className="alos-panel alos-genesis-recent"><div className="alos-panel-heading-row"><div><h3>Percakapan Terbaru</h3></div><span>Lihat Semua →</span></div>{analysisResult ? <div className="alos-genesis-recent-analysis"><strong>{analysisResult.source.title}</strong><small>Analisis DRAFT · baru saja dibuat</small><button onClick={() => void selectDocument(analysisResult.draft.document_id)} type="button">Buka hasil →</button></div> : <p className="alos-empty-copy">Belum ada analisis tersimpan. {uploads.length ? `${uploads.length} sumber unggahan menunggu ditinjau.` : "Pilih dokumen yang disetujui untuk memulai."}</p>}</article>
+          <article className="alos-panel alos-genesis-recent"><div className="alos-panel-heading-row"><div><h3>Percakapan Terbaru</h3></div><span>{recentAnalyses.length ? `${recentAnalyses.length} tersimpan` : "Belum ada"}</span></div>{recentAnalyses.length ? <ol className="alos-genesis-recent-list">{recentAnalyses.slice(0, 5).map((document) => <li key={document.document_id}><button className={analysisResult?.draft.document_id === document.document_id ? "selected" : ""} disabled={restoringConversationId === document.genesis_conversation_id} onClick={() => void restoreAnalysis(document)} type="button"><span aria-hidden="true">✦</span><div><strong>{document.title.replace(/^Analisis Genesis —\s*/i, "")}</strong><small>Analisis DRAFT · {formatDocumentDate(document.updated_at)}</small></div><em>{restoringConversationId === document.genesis_conversation_id ? "…" : "›"}</em></button></li>)}</ol> : <p className="alos-empty-copy">Belum ada analisis tersimpan. {uploads.length ? `${uploads.length} sumber unggahan menunggu ditinjau.` : "Pilih dokumen yang disetujui untuk memulai."}</p>}</article>
           <article className="alos-panel alos-genesis-agents"><div className="alos-panel-heading-row"><div><h3>Agen Aktif</h3></div><Link href="/agents">Kelola Agen →</Link></div><div className="alos-genesis-agent-empty"><span>◌</span><div><strong>Belum ada agent ACTIVE</strong><small>Agent hanya muncul setelah melewati release dan approval.</small></div></div></article>
           <article className="alos-panel alos-genesis-quick-prompts"><p className="alos-kicker">CONTOH PERTANYAAN</p><h3>Mulai dengan cepat</h3>{["Analisa kelengkapan dokumen ini dan identifikasi gap utamanya.", "Periksa risiko, owner, KPI, dan evidence yang belum tercantum.", "Buatkan daftar rekomendasi perbaikan yang perlu ditinjau manusia.", "Tentukan apakah dokumen ini perlu dilanjutkan ke tahap R&D."].map((prompt) => <button key={prompt} onClick={() => setAnalysisPrompt(prompt)} type="button"><span>{prompt}</span><b>›</b></button>)}</article>
         </aside>
@@ -579,6 +633,88 @@ function renderGenesisInline(value: string): ReactNode[] {
     if (/^\[Sumber L\d+(?:-L?\d+)?\]$/.test(token)) return <mark className="alos-genesis-citation" key={`${token}-${index}`}>{token}</mark>;
     return <span key={`${token}-${index}`}>{token}</span>;
   });
+}
+
+function restoreGenesisAnalysis(
+  document: DocumentRecord,
+  conversation: GenesisHistoryConversation,
+  messages: GenesisHistoryMessage[],
+  artifacts: GenesisHistoryArtifact[],
+): GenesisDocumentAnalysisResult | null {
+  const analysis = [...artifacts].reverse().find((artifact) => artifact.artifact_type === "ANALYSIS");
+  if (!analysis) return null;
+  const source = objectValue(analysis.content.source);
+  const reading = objectValue(analysis.content.reading);
+  const prompt = messages.find((message) => message.actor_kind === "HUMAN")?.content
+    ?? stringValue(analysis.content.prompt);
+  if (!source || !reading || !prompt) return null;
+
+  const sourceDocumentId = stringValue(source.document_id);
+  const sourceTitle = stringValue(source.title);
+  const sourceVersion = numberValue(source.version_number);
+  const sourceHash = stringValue(source.content_sha256);
+  const sourceStatus = stringValue(source.status);
+  const sourceClassification = stringValue(source.classification);
+  if (!sourceDocumentId || !sourceTitle || !sourceVersion || !sourceHash || !sourceStatus || !sourceClassification) return null;
+
+  const modelExecution = objectValue(analysis.content.model_execution);
+  const answer = stringValue(analysis.content.answer);
+  const semantic = answer && modelExecution ? {
+    analysis_run_id: stringValue(modelExecution.analysis_run_id) ?? analysis.artifact_id,
+    provider: providerValue(modelExecution.provider),
+    model: stringValue(modelExecution.model) ?? "Model Gateway",
+    answer,
+    input_tokens: numberValue(modelExecution.input_tokens) ?? 0,
+    output_tokens: numberValue(modelExecution.output_tokens) ?? 0,
+    latency_milliseconds: numberValue(modelExecution.latency_milliseconds) ?? 0,
+    estimated_cost_usd: String(modelExecution.estimated_cost_usd ?? "0"),
+    source_characters: numberValue(reading.content_characters) ?? 0,
+  } : null;
+
+  return {
+    conversation,
+    source: {
+      document_id: sourceDocumentId,
+      title: sourceTitle,
+      version_number: sourceVersion,
+      content_sha256: sourceHash,
+      status: sourceStatus as GenesisDocumentAnalysisResult["source"]["status"],
+      classification: sourceClassification as GenesisDocumentAnalysisResult["source"]["classification"],
+    },
+    analysis: {
+      artifact_id: analysis.artifact_id,
+      digest: analysis.digest,
+      content: {
+        prompt,
+        reading: {
+          content_characters: numberValue(reading.content_characters) ?? 0,
+          source_bound: reading.source_bound === true,
+          source_modified: reading.source_modified === true,
+        },
+      },
+    },
+    draft: document,
+    workflow: { workflow_id: "restored-from-history", status: "ANALYSIS_DRAFT" },
+    semantic,
+  };
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function providerValue(value: unknown): NonNullable<GenesisDocumentAnalysisResult["semantic"]>["provider"] {
+  return ["openai", "anthropic", "gemini", "local", "fake"].includes(String(value))
+    ? String(value) as NonNullable<GenesisDocumentAnalysisResult["semantic"]>["provider"]
+    : "openai";
 }
 
 function DocumentMetric({ label, tone, value }: { label: string; tone: "success" | "warning" | "info" | "danger"; value: number }) {
