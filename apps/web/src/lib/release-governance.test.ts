@@ -7,6 +7,9 @@ import {
   releaseErrorMessage,
   testCasePayload,
   latestRunByTestCase,
+  mayAmendReleaseDraft,
+  releaseNextAction,
+  releaseProgress,
 } from "./release-governance";
 
 describe("H4 Release Governance helpers", () => {
@@ -68,5 +71,29 @@ describe("H4 Release Governance helpers", () => {
     expect(canReadReleaseRegistry(["TECHNICAL_REVIEWER"])).toBe(false);
     expect(canReadReleaseRegistry(["DIRECTOR"])).toBe(false);
     expect(canReadReleaseRegistry(["IT_LEAD"])).toBe(true);
+  });
+
+  it("shows lifecycle progress and the role-aware next action", () => {
+    const detail = {
+      change_request_id: "release-1", agent_key: "DAILY_BRIEF", agent_version_id: "version-1",
+      semantic_version: "0.4.0", state: "DRAFT" as const, maker_user_id: "maker-1",
+      checker_user_id: null, approver_user_id: null, requirement: "Safe daily brief",
+      test_cases: [], test_runs: [], reviews: [], lifecycle_events: [], kill_switch_active: false, rollback_targets: [],
+    };
+    expect(releaseProgress("APPROVED")).toEqual({ current: 4, total: 6, percent: 67 });
+    expect(releaseNextAction(detail, ["QA_SECURITY"])).toMatchObject({ title: "Jalankan evidence test", view: "tests" });
+    expect(releaseNextAction(detail, ["DIRECTOR"])).toMatchObject({ title: "Menunggu Checker independen", view: "tests" });
+  });
+
+  it("only lets the recorded maker amend a mutable release draft", () => {
+    const detail = {
+      change_request_id: "release-1", agent_key: "DAILY_BRIEF", agent_version_id: "version-1",
+      semantic_version: "0.4.0", state: "DRAFT" as const, maker_user_id: "maker-1",
+      checker_user_id: null, approver_user_id: null, requirement: "Safe daily brief",
+      test_cases: [], test_runs: [], reviews: [], lifecycle_events: [], kill_switch_active: false, rollback_targets: [],
+    };
+    expect(mayAmendReleaseDraft(detail, "maker-1")).toBe(true);
+    expect(mayAmendReleaseDraft(detail, "checker-1")).toBe(false);
+    expect(mayAmendReleaseDraft({ ...detail, state: "IN_REVIEW" }, "maker-1")).toBe(false);
   });
 });

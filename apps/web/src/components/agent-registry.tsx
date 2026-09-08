@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ApiError, apiRequest as api } from "@/lib/api-client";
+import { GovernanceConfirmationModal, GovernanceNavigation, type Confirmation } from "@/components/governance-control-ui";
 
 import {
   agentBuilderSteps,
@@ -55,6 +56,10 @@ export function AgentRegistry() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [forbidden, setForbidden] = useState(false);
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [agentTab, setAgentTab] = useState<"overview" | "contract" | "permissions" | "versions">("overview");
 
   const loadWorkspace = useCallback(async (selectedWorkspaceId: string, base?: RegistryFoundation) => {
     const foundation = base ?? (await loadFoundation());
@@ -106,6 +111,11 @@ export function AgentRegistry() {
     () => eligibleParents(data?.agents ?? [], editingAgentKey),
     [data?.agents, editingAgentKey],
   );
+  const visibleAgents = useMemo(() => data?.agents.filter((agent) => {
+    const version = latestVersion(agent);
+    const matchesQuery = `${agent.name} ${agent.agent_key}`.toLowerCase().includes(query.trim().toLowerCase());
+    return matchesQuery && (statusFilter === "ALL" || version?.lifecycle_status === statusFilter);
+  }) ?? [], [data?.agents, query, statusFilter]);
 
   function changeForm<Key extends keyof AgentDraftForm>(key: Key, value: AgentDraftForm[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -159,6 +169,7 @@ export function AgentRegistry() {
   function selectAgent(agent: AgentRecord) {
     const version = latestVersion(agent);
     setSelectedAgentKey(agent.agent_key);
+    setAgentTab("overview");
     setRunForm({
       input: "{}",
       requestedToolKeys: version?.contract_snapshot.tool_keys.join(", ") ?? "",
@@ -239,10 +250,17 @@ export function AgentRegistry() {
     }
   }
 
-  async function retire(agent: AgentRecord) {
-    if (!window.confirm(`Pensiunkan ${agent.agent_key}? Riwayat dan audit tetap disimpan.`)) {
-      return;
-    }
+  function retire(agent: AgentRecord) {
+    setConfirmation({
+      title: "Pensiunkan Agent",
+      impact: `${agent.agent_key} tidak lagi dapat dipakai sebagai Agent aktif. Kontrak, versi, run, dan audit history tetap disimpan.`,
+      confirmLabel: "Pensiunkan Agent",
+      destructive: true,
+      onConfirm: () => { setConfirmation(null); void performRetire(agent); },
+    });
+  }
+
+  async function performRetire(agent: AgentRecord) {
     setSaving(true);
     setError("");
     setNotice("");
@@ -307,6 +325,8 @@ export function AgentRegistry() {
         </div>
       </header>
 
+      <GovernanceNavigation active="agents" />
+
       <section className="workspace-bar registry-workspace" aria-label="Pemilihan workspace Agent Registry">
         <div>
           <label htmlFor="registry-workspace">Workspace aktif</label>
@@ -327,12 +347,14 @@ export function AgentRegistry() {
       <section className="registry-layout">
         <aside className="panel registry-list-panel">
           <div className="panel-heading">
-            <div><p className="eyebrow">REGISTERED AGENTS</p><h2>{data.agents.length} Agent</h2></div>
+            <div><p className="eyebrow">REGISTERED AGENTS</p><h2>{visibleAgents.length} / {data.agents.length} Agent</h2></div>
             <button onClick={startNewDraft} type="button">+ DRAFT</button>
           </div>
+          <div className="registry-filters"><label>Cari Agent<input onChange={(event) => setQuery(event.target.value)} placeholder="Nama atau agent key" value={query} /></label><label>Status<select onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}><option value="ALL">Semua status</option><option value="DRAFT">DRAFT</option><option value="ACTIVE">ACTIVE</option><option value="SUSPENDED">SUSPENDED</option><option value="RETIRED">RETIRED</option></select></label></div>
           {data.agents.length === 0 ? <p className="empty-state">Belum ada Agent pada workspace ini. Buat DRAFT pertama untuk Gate A.</p> : null}
+          {data.agents.length > 0 && visibleAgents.length === 0 ? <p className="empty-state">Tidak ada Agent yang cocok dengan pencarian atau filter.</p> : null}
           <ol className="agent-list">
-            {data.agents.map((agent) => {
+            {visibleAgents.map((agent) => {
               const version = latestVersion(agent);
               return (
                 <li key={agent.agent_contract_id}>
@@ -390,7 +412,7 @@ export function AgentRegistry() {
           <article className="panel agent-detail-panel">
             <div className="panel-heading"><div><p className="eyebrow">CONTRACT & VERSION</p><h2>{selectedAgent ? selectedAgent.name : "Pilih Agent"}</h2></div>{selectedAgent ? <span className="role-badge">Level {selectedAgent.agent_level}</span> : null}</div>
             {!selectedAgent ? <p className="empty-state">Pilih Agent dari daftar untuk melihat Contract, versi, dan prompt hasil Genesis.</p> : null}
-            {selectedAgent && selectedVersion ? <><div className="agent-detail-actions"><button disabled={selectedVersion.lifecycle_status !== "DRAFT"} onClick={() => startEdit(selectedAgent)} type="button">Ubah DRAFT</button><button className="danger-button" disabled={saving || selectedVersion.lifecycle_status === "RETIRED"} onClick={() => void retire(selectedAgent)} type="button">Pensiunkan</button></div><dl className="review-list"><div><dt>Parent</dt><dd>{selectedAgent.parent_agent_key ?? "Root Agent"}</dd></div><div><dt>Versi terbaru</dt><dd>{selectedVersion.semantic_version} · {selectedVersion.lifecycle_status}</dd></div><div><dt>Digest</dt><dd className="digest-value">{selectedVersion.digest}</dd></div><div><dt>Risk</dt><dd>{selectedAgent.risk_level}</dd></div></dl><h3>Riwayat versi</h3><div className="table-wrap"><table><thead><tr><th>Versi</th><th>Lifecycle</th><th>Digest</th></tr></thead><tbody>{selectedAgent.versions.map((version) => <tr key={version.agent_version_id}><td>{version.semantic_version}</td><td>{version.lifecycle_status}</td><td className="digest-value">{version.digest.slice(0, 16)}…</td></tr>)}</tbody></table></div><h3>Contract snapshot terbaru</h3><pre className="contract-snapshot">{JSON.stringify(selectedVersion.contract_snapshot, null, 2)}</pre></> : null}
+            {selectedAgent && selectedVersion ? <><div className="agent-detail-actions"><button disabled={selectedVersion.lifecycle_status !== "DRAFT"} title={selectedVersion.lifecycle_status !== "DRAFT" ? "Hanya DRAFT yang dapat diubah." : undefined} onClick={() => startEdit(selectedAgent)} type="button">Ubah DRAFT</button><button className="danger-button" disabled={saving || selectedVersion.lifecycle_status === "RETIRED"} onClick={() => retire(selectedAgent)} type="button">Pensiunkan</button></div><nav className="agent-detail-tabs" aria-label="Detail Agent">{(["overview", "contract", "permissions", "versions"] as const).map((tab) => <button className={agentTab === tab ? "active" : ""} key={tab} onClick={() => setAgentTab(tab)} type="button">{{ overview: "Overview", contract: "Contract", permissions: "Tools & Permissions", versions: "Version History" }[tab]}</button>)}</nav>{agentTab === "overview" ? <dl className="review-list"><div><dt>Agent key</dt><dd>{selectedAgent.agent_key}</dd></div><div><dt>Parent</dt><dd>{selectedAgent.parent_agent_key ?? "Root Agent"}</dd></div><div><dt>Versi terbaru</dt><dd>{selectedVersion.semantic_version} · {selectedVersion.lifecycle_status}</dd></div><div><dt>Risk</dt><dd>{selectedAgent.risk_level}</dd></div><div><dt>Owner</dt><dd>{selectedVersion.contract_snapshot.owner_user_id}</dd></div><div><dt>Approval</dt><dd>{selectedVersion.contract_snapshot.approval_required ? "Wajib" : "Tidak diwajibkan kontrak"}</dd></div></dl> : null}{agentTab === "contract" ? <pre className="contract-snapshot">{JSON.stringify(selectedVersion.contract_snapshot, null, 2)}</pre> : null}{agentTab === "permissions" ? <><dl className="review-list"><div><dt>Tool allowlist</dt><dd>{selectedVersion.contract_snapshot.tool_keys.join(", ") || "Tidak ada tool"}</dd></div><div><dt>Permission keys</dt><dd>{selectedVersion.contract_snapshot.permission_keys.join(", ") || "Tidak ada permission"}</dd></div><div><dt>Forbidden actions</dt><dd>{selectedVersion.contract_snapshot.forbidden_actions.join(" · ")}</dd></div><div><dt>Evidence requirements</dt><dd>{selectedVersion.contract_snapshot.evidence_requirements.join(" · ") || "Belum ditentukan"}</dd></div></dl><p className="safe-note">Perubahan tools atau permissions harus dibuat sebagai versi DRAFT baru dan melewati release governance.</p></> : null}{agentTab === "versions" ? <div className="table-wrap"><table><thead><tr><th>Versi</th><th>Lifecycle</th><th>Digest</th></tr></thead><tbody>{selectedAgent.versions.map((version) => <tr key={version.agent_version_id}><td>{version.semantic_version}</td><td>{version.lifecycle_status}</td><td className="digest-value">{version.digest.slice(0, 16)}…</td></tr>)}</tbody></table></div> : null}</> : null}
           </article>
 
           <article className="panel runtime-test-panel">
@@ -425,6 +447,7 @@ export function AgentRegistry() {
         {data.audit.length === 0 ? <p className="empty-state">Belum ada Agent DRAFT atau fixture run yang diaudit pada workspace ini.</p> : null}
         <ol className="audit-list">{data.audit.map((event) => <li key={event.audit_event_id}><strong>{event.action}</strong><span>{event.reason}</span><time dateTime={event.occurred_at}>{formatDateTime(event.occurred_at)}</time></li>)}</ol>
       </section>
+      <GovernanceConfirmationModal busy={saving} confirmation={confirmation} onCancel={() => setConfirmation(null)} />
     </main>
   );
 }

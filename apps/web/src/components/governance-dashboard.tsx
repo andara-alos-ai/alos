@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, apiRequest as api } from "@/lib/api-client";
+import { GovernanceFeedback, GovernanceNavigation } from "@/components/governance-control-ui";
+import { normalizeGovernanceError, type GovernanceUiError } from "@/lib/governance-errors";
+import type { ReleaseRequest } from "@/lib/release-governance";
 
 import { formatRoleLabel } from "@/lib/dashboard-access";
 import {
@@ -13,7 +16,6 @@ import {
   formatCurrency,
   formatDateTime,
   formatInteger,
-  remainingBudget,
   type ModelPolicy,
   type Run,
   type SessionActor,
@@ -30,6 +32,7 @@ type DashboardData = {
   runs: Run[];
   audit: AuditEvent[];
   auditRestricted: boolean;
+  releases: ReleaseRequest[];
 };
 
 type Foundation = Pick<DashboardData, "actor" | "workspaces" | "policy">;
@@ -38,20 +41,23 @@ export function GovernanceDashboard() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [workspaceId, setWorkspaceId] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<GovernanceUiError | null>(null);
+  const [notice, setNotice] = useState("");
+  const [view, setView] = useState<"overview" | "runtime" | "budget" | "audit">("overview");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ requests: "", tokens: "", cost: "" });
 
   const loadWorkspace = useCallback(async (selectedWorkspaceId: string, base?: Foundation) => {
     const foundation = base ?? (await loadFoundation());
-    const [budget, usage, runs, auditResult] = await Promise.all([
+    const [budget, usage, runs, auditResult, releases] = await Promise.all([
       api<Budget>(`/api/v1/workspaces/${selectedWorkspaceId}/budget`),
       api<Usage>(`/api/v1/workspaces/${selectedWorkspaceId}/usage/daily`),
       api<Run[]>(`/api/v1/workspaces/${selectedWorkspaceId}/runs?limit=12`),
       loadAudit(selectedWorkspaceId),
+      api<ReleaseRequest[]>(`/api/v1/release-requests?workspace_id=${encodeURIComponent(selectedWorkspaceId)}`),
     ]);
-    setData({ ...foundation, budget, usage, runs, ...auditResult });
+    setData({ ...foundation, budget, usage, runs, releases, ...auditResult });
     setForm({
       requests: String(budget.daily_request_limit),
       tokens: String(budget.daily_output_token_limit),
@@ -64,7 +70,7 @@ export function GovernanceDashboard() {
       try {
         const foundation = await loadFoundation();
         if (foundation.workspaces.length === 0) {
-          setError("Akun ini belum memiliki workspace aktif.");
+          setError({ title: "Workspace belum tersedia", reason: "Akun ini belum memiliki workspace aktif.", nextAction: "Minta Administrator memberi akses workspace.", status: null, correlationId: null });
           return;
         }
         const firstWorkspaceId = foundation.workspaces[0].workspace_id;
@@ -75,7 +81,7 @@ export function GovernanceDashboard() {
           router.replace("/login");
           return;
         }
-        setError("Data governance tidak dapat dimuat. Coba muat ulang halaman.");
+        setError(normalizeGovernanceError(loadError));
       } finally {
         setLoading(false);
       }
@@ -83,22 +89,17 @@ export function GovernanceDashboard() {
     void initialize();
   }, [loadWorkspace, router]);
 
-  const remaining = useMemo(
-    () => (data ? remainingBudget(data.budget, data.usage) : null),
-    [data],
-  );
-
   async function selectWorkspace(nextWorkspaceId: string) {
     setWorkspaceId(nextWorkspaceId);
     setLoading(true);
-    setError("");
+    setError(null);
     try {
       await loadWorkspace(nextWorkspaceId, data ? foundationOf(data) : undefined);
     } catch (loadError: unknown) {
       if (loadError instanceof ApiError && loadError.status === 401) {
         router.replace("/login");
       } else {
-        setError("Workspace tidak dapat dimuat.");
+        setError(normalizeGovernanceError(loadError));
       }
     } finally {
       setLoading(false);
@@ -110,7 +111,8 @@ export function GovernanceDashboard() {
       return;
     }
     setSaving(true);
-    setError("");
+    setError(null);
+    setNotice("");
     try {
       await api<Budget>(`/api/v1/workspaces/${workspaceId}/budget`, {
         method: "PUT",
@@ -122,13 +124,14 @@ export function GovernanceDashboard() {
         }),
       });
       await loadWorkspace(workspaceId, foundationOf(data));
+      setNotice("Limit workspace tersimpan dan perubahan dicatat pada audit trail.");
     } catch (saveError: unknown) {
       if (saveError instanceof ApiError && saveError.status === 401) {
         router.replace("/login");
       } else if (saveError instanceof ApiError && saveError.status === 403) {
-        setError("Peran Anda tidak memiliki izin untuk mengubah limit.");
+        setError(normalizeGovernanceError(saveError));
       } else {
-        setError("Limit tidak dapat disimpan. Periksa nilai lalu coba lagi.");
+        setError(normalizeGovernanceError(saveError));
       }
     } finally {
       setSaving(false);
@@ -146,7 +149,7 @@ export function GovernanceDashboard() {
   if (!data) {
     return (
       <main className="loading-shell">
-        <p>{error || "Sesi tidak tersedia."}</p>
+        <GovernanceFeedback error={error} notice="" />
         <Link className="text-link" href="/login">Ke halaman login</Link>
       </main>
     );
@@ -154,6 +157,11 @@ export function GovernanceDashboard() {
 
   const mayChange = canChangeBudget(data.actor.roles);
   const latestRun = data.runs[0];
+  const pendingReviews = data.releases.filter((release) => ["TESTED", "IN_REVIEW", "APPROVED"].includes(release.state)).length;
+  const activeAgents = new Set(data.releases.filter((release) => release.state === "ACTIVE").map((release) => release.agent_key)).size;
+  const suspendedAgents = new Set(data.releases.filter((release) => release.state === "SUSPENDED").map((release) => release.agent_key)).size;
+  const failedRuns = data.runs.filter((run) => ["FAILED", "BLOCKED"].includes(run.status)).length;
+  const budgetPercent = Math.min(100, Math.round((Number(data.usage.estimated_cost_usd) / Math.max(Number(data.budget.daily_cost_cap_usd), 0.0001)) * 100));
 
   return (
     <main className="dashboard-shell">
@@ -171,6 +179,11 @@ export function GovernanceDashboard() {
           <button className="secondary-button" onClick={() => void logout()} type="button">Keluar</button>
         </div>
       </header>
+
+      <GovernanceNavigation active="overview" />
+      <nav className="governance-subnav" aria-label="Area kontrol governance">
+        {(["overview", "runtime", "budget", "audit"] as const).map((item) => <button aria-current={view === item ? "page" : undefined} className={view === item ? "active" : ""} key={item} onClick={() => setView(item)} type="button">{{ overview: "Overview", runtime: "Runtime & Monitoring", budget: "Budget", audit: "Audit" }[item]}</button>)}
+      </nav>
 
       <section className="workspace-bar" aria-label="Pemilihan workspace">
         <div>
@@ -190,16 +203,22 @@ export function GovernanceDashboard() {
         <p>Perubahan limit dicatat pada audit trail dan tidak dapat mengakses API key.</p>
       </section>
 
-      {error ? <p className="banner-error" role="alert">{error}</p> : null}
+      <GovernanceFeedback error={error} notice={notice} onDismiss={() => setError(null)} />
 
-      <section className="metric-grid" aria-label="Batas dan penggunaan harian">
-        <Metric label="Limit request / hari" value={formatInteger(data.budget.daily_request_limit)} detail={`Sisa ${formatInteger(remaining?.requests ?? 0)}`} />
-        <Metric label="Limit output token / hari" value={formatInteger(data.budget.daily_output_token_limit)} detail={`Sisa ${formatInteger(remaining?.tokens ?? 0)}`} />
-        <Metric label="Hard cost cap / hari" value={formatCurrency(data.budget.daily_cost_cap_usd)} detail={`Sisa ${formatCurrency(remaining?.cost ?? "0")}`} />
-        <Metric label="Pemakaian hari ini" value={`${formatInteger(data.usage.request_count)} request`} detail={`${formatInteger(data.usage.output_tokens)} output token`} />
-      </section>
+      {view === "overview" ? <>
+        <section className="metric-grid governance-overview-metrics" aria-label="Ringkasan Governance">
+          <Metric label="Agent Active" value={formatInteger(activeAgents)} detail={`${suspendedAgents} suspended`} />
+          <Metric label="Pending Review" value={formatInteger(pendingReviews)} detail="Memerlukan tindakan manusia" />
+          <Metric label="Runtime Bermasalah" value={formatInteger(failedRuns)} detail="FAILED atau BLOCKED terbaru" />
+          <Metric label="Budget Terpakai" value={`${budgetPercent}%`} detail={`${formatCurrency(data.usage.estimated_cost_usd)} hari ini`} />
+        </section>
+        <section className="dashboard-grid governance-action-grid">
+          <article className="panel"><div className="panel-heading"><div><p className="eyebrow">ACTION REQUIRED</p><h2>Tindakan sesuai role Anda</h2></div><span className="role-badge">{formatRoleLabel(data.actor.roles)}</span></div>{pendingReviews > 0 ? <button className="next-action-card" onClick={() => router.push("/releases")} type="button"><strong>{pendingReviews} release menunggu gate manusia</strong><span>Buka detail untuk melihat reviewer, blocker, dan langkah berikutnya.</span><small>Buka Release, Test &amp; Review →</small></button> : <p className="empty-state">Tidak ada review yang memerlukan tindakan saat ini.</p>}</article>
+          <article className="panel"><p className="eyebrow">CONTROL BLOCKERS</p><h2>Status operasional</h2><dl className="review-list"><div><dt>FAILED / BLOCKED run</dt><dd>{failedRuns}</dd></div><div><dt>Suspended Agent</dt><dd>{suspendedAgents}</dd></div><div><dt>Budget warning</dt><dd>{budgetPercent >= 100 ? "BUDGET_EXHAUSTED" : budgetPercent >= 90 ? "WARNING_90" : budgetPercent >= 70 ? "WARNING_70" : "NORMAL"}</dd></div></dl></article>
+        </section>
+      </> : null}
 
-      <section className="dashboard-grid">
+      {view === "budget" ? <section className="dashboard-grid">
         <article className="panel budget-panel">
           <div className="panel-heading">
             <div><p className="eyebrow">DAILY CONTROL</p><h2>Ubah limit workspace</h2></div>
@@ -239,10 +258,9 @@ export function GovernanceDashboard() {
           </dl>
           <p className="safe-note">Credential provider tidak tersedia pada dashboard.</p>
         </article>
-      </section>
+      </section> : null}
 
-      <section className="dashboard-grid lower-grid">
-        <article className="panel">
+      {view === "runtime" ? <section className="dashboard-grid lower-grid governance-single-panel"><article className="panel">
           <p className="eyebrow">RECENT RUNTIME</p>
           <h2>Provider, model, dan latency</h2>
           {latestRun ? (
@@ -266,9 +284,9 @@ export function GovernanceDashboard() {
               </table>
             </div>
           ) : null}
-        </article>
+        </article></section> : null}
 
-        <article className="panel">
+      {view === "audit" ? <section className="dashboard-grid lower-grid governance-single-panel"><article className="panel">
           <p className="eyebrow">APPEND-ONLY AUDIT</p>
           <h2>Audit trail workspace</h2>
           {data.auditRestricted ? <p className="empty-state">Audit trail hanya tersedia untuk Director, IT Lead, atau Wakil IT.</p> : null}
@@ -283,7 +301,7 @@ export function GovernanceDashboard() {
             ))}
           </ol>
         </article>
-      </section>
+      </section> : null}
     </main>
   );
 }

@@ -16,6 +16,7 @@ export type TestCategory = "POSITIVE" | "NEGATIVE" | "REGRESSION" | "SECURITY" |
 export type TestStatus = "PASSED" | "FAILED" | "BLOCKED" | "ERROR";
 export type ReviewGate = "BUSINESS" | "TECHNICAL";
 export type ReviewDecision = "APPROVED" | "REJECTED" | "RETURNED";
+export type ReleaseWorkspaceView = "request" | "tests" | "reviews" | "safety" | "history";
 
 export type ReleaseRequest = {
   change_request_id: string;
@@ -218,6 +219,32 @@ export function latestRunByTestCase(runs: TestRunEvidence[]): Map<string, TestRu
     if (!latest.has(run.test_case_id)) latest.set(run.test_case_id, run);
   }
   return latest;
+}
+
+export function releaseProgress(state: ReleaseState): { current: number; total: number; percent: number } {
+  const order: ReleaseState[] = ["DRAFT", "TESTED", "IN_REVIEW", "APPROVED", "RELEASED", "ACTIVE"];
+  const current = Math.max(1, order.indexOf(state) + 1);
+  return { current, total: order.length, percent: Math.round((current / order.length) * 100) };
+}
+
+export function releaseNextAction(detail: ReleaseRequestDetail, roles: string[]): { title: string; reason: string; view: ReleaseWorkspaceView } {
+  if (detail.kill_switch_active) return { title: "Verifikasi dan clear Kill Switch", reason: "Agent dihentikan oleh kontrol darurat dan tidak dapat diaktifkan.", view: "safety" };
+  if (["DRAFT", "RETURNED"].includes(detail.state)) {
+    const latest = latestRunByTestCase(detail.test_runs);
+    const incomplete = detail.test_cases.length < releaseTestCategories.length || detail.test_cases.some((testCase) => latest.get(testCase.test_case_id)?.status !== "PASSED");
+    if (incomplete) return { title: canCheckRelease(roles) ? "Jalankan evidence test" : "Menunggu Checker independen", reason: "Lima kategori test harus memiliki hasil terbaru PASSED sebelum review.", view: "tests" };
+    return { title: canCheckRelease(roles) ? "Kirim evidence untuk review" : "Menunggu Checker mengirim evidence", reason: "Evidence test sudah lengkap dan siap masuk review.", view: "tests" };
+  }
+  if (detail.state === "TESTED") return { title: "Kirim atau verifikasi review", reason: "Release telah lolos test dan harus masuk gate review manusia.", view: "reviews" };
+  if (detail.state === "IN_REVIEW") return { title: canReviewGate(roles) ? "Selesaikan review Anda" : "Menunggu review Business dan Technical", reason: "Kedua gate harus disetujui oleh reviewer independen.", view: "reviews" };
+  if (detail.state === "APPROVED") return { title: canApproveRelease(roles) ? "Release versi" : "Menunggu Approver merilis versi", reason: "Approval lengkap; hanya Approver tercatat yang dapat merilis.", view: "reviews" };
+  if (detail.state === "RELEASED") return { title: canApproveRelease(roles) ? "Aktifkan Agent" : "Menunggu Approver mengaktifkan Agent", reason: "Versi sudah dirilis tetapi belum aktif.", view: "reviews" };
+  if (detail.state === "ACTIVE") return { title: "Pantau runtime dan budget", reason: "Agent aktif; gunakan safety control hanya bila ada dampak operasional.", view: "safety" };
+  return { title: "Tinjau riwayat lifecycle", reason: `Release berada pada status ${detail.state}.`, view: "history" };
+}
+
+export function mayAmendReleaseDraft(detail: ReleaseRequestDetail, actorId: string): boolean {
+  return ["DRAFT", "RETURNED"].includes(detail.state) && detail.maker_user_id === actorId;
 }
 
 function parseJsonObject(value: string, label: string): Record<string, unknown> {
