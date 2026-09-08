@@ -4,6 +4,7 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 environment_file="${1:-/etc/alos/alos.staging.env}"
 python_bin="${ALOS_PYTHON_BIN:-$repository_root/.venv/bin/python}"
+deployment_mode="${ALOS_DEPLOYMENT_MODE:-compose}"
 
 if [[ ! -r "$environment_file" ]]; then
   echo "Staging environment file tidak dapat dibaca: $environment_file" >&2
@@ -12,6 +13,22 @@ fi
 
 if grep -Eq 'REPLACE_WITH|SET_ON_VPS_ONLY|example\.com' "$environment_file"; then
   echo "Staging environment masih memuat placeholder. Deployment dibatalkan." >&2
+  exit 1
+fi
+
+if [[ "$deployment_mode" == "compose" ]]; then
+  compose_file="$repository_root/infra/compose/compose.staging.yaml"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker Compose diperlukan untuk mode compose." >&2
+    exit 1
+  fi
+  docker compose --env-file "$environment_file" -f "$compose_file" config --quiet
+  echo "Preflight VPS Compose PASS."
+  exit 0
+fi
+
+if [[ "$deployment_mode" != "native" ]]; then
+  echo "ALOS_DEPLOYMENT_MODE harus compose atau native." >&2
   exit 1
 fi
 
