@@ -1,8 +1,10 @@
 "use client";
 
-import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiMessage, apiRequest, withQuery } from "@/lib/api-client";
+import { agentDraftPresentation, type GenesisAgentDesignResponse } from "@/lib/genesis-agent-designer";
+import { supportsGenesisUpload, type GenesisUploadRecord, uploadExtractionLabel } from "@/lib/genesis-uploads";
 import { type SessionActor, type Workspace } from "@/lib/governance";
 
 type ContextMode = "AUTO" | "INTERNAL" | "EXTERNAL" | "INTERNAL_AND_EXTERNAL";
@@ -63,15 +65,11 @@ type TurnResult = {
   correlation_id: string;
 };
 
-type DesignerResult = {
-  proposed_design: { agent_key: string; name: string; objective: string };
-  normalized_risk_level: string;
-  bound_tool_keys: string[];
-  missing_dependencies: string[];
-  activation_readiness: { ready: boolean; blockers: string[] };
-  draft: { agent: { agent_key: string; name: string }; version: { semantic_version: string } };
-  release_request: { change_request_id: string; status: string };
-  generated_tests: Array<{ test_key: string; category: string }>;
+type UploadedDocument = {
+  document_id: string;
+  title: string;
+  status: string;
+  version_number: number;
 };
 
 export function GenesisChat({ actor, initialQuery = "" }: { actor: SessionActor; initialQuery?: string }) {
@@ -92,7 +90,12 @@ export function GenesisChat({ actor, initialQuery = "" }: { actor: SessionActor;
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [showAgentRequest, setShowAgentRequest] = useState(false);
-  const [agentResult, setAgentResult] = useState<DesignerResult | null>(null);
+  const [agentResult, setAgentResult] = useState<GenesisAgentDesignResponse | null>(null);
+  const [uploads, setUploads] = useState<GenesisUploadRecord[]>([]);
+  const [uploadedDocument, setUploadedDocument] = useState<UploadedDocument | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [promotingUploadId, setPromotingUploadId] = useState("");
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const loadConversations = useCallback(async (nextWorkspaceId: string, selectNewest = false) => {
     const items = await apiRequest<Conversation[]>(withQuery("/api/v1/genesis/conversations", { workspace_id: nextWorkspaceId }));
@@ -166,6 +169,68 @@ export function GenesisChat({ actor, initialQuery = "" }: { actor: SessionActor;
     } catch (failure) { setError(apiMessage(failure)); }
   }
 
+  function openUploadPicker() {
+    uploadInputRef.current?.click();
+  }
+
+  async function uploadGenesisFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file || !workspaceId || uploading) return;
+    if (!supportsGenesisUpload(file.name)) {
+      setError("Format belum didukung. Gunakan PDF, DOCX, XLS/XLSX, CSV, JSON, MD, atau TXT.");
+      return;
+    }
+    setUploading(true); setError(""); setNotice("");
+    const payload = new FormData();
+    payload.set("workspace_id", workspaceId);
+    payload.set("file", file);
+    try {
+      const uploaded = await apiRequest<GenesisUploadRecord>("/api/v1/genesis/uploads", { method: "POST", body: payload });
+      setUploads((current) => [uploaded, ...current.filter((item) => item.genesis_upload_id !== uploaded.genesis_upload_id)]);
+      setNotice(uploaded.extraction_complete ? "Dokumen diterima. Buat DRAFT resmi sebelum dipakai sebagai konteks GENESIS." : "Dokumen diterima, tetapi teksnya belum siap untuk menjadi konteks.");
+    } catch (failure) { setError(apiMessage(failure)); }
+    finally { setUploading(false); }
+  }
+
+  async function promoteUpload(upload: GenesisUploadRecord) {
+    if (!upload.extraction_complete || promotingUploadId) return;
+    setPromotingUploadId(upload.genesis_upload_id); setError(""); setNotice("");
+    try {
+      const document = await apiRequest<UploadedDocument>(`/api/v1/genesis/uploads/${upload.genesis_upload_id}/document-draft`, {
+        method: "POST",
+        body: JSON.stringify({ title: upload.original_filename.replace(/\.[^.]+$/, "") }),
+      });
+      setUploadedDocument(document);
+      setUploads((current) => current.map((item) => item.genesis_upload_id === upload.genesis_upload_id ? { ...item, status: "DRAFT_CREATED" } : item));
+      setNotice(`${document.title} dibuat sebagai Document DRAFT. Lampirkan ke percakapan sebelum meminta ringkasan.`);
+    } catch (failure) { setError(apiMessage(failure)); }
+    finally { setPromotingUploadId(""); }
+  }
+
+  async function attachUploadedDocument() {
+    if (!uploadedDocument || !workspaceId) return;
+    setError(""); setNotice("");
+    try {
+      let target = conversationId;
+      if (!target) {
+        const created = await apiRequest<Conversation>("/api/v1/genesis/conversations", {
+          method: "POST",
+          body: JSON.stringify({ workspace_id: workspaceId, title: uploadedDocument.title, context_mode: "INTERNAL" }),
+        });
+        target = created.conversation_id;
+        setConversationId(target);
+      }
+      const attached = await apiRequest<ConversationContext>(`/api/v1/genesis/conversations/${target}/context`, {
+        method: "POST",
+        body: JSON.stringify({ entity_type: "DOCUMENT", entity_id: uploadedDocument.document_id, source_version: String(uploadedDocument.version_number) }),
+      });
+      setContexts((current) => current.some((item) => item.conversation_context_id === attached.conversation_context_id) ? current : [...current, attached]);
+      setNotice("Dokumen DRAFT resmi telah dilampirkan sebagai konteks. GENESIS hanya akan menjawab sesuai sumber dan scope yang diizinkan.");
+      await loadConversations(workspaceId);
+    } catch (failure) { setError(apiMessage(failure)); }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     const content = prompt.trim();
@@ -206,6 +271,7 @@ export function GenesisChat({ actor, initialQuery = "" }: { actor: SessionActor;
 
   const activeTitle = conversations.find((item) => item.conversation_id === conversationId)?.title ?? "Percakapan baru";
   return <section className="alos-content alos-genesis-chat-shell" aria-label="GENESIS Chat">
+    <input accept=".pdf,.docx,.xlsx,.xls,.csv,.json,.md,.txt" className="sr-only" onChange={uploadGenesisFile} ref={uploadInputRef} tabIndex={-1} type="file" />
     <div className="alos-genesis-chat-heading"><div><p className="alos-kicker">ALOS / GENESIS</p><h2>GENESIS Company Assistant</h2><p>Jawaban berbasis data sesuai role dan scope. Aksi material selalu menjadi DRAFT untuk review manusia.</p></div><div><select aria-label="Workspace GENESIS" onChange={(event) => void changeWorkspace(event.target.value)} value={workspaceId}>{workspaces.map((workspace) => <option key={workspace.workspace_id} value={workspace.workspace_id}>{workspace.name}</option>)}</select><button className="alos-outline-button" onClick={() => void newConversation()} type="button">+ Percakapan baru</button></div></div>
     {error ? <div className="alos-operation-banner error" role="alert">{error}</div> : null}
     {notice ? <div className="alos-operation-banner success" role="status">{notice}</div> : null}
@@ -214,9 +280,10 @@ export function GenesisChat({ actor, initialQuery = "" }: { actor: SessionActor;
       <article className="alos-genesis-conversation">
         <header><div><span className="alos-genesis-orb">G</span><div><strong>{activeTitle}</strong><small>{conversationId ? "Riwayat tersimpan dan dapat diaudit" : "Mulai dari kebutuhan bisnis Anda"}</small></div></div><select aria-label="Mode sumber GENESIS" onChange={(event) => setMode(event.target.value as ContextMode)} value={mode}><option value="AUTO">Auto</option><option value="INTERNAL">Internal only</option><option value="EXTERNAL">External only</option><option value="INTERNAL_AND_EXTERNAL">Internal + external</option></select></header>
         <div className="alos-genesis-messages" aria-live="polite">{messages.length === 0 ? <GenesisWelcome actor={actor} onPrompt={setPrompt} /> : messages.map((message) => <GenesisMessage key={message.message_id} message={message} />)}{sending ? <div className="alos-genesis-thinking"><span /><span /><span /> GENESIS sedang menelusuri sumber yang diizinkan…</div> : null}</div>
-        <form className="alos-genesis-chat-composer" onSubmit={(event) => void submit(event)}><textarea maxLength={10000} onChange={(event) => setPrompt(event.target.value)} onKeyDown={submitOnEnter} placeholder="Tanyakan kondisi bisnis, minta analisis, atau jelaskan agent yang dibutuhkan…" value={prompt} /><div><small>Enter untuk kirim · Shift+Enter untuk baris baru</small><button disabled={!prompt.trim() || !workspaceId || sending} type="submit">{sending ? "…" : "Kirim"}</button></div></form>
+        {uploads.length ? <section className="alos-genesis-response-section" aria-label="Unggahan GENESIS"><strong>Sumber yang diunggah</strong><ul>{uploads.slice(0, 3).map((upload) => <li key={upload.genesis_upload_id}><span>{upload.original_filename} · {uploadExtractionLabel(upload)} · {upload.status}</span>{upload.status === "SOURCE_RECEIVED" && upload.extraction_complete ? <button disabled={Boolean(promotingUploadId)} onClick={() => void promoteUpload(upload)} type="button">{promotingUploadId === upload.genesis_upload_id ? "Membuat DRAFT…" : "Buat Document DRAFT"}</button> : null}</li>)}</ul>{uploadedDocument ? <div><strong>{uploadedDocument.title}</strong><small> · v{uploadedDocument.version_number} · {uploadedDocument.status}</small><button onClick={() => void attachUploadedDocument()} type="button">Gunakan di percakapan</button></div> : null}</section> : null}
+        <form className="alos-genesis-chat-composer" onSubmit={(event) => void submit(event)}><textarea maxLength={10000} onChange={(event) => setPrompt(event.target.value)} onKeyDown={submitOnEnter} placeholder="Tanyakan kondisi bisnis, minta analisis, atau jelaskan agent yang dibutuhkan…" value={prompt} /><div><button aria-label={uploading ? "Sedang mengunggah dokumen" : "Unggah dokumen"} disabled={!workspaceId || uploading} onClick={openUploadPicker} title="Unggah PDF, DOCX, XLS/XLSX, CSV, JSON, MD, atau TXT" type="button">{uploading ? "…" : "📎"}</button><small>Enter untuk kirim · Shift+Enter untuk baris baru</small><button disabled={!prompt.trim() || !workspaceId || sending} type="submit">{sending ? "…" : "Kirim"}</button></div></form>
       </article>
-      <aside className="alos-genesis-context"><section><strong>Konteks turn terakhir</strong><dl><div><dt>Mode</dt><dd>{modeLabel(mode)}</dd></div><div><dt>External</dt><dd>{humanExternalStatus(externalStatus)}</dd></div></dl></section>{conversationId ? <section><strong>Lampirkan konteks ALOS</strong><form className="alos-agent-request-form" onSubmit={(event) => void attachContext(event)}><select aria-label="Jenis konteks" onChange={(event) => setAttachment({ ...attachment, entity_type: event.target.value as ConversationContext["entity_type"] })} value={attachment.entity_type}><option>DOCUMENT</option><option>PROJECT</option><option>TASK</option><option>EVIDENCE</option><option>FINDING</option><option>REPORT</option></select><input aria-label="ID entitas" onChange={(event) => setAttachment({ ...attachment, entity_id: event.target.value })} placeholder="UUID entitas" required value={attachment.entity_id} /><input aria-label="Versi sumber" onChange={(event) => setAttachment({ ...attachment, source_version: event.target.value })} placeholder="Versi (opsional)" value={attachment.source_version} /><button type="submit">Lampirkan</button></form>{contexts.length ? <ul className="alos-context-list">{contexts.map((item) => <li key={item.conversation_context_id}>{item.entity_type} · {item.entity_id.slice(0, 8)}{item.source_version ? ` · ${item.source_version}` : ""}</li>)}</ul> : <p>Belum ada konteks eksplisit.</p>}</section> : null}<section><strong>Capability kandidat</strong>{capabilities.length ? <div className="alos-chip-list">{capabilities.map((item) => <span key={item}>{item}</span>)}</div> : <p>Akan dipilih setelah Anda mengirim kebutuhan.</p>}</section><section><strong>Agent ACTIVE kandidat</strong>{agents.length ? agents.map((item) => <div className="alos-agent-candidate" key={item.agent_key}><b>{item.name}</b><small>{item.agent_key} · v{item.semantic_version}</small></div>) : <p>Belum ada agent relevan yang aktif.</p>}<button className="alos-outline-button" onClick={() => setShowAgentRequest((value) => !value)} type="button">{showAgentRequest ? "Tutup permintaan" : "Minta agent baru"}</button></section>{showAgentRequest ? <AgentRequestForm actor={actor} defaultRequirement={prompt} onResult={(result) => { setAgentResult(result); setNotice(`Agent ${result.proposed_design.name} dibuat sebagai DRAFT dan dikirim ke governance.`); }} workspaceId={workspaceId} /> : null}{agentResult ? <section className="alos-agent-design-result"><strong>DRAFT terbaru</strong><p>{agentResult.proposed_design.name}</p><small>{agentResult.release_request.status} · {agentResult.generated_tests.length} test · {agentResult.bound_tool_keys.length} tool</small></section> : null}</aside>
+      <aside className="alos-genesis-context"><section><strong>Konteks turn terakhir</strong><dl><div><dt>Mode</dt><dd>{modeLabel(mode)}</dd></div><div><dt>External</dt><dd>{humanExternalStatus(externalStatus)}</dd></div></dl></section>{conversationId ? <section><strong>Lampirkan konteks ALOS</strong><form className="alos-agent-request-form" onSubmit={(event) => void attachContext(event)}><select aria-label="Jenis konteks" onChange={(event) => setAttachment({ ...attachment, entity_type: event.target.value as ConversationContext["entity_type"] })} value={attachment.entity_type}><option>DOCUMENT</option><option>PROJECT</option><option>TASK</option><option>EVIDENCE</option><option>FINDING</option><option>REPORT</option></select><input aria-label="ID entitas" onChange={(event) => setAttachment({ ...attachment, entity_id: event.target.value })} placeholder="UUID entitas (opsional untuk konteks lanjutan)" required value={attachment.entity_id} /><input aria-label="Versi sumber" onChange={(event) => setAttachment({ ...attachment, source_version: event.target.value })} placeholder="Versi (opsional)" value={attachment.source_version} /><button type="submit">Lampirkan</button></form>{contexts.length ? <ul className="alos-context-list">{contexts.map((item) => <li key={item.conversation_context_id}>{item.entity_type} · {item.entity_id.slice(0, 8)}{item.source_version ? ` · ${item.source_version}` : ""}</li>)}</ul> : <p>Unggah dokumen untuk alur konteks tanpa UUID.</p>}</section> : null}<section><strong>Capability kandidat</strong>{capabilities.length ? <div className="alos-chip-list">{capabilities.map((item) => <span key={item}>{item}</span>)}</div> : <p>Akan dipilih setelah Anda mengirim kebutuhan.</p>}</section><section><strong>Agent ACTIVE kandidat</strong>{agents.length ? agents.map((item) => <div className="alos-agent-candidate" key={item.agent_key}><b>{item.name}</b><small>{item.agent_key} · v{item.semantic_version}</small></div>) : <p>Belum ada agent relevan yang aktif.</p>}<button className="alos-outline-button" onClick={() => setShowAgentRequest((value) => !value)} type="button">{showAgentRequest ? "Tutup permintaan" : "Minta agent baru"}</button></section>{showAgentRequest ? <AgentRequestForm actor={actor} defaultRequirement={prompt} onResult={(result) => { setAgentResult(result); setNotice(`Agent ${result.draft.agent_key} dibuat sebagai DRAFT dan dikirim ke governance.`); }} workspaceId={workspaceId} /> : null}{agentResult ? <section className="alos-agent-design-result"><strong>DRAFT terbaru</strong><p>{agentResult.proposed_design.name}</p><small>{agentDraftPresentation(agentResult)} · {agentResult.release_request.status}</small><small>{agentResult.generated_tests.length} test · {agentResult.bound_tool_keys.length} tool</small></section> : null}</aside>
     </div>
   </section>;
 }
@@ -250,12 +317,12 @@ function GenesisResponseSections({ response }: { response: GenesisResponse | nul
   return <>{sections.filter(([, items]) => Boolean(items?.length)).map(([title, items]) => <section className="alos-genesis-response-section" key={title}><strong>{title}</strong><ul>{items?.map((item) => <li key={item}>{item}</li>)}</ul></section>)}</>;
 }
 
-function AgentRequestForm({ actor, defaultRequirement, onResult, workspaceId }: { actor: SessionActor; defaultRequirement: string; onResult: (result: DesignerResult) => void; workspaceId: string }) {
+function AgentRequestForm({ actor, defaultRequirement, onResult, workspaceId }: { actor: SessionActor; defaultRequirement: string; onResult: (result: GenesisAgentDesignResponse) => void; workspaceId: string }) {
   const [requirement, setRequirement] = useState(defaultRequirement);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const divisions = useMemo(() => actor.division_codes.slice(0, 6), [actor.division_codes]);
-  async function submit(event: FormEvent) { event.preventDefault(); setSaving(true); setError(""); try { const result = await apiRequest<DesignerResult>("/api/v1/genesis/agent-requests", { method: "POST", body: JSON.stringify({ workspace_id: workspaceId, requirement, division_scope: divisions, deterministic: false }) }); onResult(result); } catch (failure) { setError(apiMessage(failure)); } finally { setSaving(false); } }
+  async function submit(event: FormEvent) { event.preventDefault(); setSaving(true); setError(""); try { const result = await apiRequest<GenesisAgentDesignResponse>("/api/v1/genesis/agent-requests", { method: "POST", body: JSON.stringify({ workspace_id: workspaceId, requirement, division_scope: divisions, deterministic: false }) }); onResult(result); } catch (failure) { setError(apiMessage(failure)); } finally { setSaving(false); } }
   return <form className="alos-agent-request-form" onSubmit={(event) => void submit(event)}><label>Kebutuhan agent<textarea minLength={20} onChange={(event) => setRequirement(event.target.value)} placeholder="Jelaskan tujuan, output, frekuensi, dan batasannya…" required value={requirement} /></label>{error ? <small className="error">{error}</small> : null}<button disabled={requirement.trim().length < 20 || saving} type="submit">{saving ? "Menyusun…" : "Buat Agent Contract DRAFT"}</button><small>Tidak ada aktivasi otomatis. Tool, permission, test, dan release tetap melalui governance.</small></form>;
 }
 
