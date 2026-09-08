@@ -61,6 +61,15 @@ class OperationalConflict(OperationalError):
     pass
 
 
+def _immutable_digest(value: dict[str, Any]) -> str:
+    """Canonical digest used to reject idempotency-key payload substitution."""
+
+    serialized = json.dumps(
+        value, ensure_ascii=True, separators=(",", ":"), sort_keys=True, default=str
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 class OperationalRepository:
     def __init__(self, database_url: str) -> None:
         self._database_url = psycopg_url(database_url)
@@ -164,6 +173,22 @@ class OperationalRepository:
             workspace_id=request.workspace_id,
             division_code=request.division_code,
         )
+        request_digest = _immutable_digest(
+            {
+                "workspace_id": request.workspace_id,
+                "division_code": request.division_code,
+                "project_id": request.project_id,
+                "title": request.title.strip(),
+                "description": request.description.strip(),
+                "status": "DRAFT" if force_draft else request.status,
+                "priority": request.priority,
+                "due_date": request.due_date,
+                "assignee_user_id": request.assignee_user_id,
+                "owner_user_id": request.owner_user_id,
+                "evidence_required": request.evidence_required,
+                "actor_kind": actor_kind,
+            }
+        )
         with self._transaction() as connection:
             division_id = self._division_id(connection, actor, request.division_code)
             self._validate_project(
@@ -187,11 +212,11 @@ class OperationalRepository:
                         organization_id, workspace_id, division_id, project_id, title, description,
                         status, priority, due_date, assignee_user_id, owner_user_id,
                         created_by_user_id, created_by_actor_kind, created_by_agent_version_id,
-                        evidence_required, idempotency_key
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        evidence_required, idempotency_key, request_digest
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (organization_id, idempotency_key) DO UPDATE
                     SET idempotency_key = EXCLUDED.idempotency_key
-                    RETURNING task_id
+                    RETURNING task_id, request_digest
                     """,
                     (
                         actor.organization_id,
@@ -210,6 +235,7 @@ class OperationalRepository:
                         agent_version_id,
                         request.evidence_required,
                         request.idempotency_key,
+                        request_digest,
                     ),
                 ).fetchone()
             except UniqueViolation as error:
@@ -218,6 +244,10 @@ class OperationalRepository:
                 ) from error
             if row is None:
                 raise OperationalError("task could not be created")
+            if request.idempotency_key and row["request_digest"] != request_digest:
+                raise OperationalConflict(
+                    "task idempotency key conflicts with a different immutable request"
+                )
             self._audit(
                 connection,
                 actor,
@@ -548,23 +578,33 @@ class OperationalRepository:
             division_code=request.division_code,
         )
         payload = self._validated_action_payload(request)
-        digest = hashlib.sha256(
-            json.dumps(
-                payload,
-                ensure_ascii=True,
-                separators=(",", ":"),
-                sort_keys=True,
-            ).encode("utf-8")
-        ).hexdigest()
+        digest = _immutable_digest(
+            {
+                "workspace_id": request.workspace_id,
+                "division_code": request.division_code,
+                "project_id": request.project_id,
+                "action_type": request.action_type,
+                "payload": payload,
+                "risk_level": request.risk_level,
+                "title": request.title.strip(),
+                "description": request.description.strip(),
+                "urgency": request.urgency,
+            }
+        )
         with self._transaction() as connection:
             existing = connection.execute(
                 """
-                SELECT proposed_action_id FROM operational.proposed_actions
+                SELECT proposed_action_id, payload_digest FROM operational.proposed_actions
                 WHERE organization_id = %s AND idempotency_key = %s
                 """,
                 (actor.organization_id, request.idempotency_key),
             ).fetchone()
             if existing is not None:
+                if existing["payload_digest"] != digest:
+                    raise OperationalConflict(
+                        "proposed action idempotency key conflicts with a different "
+                        "immutable action"
+                    )
                 action_id = existing["proposed_action_id"]
             else:
                 division_id = (

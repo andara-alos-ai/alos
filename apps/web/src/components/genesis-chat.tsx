@@ -28,6 +28,16 @@ type Message = {
   created_at: string;
 };
 
+type GenesisResponse = {
+  answer?: string;
+  intent?: string;
+  reliability?: string;
+  findings?: string[];
+  recommendations?: string[];
+  limitations?: string[];
+  actions?: Array<Record<string, unknown>>;
+};
+
 type ConversationContext = {
   conversation_context_id: string;
   entity_type: "DOCUMENT" | "PROJECT" | "TASK" | "EVIDENCE" | "FINDING" | "REPORT";
@@ -220,7 +230,24 @@ function GenesisWelcome({ actor, onPrompt }: { actor: SessionActor; onPrompt: (v
 
 function GenesisMessage({ message }: { message: Message }) {
   const isHuman = message.actor_kind === "HUMAN";
-  return <div className={`alos-genesis-message ${isHuman ? "human" : "assistant"}`}><div className="alos-genesis-message-meta"><strong>{isHuman ? "Anda" : "GENESIS"}</strong><time>{formatTime(message.created_at)}</time></div><p>{message.content}</p>{!isHuman && message.citations.length ? <details><summary>{message.citations.length} sumber</summary><ul>{message.citations.map((citation, index) => <li key={`${String(citation.source_id ?? citation.url ?? "citation")}-${index}`}><span>{String(citation.title ?? citation.source_id ?? citation.url ?? "Sumber terverifikasi")}</span><small>{String(citation.source_kind ?? "SOURCE")}</small></li>)}</ul></details> : null}{!isHuman && message.tool_activity.length ? <small className="alos-tool-activity">{message.tool_activity.length} tool call tercatat</small> : null}</div>;
+  const response = responseFromMessage(message);
+  return <div className={`alos-genesis-message ${isHuman ? "human" : "assistant"}`}><div className="alos-genesis-message-meta"><strong>{isHuman ? "Anda" : "GENESIS"}</strong><time>{formatTime(message.created_at)}</time></div><p>{response?.answer || message.content}</p>{!isHuman && response?.reliability ? <small className="alos-genesis-reliability">Reliabilitas: {response.reliability}</small> : null}{!isHuman ? <GenesisResponseSections response={response} /> : null}{!isHuman && message.citations.length ? <details><summary>{message.citations.length} sumber</summary><ul>{message.citations.map((citation, index) => <li key={`${String(citation.source_id ?? citation.url ?? "citation")}-${index}`}><span>{String(citation.title ?? citation.source_id ?? citation.url ?? "Sumber terverifikasi")}</span><small>{String(citation.source_kind ?? "SOURCE")}</small></li>)}</ul></details> : null}{!isHuman && message.tool_activity.length ? <small className="alos-tool-activity">{message.tool_activity.length} tool call tercatat</small> : null}</div>;
+}
+
+function responseFromMessage(message: Message): GenesisResponse | null {
+  const value = message.structured_content.response;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as GenesisResponse;
+}
+
+function GenesisResponseSections({ response }: { response: GenesisResponse | null }) {
+  if (!response) return null;
+  const sections: Array<[string, string[] | undefined]> = [
+    ["Temuan", response.findings],
+    ["Rekomendasi", response.recommendations],
+    ["Batasan", response.limitations],
+  ];
+  return <>{sections.filter(([, items]) => Boolean(items?.length)).map(([title, items]) => <section className="alos-genesis-response-section" key={title}><strong>{title}</strong><ul>{items?.map((item) => <li key={item}>{item}</li>)}</ul></section>)}</>;
 }
 
 function AgentRequestForm({ actor, defaultRequirement, onResult, workspaceId }: { actor: SessionActor; defaultRequirement: string; onResult: (result: DesignerResult) => void; workspaceId: string }) {

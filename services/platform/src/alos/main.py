@@ -42,6 +42,7 @@ from alos.entrypoints.integrations_api import router as integrations_router
 from alos.entrypoints.jobs_api import router as jobs_router
 from alos.entrypoints.operational_api import router as operational_router
 from alos.entrypoints.projects_api import router as projects_router
+from alos.entrypoints.readiness_api import router as readiness_router
 from alos.executive_dashboard import (
     ExecutiveDashboardRepository,
     ExecutiveDashboardSnapshot,
@@ -197,6 +198,7 @@ app.include_router(genesis_chat_router)
 app.include_router(jobs_router)
 app.include_router(integrations_router)
 app.include_router(projects_router)
+app.include_router(readiness_router)
 
 
 class AgentDesignerRequest(BaseModel):
