@@ -210,7 +210,14 @@ export function releaseErrorMessage(detail?: string): string {
 }
 
 export function latestRunByTestCase(runs: TestRunEvidence[]): Map<string, TestRunEvidence> {
-  return new Map(runs.map((run) => [run.test_case_id, run]));
+  // API returns runs newest first. Keep the first entry for each test case;
+  // constructing a Map directly would overwrite it with an older failure and
+  // make a corrected, subsequently passed test look FAILED in the UI.
+  const latest = new Map<string, TestRunEvidence>();
+  for (const run of runs) {
+    if (!latest.has(run.test_case_id)) latest.set(run.test_case_id, run);
+  }
+  return latest;
 }
 
 function parseJsonObject(value: string, label: string): Record<string, unknown> {

@@ -6,6 +6,7 @@ import {
   designerPayload,
   releaseErrorMessage,
   testCasePayload,
+  latestRunByTestCase,
 } from "./release-governance";
 
 describe("H4 Release Governance helpers", () => {
@@ -41,6 +42,20 @@ describe("H4 Release Governance helpers", () => {
         requested_tool_keys: ["SOURCE_REGISTRY_SEARCH"],
       },
     });
+  });
+
+  it("keeps the newest result when a corrected test has an older failed run", () => {
+    const latest = latestRunByTestCase([
+      {
+        test_run_id: "new", test_case_id: "case-1", test_key: "DAILY_POSITIVE", category: "POSITIVE",
+        status: "PASSED", agent_run_id: "run-new", correlation_id: "new-correlation", completed_at: "2026-09-08T10:13:30Z", actual_status: "SUCCEEDED", error_code: null,
+      },
+      {
+        test_run_id: "old", test_case_id: "case-1", test_key: "DAILY_POSITIVE", category: "POSITIVE",
+        status: "FAILED", agent_run_id: "run-old", correlation_id: "old-correlation", completed_at: "2026-09-08T09:31:16Z", actual_status: "BLOCKED", error_code: "TOOL_OR_INPUT_BLOCKED",
+      },
+    ]);
+    expect(latest.get("case-1")?.status).toBe("PASSED");
   });
 
   it("keeps lifecycle failures distinct from generic UI errors", () => {
