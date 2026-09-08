@@ -87,6 +87,19 @@ def test_staging_password_session_and_governance_api(monkeypatch: pytest.MonkeyP
         assert login.json()["roles"] == ["DIRECTOR"]
 
         assert client.get("/api/v1/whoami").status_code == 200
+        logout = client.post("/api/v1/auth/logout")
+        assert logout.status_code == 204
+        assert "Max-Age=0" in logout.headers["set-cookie"]
+        assert client.get("/api/v1/whoami").status_code == 401
+
+        login = client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": "andararejomakmur10@gmail.com",
+                "password": "ALOS staging password with enough entropy",
+            },
+        )
+        assert login.status_code == 200
         workspaces = client.get("/api/v1/workspaces")
         assert workspaces.status_code == 200
         assert workspaces.json() == [

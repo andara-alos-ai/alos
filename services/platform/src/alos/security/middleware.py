@@ -89,7 +89,18 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     }
                 )
             )
-            raise
+            # FastAPI's default unhandled-error response is plain text and does
+            # not retain the request correlation ID.  Keep implementation
+            # details server-side while returning an actionable, traceable
+            # response to the UI and to support staff.
+            return _error(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                (
+                    "Layanan ALOS mengalami kegagalan internal. "
+                    "Hubungi administrator dengan referensi ini."
+                ),
+                correlation_id,
+            )
         latency = time.monotonic() - started
         metrics.observe(request.method, request.url.path, response.status_code, latency)
         response.headers["X-Correlation-ID"] = str(correlation_id)

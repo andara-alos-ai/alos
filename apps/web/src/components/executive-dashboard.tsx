@@ -83,8 +83,10 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
 
   async function logout() {
     await apiRequest<void>("/api/v1/auth/logout", { method: "POST" });
-    router.replace("/login");
-    router.refresh();
+    // A full navigation clears the current client tree as well as the
+    // HttpOnly server session.  `router.replace` followed immediately by a
+    // refresh could leave the dashboard visible on a slow production client.
+    window.location.assign(new URL("/login", window.location.origin).href);
   }
 
   const roleLabel = useMemo(() => actor?.roles.join(" · ") || "Sesi ALOS", [actor]);

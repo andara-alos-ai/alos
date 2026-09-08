@@ -264,8 +264,7 @@ export function AgentRegistry() {
 
   async function logout() {
     await api<void>("/api/v1/auth/logout", { method: "POST" });
-    router.replace("/login");
-    router.refresh();
+    window.location.assign(new URL("/login", window.location.origin).href);
   }
 
   if (loading && !data && !forbidden) {
