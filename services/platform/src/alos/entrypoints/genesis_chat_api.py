@@ -138,8 +138,10 @@ def _chat_service(settings: Settings) -> tuple[GenesisChatService, Callable[[], 
             UsageBudget(request_limit=1, output_token_limit=settings.llm_max_output_tokens),
         )
     except ModelGatewayError:
-        if settings.environment not in {"local", "test"}:
-            raise
+        # Conversation context and deterministic no-source behaviour remain safe
+        # even when a staging provider is temporarily unavailable.  Do not turn
+        # a missing provider configuration into an unhandled HTTP 500.
+        gateway = None
     database_url = settings.database_url
     return (
         GenesisChatService(
