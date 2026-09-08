@@ -47,6 +47,8 @@ export type TestRunEvidence = {
   agent_run_id: string | null;
   correlation_id: string;
   completed_at: string | null;
+  actual_status: string | null;
+  error_code: string | null;
 };
 
 export type Review = {
@@ -120,20 +122,44 @@ export function draftAgents(agents: AgentRecord[]): AgentRecord[] {
   return agents.filter((agent) => agent.versions[0]?.lifecycle_status === "DRAFT");
 }
 
-export function defaultTestForm(category: TestCategory = "POSITIVE") {
+export function defaultTestForm(category: TestCategory = "POSITIVE", agentKey?: string) {
   const blocked = category !== "POSITIVE";
+  const positiveFixture = validationPositiveFixture(agentKey);
   return {
     category,
     testKey: `RELEASE_${category}_FIXTURE`,
     fixture: JSON.stringify(
       blocked
         ? { input: { query: `${category.toLowerCase()} fixture` }, requested_tool_keys: ["UNAUTHORIZED_TOOL"] }
-        : { input: { query: "Buat ringkasan singkat untuk uji positif release." } },
+        : positiveFixture,
       null,
       2,
     ),
     expectedStatus: blocked ? "BLOCKED" : "SUCCEEDED",
   };
+}
+
+/**
+ * The three validation contracts deliberately have different input schemas.
+ * A generic `query` fixture made EVIDENCE_CHECKER's required `claim` field
+ * fail before the shared Runtime could execute it. Keep this as a UI starter:
+ * makers can still edit the JSON for every non-catalogue contract.
+ */
+function validationPositiveFixture(agentKey?: string): Record<string, unknown> {
+  const sourceSearch = ["SOURCE_REGISTRY_SEARCH"];
+  if (agentKey === "EVIDENCE_CHECKER") {
+    return {
+      input: { claim: "Periksa kesesuaian klaim internal dengan sumber terverifikasi." },
+      requested_tool_keys: sourceSearch,
+    };
+  }
+  if (agentKey === "DAILY_BRIEF" || agentKey === "PERMIT_OVERDUE_MONITOR") {
+    return {
+      input: { as_of_date: new Date().toISOString().slice(0, 10) },
+      requested_tool_keys: sourceSearch,
+    };
+  }
+  return { input: { query: "Buat ringkasan singkat untuk uji positif release." } };
 }
 
 export function testCasePayload(form: { testKey: string; category: TestCategory; fixture: string; expectedStatus: string }) {

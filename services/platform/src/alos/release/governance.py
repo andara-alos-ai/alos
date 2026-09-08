@@ -94,6 +94,8 @@ class TestRunEvidence(BaseModel):
     agent_run_id: UUID | None
     correlation_id: UUID
     completed_at: datetime | None
+    actual_status: str | None = None
+    error_code: str | None = None
 
 
 class ReviewRecord(BaseModel):
@@ -213,7 +215,11 @@ class AgentTestRunner:
             correlation_id=correlation_id,
             passed=passed,
             agent_run_id=result.agent_run_id,
-            result={"expected_status": expected_status, "actual_status": result.status},
+            result={
+                "expected_status": expected_status,
+                "actual_status": result.status,
+                "error_code": result.error_code,
+            },
         )
 
 
@@ -471,6 +477,8 @@ class ReleaseGovernanceRepository:
                 SELECT test_run.test_run_id, test_run.test_case_id, test_case.test_key,
                        test_case.category, test_run.status,
                        nullif(test_run.result ->> 'agent_run_id', '')::uuid AS agent_run_id,
+                       test_run.result ->> 'actual_status' AS actual_status,
+                       test_run.result ->> 'error_code' AS error_code,
                        test_run.correlation_id, test_run.completed_at
                 FROM governance.test_runs AS test_run
                 JOIN governance.test_cases AS test_case
@@ -579,6 +587,61 @@ class ReleaseGovernanceRepository:
                 row["test_case_id"],
                 correlation_id,
                 "Maker registered a deterministic release test",
+                {"change_request_id": str(change_request_id), "category": request.category},
+            )
+            return TestCaseRecord(
+                test_case_id=row["test_case_id"],
+                agent_key=context["agent_key"],
+                agent_version_id=context["agent_version_id"],
+                **request.model_dump(),
+            )
+
+    def update_test_case(
+        self,
+        change_request_id: UUID,
+        test_key: str,
+        request: TestCaseRequest,
+        *,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> TestCaseRecord:
+        """Amend a draft fixture without discarding previous test-run evidence."""
+        if request.test_key != test_key:
+            raise ReleaseGovernanceError("test case key does not match the requested update")
+        with self._transaction() as connection:
+            context = self._context(connection, change_request_id)
+            self._require_context_actor(connection, context, actor_user_id)
+            self._require_maker(context, actor_user_id)
+            if context["state"] not in {"DRAFT", "RETURNED"}:
+                raise LifecycleConflictError(
+                    "test cases can only be updated for a draft or returned request"
+                )
+            row = connection.execute(
+                """
+                UPDATE governance.test_cases
+                SET category = %s, input_fixture = %s, expected_assertions = %s
+                WHERE agent_version_id = %s AND test_key = %s
+                RETURNING test_case_id
+                """,
+                (
+                    request.category,
+                    Jsonb(request.input_fixture),
+                    Jsonb(request.expected_assertions),
+                    context["agent_version_id"],
+                    test_key,
+                ),
+            ).fetchone()
+            if row is None:
+                raise ReleaseGovernanceError("test case was not found for release request")
+            self._audit(
+                connection,
+                context["organization_id"],
+                actor_user_id,
+                "TEST_CASE_UPDATED",
+                "TEST_CASE",
+                row["test_case_id"],
+                correlation_id,
+                "Maker amended a draft release test fixture; prior test evidence was retained",
                 {"change_request_id": str(change_request_id), "category": request.category},
             )
             return TestCaseRecord(

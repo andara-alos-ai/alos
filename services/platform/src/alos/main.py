@@ -2351,6 +2351,28 @@ def register_release_test_case(
         raise release_http_error(error) from error
 
 
+@app.put(
+    "/api/v1/release-requests/{change_request_id}/test-cases/{test_key}",
+    response_model=TestCaseRecord,
+)
+def update_release_test_case(
+    change_request_id: UUID,
+    test_key: str,
+    request: TestCaseRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> TestCaseRecord:
+    try:
+        return get_release_repository().update_test_case(
+            change_request_id,
+            test_key,
+            request,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+    except ReleaseGovernanceError as error:
+        raise release_http_error(error) from error
+
+
 @app.post(
     "/api/v1/release-requests/{change_request_id}/test-cases/{test_key}/execute",
     response_model=TestExecutionResult,

@@ -31,6 +31,18 @@ describe("H4 Release Governance helpers", () => {
     });
   });
 
+  it("uses Evidence Checker's required claim and approved source search for a positive run", () => {
+    const form = defaultTestForm("POSITIVE", "EVIDENCE_CHECKER");
+    expect(testCasePayload(form)).toMatchObject({
+      category: "POSITIVE",
+      expected_assertions: { status: "SUCCEEDED" },
+      input_fixture: {
+        input: { claim: expect.any(String) },
+        requested_tool_keys: ["SOURCE_REGISTRY_SEARCH"],
+      },
+    });
+  });
+
   it("keeps lifecycle failures distinct from generic UI errors", () => {
     expect(releaseErrorMessage("maker cannot act as checker")).toContain("Maker");
   });

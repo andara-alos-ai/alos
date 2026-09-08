@@ -47,6 +47,7 @@ export function ReleaseGovernance() {
   const [releaseAgentKey, setReleaseAgentKey] = useState("");
   const [releaseRequirement, setReleaseRequirement] = useState("");
   const [testForm, setTestForm] = useState(defaultTestForm());
+  const [editingTestKey, setEditingTestKey] = useState<string | null>(null);
   const [review, setReview] = useState({ decision: "APPROVED", notes: "" });
   const [control, setControl] = useState({ reason: "", rollbackTarget: "" });
   const [error, setError] = useState("");
@@ -70,7 +71,10 @@ export function ReleaseGovernance() {
       setDetail(null);
       return;
     }
-    setDetail(await api<ReleaseRequestDetail>(`/api/v1/release-requests/${encodeURIComponent(requestId)}`));
+    const nextDetail = await api<ReleaseRequestDetail>(`/api/v1/release-requests/${encodeURIComponent(requestId)}`);
+    setDetail(nextDetail);
+    setEditingTestKey(null);
+    setTestForm(defaultTestForm("POSITIVE", nextDetail.agent_key));
   }, []);
 
   useEffect(() => {
@@ -182,19 +186,28 @@ export function ReleaseGovernance() {
     setNotice("");
     try {
       const payload = testCasePayload(testForm);
-      await api(`/api/v1/release-requests/${detail.change_request_id}/test-cases`, {
-        method: "POST",
+      await api(`/api/v1/release-requests/${detail.change_request_id}/test-cases${editingTestKey ? `/${encodeURIComponent(editingTestKey)}` : ""}`, {
+        method: editingTestKey ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       await refreshRequest(detail.change_request_id);
-      setTestForm(defaultTestForm(testForm.category));
-      setNotice(`Test case ${payload.test_key} terdaftar dan diaudit.`);
+      setTestForm(defaultTestForm(testForm.category, detail.agent_key));
+      setEditingTestKey(null);
+      setNotice(editingTestKey ? `Fixture ${payload.test_key} diperbaiki; evidence gagal sebelumnya tetap tersimpan.` : `Test case ${payload.test_key} terdaftar dan diaudit.`);
     } catch (actionError: unknown) {
       handleError(actionError, setError, router);
     } finally {
       setWorking(false);
     }
+  }
+
+  function repairTestCase(testCase: ReleaseRequestDetail["test_cases"][number]) {
+    setEditingTestKey(testCase.test_key);
+    const starter = defaultTestForm(testCase.category, detail?.agent_key);
+    setTestForm({ ...starter, testKey: testCase.test_key });
+    setError("");
+    setNotice(`Fixture ${testCase.test_key} dimuat sebagai template sesuai kontrak Agent. Periksa lalu simpan, kemudian jalankan ulang sebagai Checker.`);
   }
 
   async function executeTest(testKey: string) {
@@ -288,8 +301,8 @@ export function ReleaseGovernance() {
           </article>
 
           {detail ? <article className="panel test-registry-panel"><div className="panel-heading"><div><p className="eyebrow">TEST CASE REGISTRY</p><h2>Positive, negative, regression, security, recovery</h2></div><span className="permission-ok">Maker / Checker</span></div>
-            {detail.state === "DRAFT" || detail.state === "RETURNED" ? <>{canMakeRelease(data.actor.roles) ? <div className="builder-fields two-column-fields"><label>Kategori<select onChange={(event) => setTestForm(defaultTestForm(event.target.value as TestCategory))} value={testForm.category}>{releaseTestCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label><label>Test key<input onChange={(event) => setTestForm((form) => ({ ...form, testKey: event.target.value }))} value={testForm.testKey} /></label><label className="full-width">Fixture JSON<textarea className="code-input" onChange={(event) => setTestForm((form) => ({ ...form, fixture: event.target.value }))} rows={7} spellCheck="false" value={testForm.fixture} /></label><label>Expected status<select onChange={(event) => setTestForm((form) => ({ ...form, expectedStatus: event.target.value }))} value={testForm.expectedStatus}><option value="SUCCEEDED">SUCCEEDED</option><option value="FAILED">FAILED</option><option value="BLOCKED">BLOCKED</option></select></label></div> : null}<div className="builder-actions">{canMakeRelease(data.actor.roles) ? <button disabled={working} onClick={() => void registerTestCase()} type="button">Daftarkan test case</button> : null}</div></> : null}
-            <div className="table-wrap"><table><thead><tr><th>Kategori</th><th>Test</th><th>Expected</th><th>Hasil terakhir</th><th>Aksi</th></tr></thead><tbody>{detail.test_cases.map((testCase) => { const result = latestTestRuns.get(testCase.test_case_id); return <tr key={testCase.test_case_id}><td>{testCase.category}</td><td>{testCase.test_key}</td><td>{String(testCase.expected_assertions.status ?? "—")}</td><td>{result ? `${result.status} · ${result.correlation_id.slice(0, 8)}…` : "Belum dijalankan"}</td><td>{canCheckRelease(data.actor.roles) && ["DRAFT", "RETURNED"].includes(detail.state) ? <button disabled={working} onClick={() => void executeTest(testCase.test_key)} type="button">Jalankan</button> : "—"}</td></tr>; })}</tbody></table></div>
+            {detail.state === "DRAFT" || detail.state === "RETURNED" ? <>{canMakeRelease(data.actor.roles) ? <div className="builder-fields two-column-fields"><label>Kategori<select disabled={Boolean(editingTestKey)} onChange={(event) => setTestForm(defaultTestForm(event.target.value as TestCategory, detail.agent_key))} value={testForm.category}>{releaseTestCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label><label>Test key<input disabled={Boolean(editingTestKey)} onChange={(event) => setTestForm((form) => ({ ...form, testKey: event.target.value }))} value={testForm.testKey} /></label><label className="full-width">Fixture JSON<textarea className="code-input" onChange={(event) => setTestForm((form) => ({ ...form, fixture: event.target.value }))} rows={7} spellCheck="false" value={testForm.fixture} /></label><label>Expected status<select onChange={(event) => setTestForm((form) => ({ ...form, expectedStatus: event.target.value }))} value={testForm.expectedStatus}><option value="SUCCEEDED">SUCCEEDED</option><option value="FAILED">FAILED</option><option value="BLOCKED">BLOCKED</option></select></label></div> : null}<div className="builder-actions">{canMakeRelease(data.actor.roles) ? <><button disabled={working} onClick={() => void registerTestCase()} type="button">{editingTestKey ? "Simpan perbaikan test case" : "Daftarkan test case"}</button>{editingTestKey ? <button className="secondary-button" disabled={working} onClick={() => { setEditingTestKey(null); setTestForm(defaultTestForm("POSITIVE", detail.agent_key)); }} type="button">Batal perbaikan</button> : null}</> : null}</div></> : null}
+            <div className="table-wrap"><table><thead><tr><th>Kategori</th><th>Test</th><th>Expected</th><th>Hasil terakhir</th><th>Aksi</th></tr></thead><tbody>{detail.test_cases.map((testCase) => { const result = latestTestRuns.get(testCase.test_case_id); return <tr key={testCase.test_case_id}><td>{testCase.category}</td><td>{testCase.test_key}</td><td>{String(testCase.expected_assertions.status ?? "—")}</td><td>{result ? <><strong>{result.status}</strong><br /><small>{result.actual_status ? `Runtime: ${result.actual_status}` : "Runtime detail lama tidak tersedia"}{result.error_code ? ` · ${result.error_code}` : ""}<br />Ref: {result.correlation_id.slice(0, 8)}…</small></> : "Belum dijalankan"}</td><td>{canMakeRelease(data.actor.roles) && ["DRAFT", "RETURNED"].includes(detail.state) ? <button className="secondary-button" disabled={working} onClick={() => repairTestCase(testCase)} type="button">Perbaiki</button> : null}{canCheckRelease(data.actor.roles) && ["DRAFT", "RETURNED"].includes(detail.state) ? <button disabled={working} onClick={() => void executeTest(testCase.test_key)} type="button">Jalankan</button> : "—"}</td></tr>; })}</tbody></table></div>
             {canCheckRelease(data.actor.roles) && ["DRAFT", "RETURNED"].includes(detail.state) ? <div className="builder-actions"><button disabled={working || detail.test_cases.length < 5} onClick={() => void submitReview()} type="button">Kirim seluruh evidence untuk review</button></div> : null}
           </article> : null}
 
