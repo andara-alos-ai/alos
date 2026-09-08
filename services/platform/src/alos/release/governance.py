@@ -80,9 +80,12 @@ class ReleaseRequestRecord(BaseModel):
     agent_version_id: UUID
     semantic_version: str
     state: ReleaseState
+    requested_by_user_id: UUID
     maker_user_id: UUID
     checker_user_id: UUID | None
     approver_user_id: UUID | None
+    kill_switch_active: bool = False
+    failed_test_count: int = 0
 
 
 class TestRunEvidence(BaseModel):
@@ -96,12 +99,16 @@ class TestRunEvidence(BaseModel):
     completed_at: datetime | None
     actual_status: str | None = None
     error_code: str | None = None
+    block_reason: str | None = None
 
 
 class ReviewRecord(BaseModel):
     review_gate: ReviewGate
     decision: ReviewDecision
     notes: str
+    reviewer_user_id: UUID
+    reviewer_name: str
+    division_code: str | None
     created_at: datetime
 
 
@@ -209,6 +216,14 @@ class AgentTestRunner:
         if expected_status not in {"SUCCEEDED", "FAILED", "BLOCKED"}:
             raise ReleaseGovernanceError("test expected_assertions.status is required")
         passed = result.status == expected_status
+        block_reason = next(
+            (
+                decision.reason
+                for decision in result.tool_decisions
+                if decision.decision == "BLOCKED" and decision.reason
+            ),
+            None,
+        )
         return self._repository.record_test_result(
             change_request_id,
             case,
@@ -220,6 +235,7 @@ class AgentTestRunner:
                 "expected_status": expected_status,
                 "actual_status": result.status,
                 "error_code": result.error_code,
+                "block_reason": block_reason,
             },
         )
 
@@ -349,10 +365,15 @@ class ReleaseGovernanceRepository:
         *,
         organization_id: UUID,
         maker_user_id: UUID,
+        requested_by_user_id: UUID | None = None,
         correlation_id: UUID,
     ) -> ReleaseRequestRecord:
+        requested_by_user_id = requested_by_user_id or maker_user_id
         with self._transaction() as connection:
             self._require_workspace_actor(connection, organization_id, maker_user_id, workspace_id)
+            self._require_workspace_actor(
+                connection, organization_id, requested_by_user_id, workspace_id
+            )
             version = self._draft_version(connection, organization_id, workspace_id, agent_key)
             existing = connection.execute(
                 """
@@ -373,7 +394,7 @@ class ReleaseGovernanceRepository:
                 ) VALUES (%s, %s, %s, %s)
                 RETURNING change_request_id
                 """,
-                (organization_id, workspace_id, maker_user_id, requirement),
+                (organization_id, workspace_id, requested_by_user_id, requirement),
             ).fetchone()
             if change is None:
                 raise ReleaseGovernanceError("release request could not be created")
@@ -417,10 +438,48 @@ class ReleaseGovernanceRepository:
                 agent_version_id=version["agent_version_id"],
                 semantic_version=version["semantic_version"],
                 state="DRAFT",
+                requested_by_user_id=requested_by_user_id,
                 maker_user_id=maker_user_id,
                 checker_user_id=None,
                 approver_user_id=None,
             )
+
+    def find_independent_release_maker(
+        self,
+        workspace_id: UUID,
+        *,
+        organization_id: UUID,
+        requested_by_user_id: UUID,
+    ) -> UUID:
+        """Resolve a real IT Lead member; a requester never becomes maker implicitly."""
+        with self._connection() as connection:
+            self._require_workspace_actor(
+                connection, organization_id, requested_by_user_id, workspace_id
+            )
+            maker = connection.execute(
+                """
+                SELECT user_account.user_id
+                FROM identity.users AS user_account
+                JOIN identity.role_assignments AS assignment
+                  ON assignment.user_id = user_account.user_id
+                 AND assignment.role_code = 'IT_LEAD'
+                 AND assignment.revoked_at IS NULL
+                JOIN workspace.memberships AS membership
+                  ON membership.user_id = user_account.user_id
+                 AND membership.workspace_id = %s
+                WHERE user_account.organization_id = %s
+                  AND user_account.status = 'ACTIVE'
+                  AND user_account.user_id <> %s
+                ORDER BY assignment.assigned_at, user_account.user_id
+                LIMIT 1
+                """,
+                (workspace_id, organization_id, requested_by_user_id),
+            ).fetchone()
+        if maker is None:
+            raise ReleaseGovernanceError(
+                "an independent IT Lead release maker is required for this Agent request"
+            )
+        return cast(UUID, maker["user_id"])
 
     def list_release_requests(
         self,
@@ -436,7 +495,28 @@ class ReleaseGovernanceRepository:
                 """
                 SELECT request.change_request_id, contract.agent_key, governance.agent_version_id,
                        version.semantic_version, governance.state, governance.maker_user_id,
-                       governance.checker_user_id, governance.approver_user_id
+                       request.requested_by_user_id, governance.checker_user_id,
+                       governance.approver_user_id,
+                       EXISTS (
+                           SELECT 1 FROM governance.kill_switches AS kill_switch
+                           WHERE kill_switch.organization_id = request.organization_id
+                             AND kill_switch.agent_contract_id = governance.agent_contract_id
+                             AND kill_switch.active
+                       ) AS kill_switch_active,
+                       (
+                           SELECT count(*)
+                           FROM governance.test_cases AS test_case
+                           JOIN LATERAL (
+                               SELECT test_run.status
+                               FROM governance.test_runs AS test_run
+                               WHERE test_run.test_case_id = test_case.test_case_id
+                               ORDER BY test_run.completed_at DESC NULLS LAST,
+                                        test_run.test_run_id DESC
+                               LIMIT 1
+                           ) AS latest_result ON true
+                           WHERE test_case.agent_version_id = governance.agent_version_id
+                             AND latest_result.status IN ('FAILED', 'ERROR')
+                       ) AS failed_test_count
                 FROM genesis.change_requests AS request
                 JOIN governance.agent_change_requests AS governance
                   ON governance.change_request_id = request.change_request_id
@@ -480,6 +560,7 @@ class ReleaseGovernanceRepository:
                        nullif(test_run.result ->> 'agent_run_id', '')::uuid AS agent_run_id,
                        test_run.result ->> 'actual_status' AS actual_status,
                        test_run.result ->> 'error_code' AS error_code,
+                       test_run.result ->> 'block_reason' AS block_reason,
                        test_run.correlation_id, test_run.completed_at
                 FROM governance.test_runs AS test_run
                 JOIN governance.test_cases AS test_case
@@ -491,10 +572,27 @@ class ReleaseGovernanceRepository:
             ).fetchall()
             reviews = connection.execute(
                 """
-                SELECT review_gate, decision, notes, created_at
-                FROM governance.reviews
-                WHERE change_request_id = %s
-                ORDER BY created_at ASC, review_id ASC
+                SELECT review.review_gate, review.decision, review.notes,
+                       review.reviewer_user_id, reviewer.display_name AS reviewer_name,
+                       division.code AS division_code, review.created_at
+                FROM governance.reviews AS review
+                JOIN identity.users AS reviewer ON reviewer.user_id = review.reviewer_user_id
+                LEFT JOIN LATERAL (
+                    SELECT assignment.division_id
+                    FROM identity.role_assignments AS assignment
+                    WHERE assignment.user_id = review.reviewer_user_id
+                      AND assignment.revoked_at IS NULL
+                      AND assignment.role_code = CASE review.review_gate
+                          WHEN 'BUSINESS' THEN 'BUSINESS_REVIEWER'
+                          ELSE 'TECHNICAL_REVIEWER'
+                      END
+                    ORDER BY assignment.assigned_at DESC
+                    LIMIT 1
+                ) AS assignment ON true
+                LEFT JOIN identity.divisions AS division
+                  ON division.division_id = assignment.division_id
+                WHERE review.change_request_id = %s
+                ORDER BY review.created_at ASC, review.review_id ASC
                 """,
                 (change_request_id,),
             ).fetchall()
@@ -675,6 +773,57 @@ class ReleaseGovernanceRepository:
                 expected_assertions=case["expected_assertions"],
             )
 
+    def delete_test_case(
+        self,
+        change_request_id: UUID,
+        test_key: str,
+        *,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> None:
+        """Delete a mutable test definition only when no immutable run evidence exists."""
+        with self._transaction() as connection:
+            context = self._context(connection, change_request_id)
+            self._require_context_actor(connection, context, actor_user_id)
+            self._require_maker(context, actor_user_id)
+            if context["state"] not in {"DRAFT", "RETURNED"}:
+                raise LifecycleConflictError(
+                    "test cases can only be deleted for a draft or returned request"
+                )
+            case = connection.execute(
+                """
+                SELECT test_case_id FROM governance.test_cases
+                WHERE agent_version_id = %s AND test_key = %s
+                FOR UPDATE
+                """,
+                (context["agent_version_id"], test_key),
+            ).fetchone()
+            if case is None:
+                raise ReleaseGovernanceError("test case was not found for release request")
+            evidence = connection.execute(
+                "SELECT 1 FROM governance.test_runs WHERE test_case_id = %s LIMIT 1",
+                (case["test_case_id"],),
+            ).fetchone()
+            if evidence is not None:
+                raise LifecycleConflictError(
+                    "test case has immutable run evidence and cannot be deleted"
+                )
+            connection.execute(
+                "DELETE FROM governance.test_cases WHERE test_case_id = %s",
+                (case["test_case_id"],),
+            )
+            self._audit(
+                connection,
+                context["organization_id"],
+                actor_user_id,
+                "TEST_CASE_DELETED",
+                "TEST_CASE",
+                case["test_case_id"],
+                correlation_id,
+                "Maker deleted a mutable test case without run evidence",
+                {"change_request_id": str(change_request_id), "test_key": test_key},
+            )
+
     def workspace_for_change(self, change_request_id: UUID) -> UUID:
         with self._connection() as connection:
             context = self._context(connection, change_request_id)
@@ -822,7 +971,7 @@ class ReleaseGovernanceRepository:
             self._require_context_actor(connection, context, reviewer_user_id)
             if context["state"] != "IN_REVIEW":
                 raise LifecycleConflictError("request is not ready for review")
-            self._require_reviewer(connection, context, reviewer_user_id)
+            self._require_reviewer(connection, context, reviewer_user_id, request.gate)
             connection.execute(
                 """
                 INSERT INTO governance.reviews (
@@ -1315,7 +1464,8 @@ class ReleaseGovernanceRepository:
 
     @staticmethod
     def _require_reviewer(
-        connection: psycopg.Connection[Any], context: dict[str, Any], reviewer_user_id: UUID
+        connection: psycopg.Connection[Any], context: dict[str, Any], reviewer_user_id: UUID,
+        review_gate: ReviewGate,
     ) -> None:
         if reviewer_user_id in {context["maker_user_id"], context["checker_user_id"]}:
             raise SegregationOfDutiesError("maker or checker cannot act as reviewer")
@@ -1325,6 +1475,24 @@ class ReleaseGovernanceRepository:
         ).fetchall()
         if reviewer_user_id in {row["reviewer_user_id"] for row in other_reviewers}:
             raise SegregationOfDutiesError("one reviewer may not satisfy multiple review gates")
+        if review_gate == "BUSINESS":
+            scoped_assignment = connection.execute(
+                """
+                SELECT 1
+                FROM workspace.workspaces AS workspace
+                JOIN identity.role_assignments AS assignment
+                  ON assignment.division_id IS NOT DISTINCT FROM workspace.division_id
+                 AND assignment.user_id = %s
+                 AND assignment.role_code = 'BUSINESS_REVIEWER'
+                 AND assignment.revoked_at IS NULL
+                WHERE workspace.workspace_id = %s
+                """,
+                (reviewer_user_id, context["workspace_id"]),
+            ).fetchone()
+            if scoped_assignment is None:
+                raise ReleaseGovernanceError(
+                    "business reviewer must be assigned to the Agent workspace division"
+                )
 
     @staticmethod
     def _require_approver(
@@ -1397,7 +1565,7 @@ class ReleaseGovernanceRepository:
         row = connection.execute(
             """
             SELECT request.change_request_id, request.organization_id, request.workspace_id,
-                   request.requirement,
+                   request.requirement, request.requested_by_user_id,
                    governance.agent_contract_id, governance.agent_version_id,
                    governance.maker_user_id,
                    governance.checker_user_id, governance.approver_user_id, governance.state,

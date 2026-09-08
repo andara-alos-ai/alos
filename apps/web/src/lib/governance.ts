@@ -55,12 +55,21 @@ export type Run = {
   output_tokens: number | null;
   latency_milliseconds: number | null;
   estimated_cost_usd: string | null;
+  error_code?: string | null;
+  block_reason?: string | null;
 };
 
 export type AuditEvent = {
   audit_event_id: string;
+  actor_kind?: string;
+  actor_user_id?: string | null;
+  system_actor?: string | null;
   action: string;
+  entity_type?: string;
+  entity_id?: string | null;
+  correlation_id?: string;
   reason: string;
+  metadata?: Record<string, unknown>;
   occurred_at: string;
 };
 

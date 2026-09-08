@@ -19,7 +19,7 @@ from alos.capabilities.registry import (
     CapabilityResolutionRequest,
     TypedToolRecord,
 )
-from alos.identity import DivisionCode
+from alos.identity import DivisionCode, HumanRole
 from alos.model_gateway import ModelGateway, ModelRequest
 from alos.release.governance import (
     ReleaseGovernanceRepository,
@@ -303,12 +303,22 @@ class GenesisAgentDesigner:
             correlation_id=correlation_id,
             reason="Genesis Agent Designer created a policy-normalized Agent Contract DRAFT",
         )
+        release_maker_user_id = (
+            actor.user_id
+            if HumanRole.IT_LEAD in actor.roles and HumanRole.DIRECTOR not in actor.roles
+            else self._releases.find_independent_release_maker(
+                request.workspace_id,
+                organization_id=actor.organization_id,
+                requested_by_user_id=actor.user_id,
+            )
+        )
         release_request = self._releases.create_release_request(
             draft.agent_key,
             request.workspace_id,
             request.requirement,
             organization_id=actor.organization_id,
-            maker_user_id=actor.user_id,
+            maker_user_id=release_maker_user_id,
+            requested_by_user_id=actor.user_id,
             correlation_id=correlation_id,
         )
         tests = [

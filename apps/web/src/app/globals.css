@@ -249,6 +249,63 @@ th { color: #aac0d5; font-weight: 700; }
 .governance-modal > p:not(.eyebrow):not(.safe-note) { color: #bfd0df; line-height: 1.55; }
 .governance-single-panel { grid-template-columns: 1fr; }
 .governance-action-grid { margin-top: 14px; }
+.status-guidance { background: #f6f0df; border: 1px solid #d8c697; border-left: 4px solid #a77b22; border-radius: 10px; display: grid; gap: 0; margin: 16px 0; }
+.status-guidance div { display: grid; gap: 10px; grid-template-columns: 180px minmax(0, 1fr); padding: 10px 13px; }
+.status-guidance div + div { border-top: 1px solid #e3d7ba; }
+.status-guidance dt { color: #7a5a1c; font-size: .68rem; font-weight: 800; letter-spacing: .07em; }
+.status-guidance dd { color: #26463e; margin: 0; }
+.governance-filters { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 14px 0; }
+.field-error { color: #a03737; font-size: .72rem; font-weight: 600; line-height: 1.35; }
+[aria-invalid="true"] { border-color: #b65050 !important; outline: 2px solid rgba(182,80,80,.16); }
+.action-with-explanation { align-items: flex-end; display: grid; justify-items: end; }
+.action-with-explanation small { color: #7b6430; max-width: 640px; }
+.budget-thresholds { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.budget-thresholds span { background: #f4ead1; border: 1px solid #d5bd7d; border-radius: 99px; color: #765819; font-size: .68rem; font-weight: 800; padding: 6px 9px; }
+.action-menu { position: relative; }
+.action-menu summary { cursor: pointer; font-size: 1rem; list-style: none; padding: 8px; }
+.action-menu > div { background: #fffdf7; border: 1px solid #d9ceb3; border-radius: 8px; box-shadow: 0 12px 28px rgba(28,53,45,.16); display: grid; min-width: 180px; padding: 6px; position: absolute; right: 0; z-index: 20; }
+.action-menu button { background: transparent; color: #24473d; font-size: .76rem; text-align: left; }
+.action-menu button:hover:not(:disabled) { background: #eee7d5; }
+.action-menu .danger-text { color: #9a3434; }
+.table-agent-link { background: transparent; color: inherit; display: grid; gap: 3px; padding: 0; text-align: left; }
+.table-agent-link:hover:not(:disabled) { background: transparent; color: #88651f; }
+.table-agent-link small { color: #657a73; }
+.selected-row { background: #f1ead9; }
+.agent-control-table { max-height: 610px; }
+.agent-control-table table { min-width: 1280px; }
+.registry-layout { grid-template-columns: minmax(0, 1fr); }
+
+/* Governance pages use ALOS' forest/ivory/gold identity without affecting other modules. */
+.dashboard-shell, .registry-shell, .release-shell { background: #f7f4ea; color: #193c33; max-width: none; min-height: 100vh; }
+.dashboard-shell .muted, .registry-shell .muted, .release-shell .muted { color: #65766f; }
+.dashboard-shell .dashboard-header, .registry-shell .dashboard-header, .release-shell .dashboard-header { border-bottom-color: #d9cfb8; }
+.dashboard-shell .panel, .dashboard-shell .metric-card, .registry-shell .panel, .release-shell .panel { background: #fffdf8; border-color: #dcd2bd; box-shadow: 0 7px 20px rgba(27,59,49,.055); }
+.dashboard-shell input, .dashboard-shell select, .dashboard-shell textarea, .registry-shell input, .registry-shell select, .registry-shell textarea, .release-shell input, .release-shell select, .release-shell textarea { background: #fffefb; border-color: #cfc4aa; color: #193c33; }
+.dashboard-shell .workspace-bar, .registry-shell .workspace-bar, .release-shell .workspace-bar { background: #f0eadb; border-color: #d7c9a8; }
+.dashboard-shell .workspace-bar p, .registry-shell .workspace-bar p, .release-shell .workspace-bar p { color: #65766f; }
+.dashboard-shell .governance-navigation, .registry-shell .governance-navigation, .release-shell .governance-navigation { background: linear-gradient(120deg, #063d31, #0b5644); border-color: #315f51; }
+.governance-navigation > div > span { color: #d2b76e; }
+.governance-navigation a { color: #edf5ed; }
+.governance-navigation a:hover, .governance-navigation a.active { background: rgba(210,183,110,.2); color: #fff8df; }
+.dashboard-shell .governance-subnav, .release-shell .governance-subnav { border-bottom-color: #d8ceb6; }
+.dashboard-shell .governance-subnav button, .release-shell .governance-subnav button { color: #526a61; }
+.dashboard-shell .governance-subnav button:hover:not(:disabled), .dashboard-shell .governance-subnav button.active, .release-shell .governance-subnav button:hover:not(:disabled), .release-shell .governance-subnav button.active { background: #eee8d9; border-bottom-color: #ae8128; color: #123f34; }
+.dashboard-shell .metric-card span, .dashboard-shell .metric-card small { color: #677a72; }
+.dashboard-shell .metric-card strong { color: #143f34; }
+.dashboard-shell th, .dashboard-shell td, .registry-shell th, .registry-shell td, .release-shell th, .release-shell td { border-top-color: #e5dece; }
+.dashboard-shell th, .registry-shell th, .release-shell th { color: #476258; }
+.dashboard-shell .review-list div, .registry-shell .review-list div, .release-shell .review-list div { border-top-color: #e5dece; }
+.dashboard-shell .review-list dt, .registry-shell .review-list dt, .release-shell .review-list dt { color: #657a72; }
+.registry-shell .field-note, .release-shell .field-note, .dashboard-shell .empty-state, .registry-shell .empty-state, .release-shell .empty-state { color: #667a72; }
+.registry-shell .contract-snapshot, .release-shell .contract-snapshot { background: #0b2f27; border-color: #2d5b4c; color: #e7f4ed; }
+.release-shell .review-gates > div { background: #f2ecde; border-color: #d8ccb1; }
+.release-shell .review-gates span, .release-shell .review-gates small { color: #60746c; }
+.release-shell .review-gates strong { color: #19614d; }
+.dashboard-shell .next-action-card, .release-shell .next-action-card { background: #0c4b3d; border-color: #316c5b; color: #fffaf0; }
+.dashboard-shell .next-action-card span, .release-shell .next-action-card span { color: #d8e7df; }
+.dashboard-shell .next-action-card small, .release-shell .next-action-card small { color: #e5c574; }
+.governance-feedback.warning { background: #fff5d9; border-color: #d4a642; color: #5f4916; }
+.governance-feedback.error, .governance-feedback.critical { background: #fff0ed; border-color: #bd5b50; color: #752d26; }
 @media (max-width: 850px) {
   .dashboard-shell { padding: 18px; }
   .dashboard-header, .workspace-bar { align-items: flex-start; flex-direction: column; }

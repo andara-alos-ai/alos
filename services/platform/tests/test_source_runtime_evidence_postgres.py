@@ -289,6 +289,10 @@ def test_verified_source_permission_and_citation_guardrails_are_persisted() -> N
             actor_user_id=context.user_id,
         )
         assert [run.status for run in runs] == ["FAILED", "SUCCEEDED", "BLOCKED"]
+        assert runs[0].error_code == "RUNTIME_FAILED"
+        assert runs[0].block_reason
+        assert runs[-1].error_code == "TOOL_OR_INPUT_BLOCKED"
+        assert runs[-1].block_reason
         usage = runtime_repository.usage_summary(
             context.workspace_id,
             organization_id=context.organization_id,

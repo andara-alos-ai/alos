@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canMakeRelease,
   canReadReleaseRegistry,
   defaultTestForm,
   designerPayload,
@@ -65,18 +66,25 @@ describe("H4 Release Governance helpers", () => {
     expect(releaseErrorMessage("maker cannot act as checker")).toContain("Maker");
   });
 
-  it("does not request Agent Registry data for H4-only reviewers", () => {
-    expect(canReadReleaseRegistry(["QA_SECURITY"])).toBe(false);
-    expect(canReadReleaseRegistry(["BUSINESS_REVIEWER"])).toBe(false);
-    expect(canReadReleaseRegistry(["TECHNICAL_REVIEWER"])).toBe(false);
-    expect(canReadReleaseRegistry(["DIRECTOR"])).toBe(false);
+  it("allows governance actors to read immutable Agent Registry metadata", () => {
+    expect(canReadReleaseRegistry(["QA_SECURITY"])).toBe(true);
+    expect(canReadReleaseRegistry(["BUSINESS_REVIEWER"])).toBe(true);
+    expect(canReadReleaseRegistry(["TECHNICAL_REVIEWER"])).toBe(true);
+    expect(canReadReleaseRegistry(["DIRECTOR"])).toBe(true);
     expect(canReadReleaseRegistry(["IT_LEAD"])).toBe(true);
+    expect(canReadReleaseRegistry(["DIVISION_MEMBER"])).toBe(false);
+  });
+
+  it("keeps Director as requester/approver and IT Lead as Release Maker", () => {
+    expect(canMakeRelease(["IT_LEAD"])).toBe(true);
+    expect(canMakeRelease(["DIRECTOR"])).toBe(false);
+    expect(canMakeRelease(["DIVISION_OWNER"])).toBe(false);
   });
 
   it("shows lifecycle progress and the role-aware next action", () => {
     const detail = {
       change_request_id: "release-1", agent_key: "DAILY_BRIEF", agent_version_id: "version-1",
-      semantic_version: "0.4.0", state: "DRAFT" as const, maker_user_id: "maker-1",
+      semantic_version: "0.4.0", state: "DRAFT" as const, requested_by_user_id: "sponsor-1", maker_user_id: "maker-1",
       checker_user_id: null, approver_user_id: null, requirement: "Safe daily brief",
       test_cases: [], test_runs: [], reviews: [], lifecycle_events: [], kill_switch_active: false, rollback_targets: [],
     };
@@ -88,7 +96,7 @@ describe("H4 Release Governance helpers", () => {
   it("only lets the recorded maker amend a mutable release draft", () => {
     const detail = {
       change_request_id: "release-1", agent_key: "DAILY_BRIEF", agent_version_id: "version-1",
-      semantic_version: "0.4.0", state: "DRAFT" as const, maker_user_id: "maker-1",
+      semantic_version: "0.4.0", state: "DRAFT" as const, requested_by_user_id: "sponsor-1", maker_user_id: "maker-1",
       checker_user_id: null, approver_user_id: null, requirement: "Safe daily brief",
       test_cases: [], test_runs: [], reviews: [], lifecycle_events: [], kill_switch_active: false, rollback_targets: [],
     };

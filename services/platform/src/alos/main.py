@@ -427,6 +427,21 @@ def require_agent_registry_editor(actor: ActorContext) -> None:
         )
 
 
+def require_agent_registry_reader(actor: ActorContext) -> None:
+    """Expose immutable Agent metadata to governance actors without granting edit authority."""
+    if not {
+        HumanRole.DIRECTOR,
+        HumanRole.DIVISION_OWNER,
+        HumanRole.IT_LEAD,
+        HumanRole.QA_SECURITY,
+        HumanRole.BUSINESS_REVIEWER,
+        HumanRole.TECHNICAL_REVIEWER,
+    }.intersection(actor.roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Agent Registry reader role required"
+        )
+
+
 def require_h5_pilot_editor(actor: ActorContext) -> None:
     """H5 can create only controlled DRAFTs and is owned by the IT Lead."""
     if HumanRole.IT_LEAD not in actor.roles:
@@ -1500,7 +1515,7 @@ def register_tool_draft(
 def list_tools(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> list[ToolDefinitionRecord]:
-    require_registry_editor(actor)
+    require_agent_registry_reader(actor)
     return get_tool_registry_repository().list_tools(actor.organization_id)
 
 
@@ -1546,11 +1561,24 @@ def register_permission_policy_draft(
 def list_permission_policies(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
     agent_key: str | None = Query(default=None, pattern=r"^[A-Z][A-Z0-9_]{2,79}$"),
+    workspace_id: UUID | None = None,
 ) -> list[PermissionPolicyRecord]:
-    require_registry_editor(actor)
-    return get_permission_registry_repository().list_policies(
+    require_agent_registry_reader(actor)
+    if workspace_id is None and HumanRole.IT_LEAD not in actor.roles:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="workspace_id is required for scoped Permission Registry reads",
+        )
+    if workspace_id is not None:
+        require_workspace_access(actor, workspace_id)
+    policies = get_permission_registry_repository().list_policies(
         actor.organization_id, agent_key=agent_key
     )
+    return [
+        policy
+        for policy in policies
+        if workspace_id is None or policy.workspace_id == workspace_id
+    ]
 
 
 @app.post(
@@ -1721,7 +1749,7 @@ def list_agents(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
     workspace_id: UUID,
 ) -> list[AgentRegistryRecord]:
-    require_agent_registry_editor(actor)
+    require_agent_registry_reader(actor)
     require_workspace_access(actor, workspace_id)
     try:
         return get_agent_registry_repository().list_agents(actor.organization_id, workspace_id)
@@ -1733,7 +1761,7 @@ def list_agents(
 def get_agent(
     agent_key: str, actor: Annotated[ActorContext, Depends(get_current_actor)]
 ) -> AgentRegistryRecord:
-    require_agent_registry_editor(actor)
+    require_agent_registry_reader(actor)
     try:
         record = get_agent_registry_repository().get_agent(actor.organization_id, agent_key)
         require_workspace_access(actor, record.workspace_id)
@@ -2158,6 +2186,25 @@ def retire_agent(
         raise registry_http_error(error) from error
 
 
+@app.delete("/api/v1/agents/{agent_key}/draft")
+def delete_agent_draft(
+    agent_key: str,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> dict[str, object]:
+    """Delete only mutable draft data; governed evidence always wins over deletion."""
+    require_agent_registry_editor(actor)
+    try:
+        result = get_agent_registry_repository().delete_draft(
+            agent_key,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+        return result.model_dump(mode="json")
+    except AgentRegistryError as error:
+        raise registry_http_error(error) from error
+
+
 @app.post("/api/v1/agents/{agent_key}/runs", response_model=AgentRunResult)
 def run_agent(
     agent_key: str,
@@ -2286,7 +2333,7 @@ def create_release_request(
     request: ReleaseRequestInput,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> ReleaseRequestRecord:
-    require_registry_editor(actor)
+    require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     try:
         return get_release_repository().create_release_request(
@@ -2369,6 +2416,24 @@ def update_release_test_case(
             actor_user_id=actor.user_id,
             correlation_id=uuid4(),
         )
+    except ReleaseGovernanceError as error:
+        raise release_http_error(error) from error
+
+
+@app.delete("/api/v1/release-requests/{change_request_id}/test-cases/{test_key}")
+def delete_release_test_case(
+    change_request_id: UUID,
+    test_key: str,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> Response:
+    try:
+        get_release_repository().delete_test_case(
+            change_request_id,
+            test_key,
+            actor_user_id=actor.user_id,
+            correlation_id=uuid4(),
+        )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     except ReleaseGovernanceError as error:
         raise release_http_error(error) from error
 

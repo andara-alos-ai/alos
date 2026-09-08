@@ -129,6 +129,8 @@ class AgentRunSummary(BaseModel):
     output_tokens: int | None
     latency_milliseconds: int | None
     estimated_cost_usd: Decimal | None
+    error_code: str | None = None
+    block_reason: str | None = None
 
 
 class WorkspaceUsageSummary(BaseModel):
@@ -648,7 +650,17 @@ class AgentRuntimeRepository:
                 SELECT run.agent_run_id, contract.agent_key, version.semantic_version, run.status,
                        run.correlation_id, run.created_at, run.completed_at, ledger.provider,
                        ledger.model, ledger.input_tokens, ledger.output_tokens, ledger.latency_ms,
-                       ledger.estimated_cost_usd
+                       ledger.estimated_cost_usd,
+                       CASE
+                           WHEN run.status = 'BLOCKED' THEN 'TOOL_OR_INPUT_BLOCKED'
+                           WHEN run.status = 'FAILED' THEN 'RUNTIME_FAILED'
+                           ELSE NULL
+                       END AS error_code,
+                       CASE
+                           WHEN run.status IN ('BLOCKED', 'FAILED')
+                           THEN nullif(run.output_reference ->> 'reason', '')
+                           ELSE NULL
+                       END AS block_reason
                 FROM runtime.agent_runs AS run
                 JOIN agents.versions AS version
                   ON version.agent_version_id = run.agent_version_id
@@ -677,6 +689,8 @@ class AgentRuntimeRepository:
                 output_tokens=row["output_tokens"],
                 latency_milliseconds=row["latency_ms"],
                 estimated_cost_usd=row["estimated_cost_usd"],
+                error_code=row["error_code"],
+                block_reason=row["block_reason"],
             )
             for row in rows
         ]

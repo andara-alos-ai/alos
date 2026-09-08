@@ -8,8 +8,9 @@ export type GovernanceArea = "overview" | "agents" | "releases";
 export function GovernanceNavigation({ active }: { active: GovernanceArea }) {
   return (
     <nav className="governance-navigation" aria-label="Governance dan Agent Control">
-      <div><span>Governance</span><Link aria-current={active === "overview" ? "page" : undefined} className={active === "overview" ? "active" : ""} href="/governance">Overview &amp; Controls</Link></div>
-      <div><span>Agent Control</span><Link aria-current={active === "agents" ? "page" : undefined} className={active === "agents" ? "active" : ""} href="/agents">Agents &amp; Permissions</Link><Link aria-current={active === "releases" ? "page" : undefined} className={active === "releases" ? "active" : ""} href="/releases">Release, Test &amp; Review</Link></div>
+      <div><span>Governance</span><Link aria-current={active === "overview" ? "page" : undefined} className={active === "overview" ? "active" : ""} href="/governance?view=overview">Overview</Link></div>
+      <div><span>Agent Control</span><Link aria-current={active === "agents" ? "page" : undefined} className={active === "agents" ? "active" : ""} href="/agents">Agents</Link><Link aria-current={active === "releases" ? "page" : undefined} className={active === "releases" ? "active" : ""} href="/releases?view=request">Release Requests</Link><Link href="/releases?view=tests">Test &amp; Evidence</Link><Link href="/releases?view=reviews">Reviews &amp; Approval</Link></div>
+      <div><span>Controls</span><Link href="/governance?view=permissions">Permissions</Link><Link href="/governance?view=runtime">Runtime &amp; Monitoring</Link><Link href="/governance?view=budget">Budget</Link><Link href="/releases?view=safety">Kill Switch / Rollback</Link><Link href="/governance?view=audit">Audit Trail</Link></div>
     </nav>
   );
 }
@@ -18,7 +19,7 @@ export function GovernanceFeedback({ error, notice, onDismiss }: { error: Govern
   return (
     <>
       {error ? (
-        <section className="governance-feedback error" role="alert">
+        <section className={`governance-feedback ${error.severity ?? "error"}`} role="alert">
           <div><strong>{error.title}</strong><p>{error.reason}</p><small>Langkah berikutnya: {error.nextAction}</small>{error.correlationId ? <code>Reference ID: {error.correlationId}</code> : null}</div>
           {onDismiss ? <button aria-label="Tutup pesan error" className="feedback-close" onClick={onDismiss} type="button">×</button> : null}
         </section>

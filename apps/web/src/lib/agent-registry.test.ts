@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentCrudPolicy,
+  agentStateActions,
   canEditAgentRegistry,
   draftPayloadFromForm,
   eligibleParents,
@@ -100,5 +102,12 @@ describe("Agent Registry Builder helpers", () => {
       input: { query: "property opportunity" },
       requested_tool_keys: ["FIXTURE_SOURCE_READ", "SOURCE_REGISTRY_SEARCH"],
     });
+  });
+
+  it("enforces the lifecycle-safe CRUD and action matrix", () => {
+    expect(agentCrudPolicy("DRAFT")).toMatchObject({ update: true, delete: true, createNewVersion: false });
+    expect(agentCrudPolicy("ACTIVE")).toMatchObject({ update: false, delete: false, createNewVersion: true });
+    expect(agentStateActions("ACTIVE")).toEqual(expect.arrayContaining(["VIEW_RUNTIME", "KILL_SWITCH", "CREATE_NEW_VERSION"]));
+    expect(agentStateActions("APPROVED")).toEqual(["RELEASE"]);
   });
 });

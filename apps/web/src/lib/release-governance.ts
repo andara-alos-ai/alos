@@ -24,9 +24,12 @@ export type ReleaseRequest = {
   agent_version_id: string;
   semantic_version: string;
   state: ReleaseState;
+  requested_by_user_id: string;
   maker_user_id: string;
   checker_user_id: string | null;
   approver_user_id: string | null;
+  kill_switch_active?: boolean;
+  failed_test_count?: number;
 };
 
 export type TestCase = {
@@ -50,12 +53,16 @@ export type TestRunEvidence = {
   completed_at: string | null;
   actual_status: string | null;
   error_code: string | null;
+  block_reason?: string | null;
 };
 
 export type Review = {
   review_gate: ReviewGate;
   decision: ReviewDecision;
   notes: string;
+  reviewer_user_id?: string;
+  reviewer_name?: string;
+  division_code?: string | null;
   created_at: string;
 };
 
@@ -86,7 +93,7 @@ export type DesignerResult = {
 export const releaseTestCategories: TestCategory[] = ["POSITIVE", "NEGATIVE", "REGRESSION", "SECURITY", "RECOVERY"];
 
 export function canMakeRelease(roles: string[]): boolean {
-  return roles.some((role) => ["DIRECTOR", "DIVISION_OWNER", "IT_LEAD"].includes(role));
+  return roles.includes("IT_LEAD");
 }
 
 /**
@@ -94,7 +101,7 @@ export function canMakeRelease(roles: string[]): boolean {
  * contracts; independent reviewers and the Director load release evidence without it.
  */
 export function canReadReleaseRegistry(roles: string[]): boolean {
-  return roles.includes("IT_LEAD");
+  return roles.some((role) => ["DIRECTOR", "DIVISION_OWNER", "IT_LEAD", "QA_SECURITY", "BUSINESS_REVIEWER", "TECHNICAL_REVIEWER"].includes(role));
 }
 
 export function canDesignAgent(roles: string[]): boolean {

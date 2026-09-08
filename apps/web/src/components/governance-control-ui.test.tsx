@@ -7,7 +7,9 @@ describe("Governance control UI", () => {
   it("marks the active control-center area", () => {
     const html = renderToStaticMarkup(<GovernanceNavigation active="releases" />);
     expect(html).toContain('aria-current="page"');
-    expect(html).toContain("Release, Test &amp; Review");
+    expect(html).toContain("Release Requests");
+    expect(html).toContain("Reviews &amp; Approval");
+    expect(html).toContain("Runtime &amp; Monitoring");
   });
 
   it("renders what happened, why, next action, and a reference id", () => {

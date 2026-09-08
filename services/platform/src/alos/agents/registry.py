@@ -11,11 +11,12 @@ import hashlib
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
 import psycopg
-from psycopg.errors import UniqueViolation
+from psycopg.errors import ForeignKeyViolation, UniqueViolation
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -127,6 +128,7 @@ class AgentVersionRecord(BaseModel):
     lifecycle_status: str
     digest: str
     contract_snapshot: dict[str, Any]
+    created_at: datetime
 
 
 class AgentRegistryRecord(BaseModel):
@@ -137,6 +139,8 @@ class AgentRegistryRecord(BaseModel):
     parent_agent_key: str | None
     agent_level: int
     risk_level: RiskLevel
+    created_at: datetime
+    updated_at: datetime
     versions: list[AgentVersionRecord]
 
 
@@ -148,6 +152,14 @@ class AgentDraftResult(BaseModel):
     lifecycle_status: Literal["DRAFT", "RETIRED"]
     agent_level: int
     digest: str
+    correlation_id: UUID
+
+
+class AgentDraftDeletionResult(BaseModel):
+    agent_key: str
+    semantic_version: str
+    deleted: Literal[True]
+    contract_deleted: bool
     correlation_id: UUID
 
 
@@ -511,7 +523,7 @@ class AgentRegistryRepository:
                 raise AgentNotFoundError("agent contract was not found")
             current = connection.execute(
                 """
-                SELECT contract_snapshot, digest FROM agents.versions
+                SELECT contract_snapshot, digest, lifecycle_status FROM agents.versions
                 WHERE agent_contract_id = %s
                 ORDER BY created_at DESC
                 LIMIT 1
@@ -520,6 +532,10 @@ class AgentRegistryRepository:
             ).fetchone()
             if current is None:
                 raise AgentRegistryError("agent contract does not have a version")
+            if current["lifecycle_status"] != "DRAFT":
+                raise AgentConflictError(
+                    "approved, released, active, and historical Agent versions are immutable"
+                )
             semantic_version = self._next_semantic_version(connection, agent["agent_contract_id"])
             version_row = self._insert_version(
                 connection,
@@ -563,6 +579,150 @@ class AgentRegistryRepository:
                 correlation_id=correlation_id,
             )
 
+    def delete_draft(
+        self,
+        agent_key: str,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> AgentDraftDeletionResult:
+        """Delete mutable draft data only; immutable evidence makes the operation fail closed."""
+        try:
+            with self._transaction() as connection:
+                agent = connection.execute(
+                    """
+                    SELECT contract.agent_contract_id, contract.workspace_id,
+                           version.agent_version_id, version.semantic_version,
+                           version.lifecycle_status
+                    FROM agents.contracts AS contract
+                    JOIN LATERAL (
+                        SELECT agent_version_id, semantic_version, lifecycle_status
+                        FROM agents.versions
+                        WHERE agent_contract_id = contract.agent_contract_id
+                        ORDER BY created_at DESC, agent_version_id DESC
+                        LIMIT 1
+                    ) AS version ON true
+                    WHERE contract.organization_id = %s AND contract.agent_key = %s
+                    FOR UPDATE OF contract
+                    """,
+                    (organization_id, agent_key),
+                ).fetchone()
+                if agent is None:
+                    raise AgentNotFoundError("agent contract was not found")
+                self._require_workspace_access(
+                    connection, organization_id, actor_user_id, agent["workspace_id"]
+                )
+                if agent["lifecycle_status"] not in {"DRAFT", "RETURNED"}:
+                    raise AgentConflictError(
+                        "approved, released, active, and historical Agent versions are immutable"
+                    )
+                immutable = connection.execute(
+                    """
+                    SELECT
+                        EXISTS (SELECT 1 FROM governance.test_runs WHERE agent_version_id = %s)
+                        OR EXISTS (
+                            SELECT 1 FROM governance.agent_change_requests
+                            WHERE agent_version_id = %s
+                        )
+                        OR EXISTS (SELECT 1 FROM runtime.agent_runs WHERE agent_version_id = %s)
+                        AS present
+                    """,
+                    (
+                        agent["agent_version_id"],
+                        agent["agent_version_id"],
+                        agent["agent_version_id"],
+                    ),
+                ).fetchone()
+                if immutable and immutable["present"]:
+                    raise AgentConflictError(
+                        "Agent draft has immutable test, release, or runtime evidence "
+                        "and cannot be deleted"
+                    )
+                non_draft_permission = connection.execute(
+                    """
+                    SELECT 1 FROM governance.permission_policies
+                    WHERE agent_version_id = %s AND lifecycle_status <> 'DRAFT'
+                    LIMIT 1
+                    """,
+                    (agent["agent_version_id"],),
+                ).fetchone()
+                if non_draft_permission is not None:
+                    raise AgentConflictError(
+                        "Agent draft has reviewed permission evidence and cannot be deleted"
+                    )
+                connection.execute(
+                    "DELETE FROM governance.permission_policies WHERE agent_version_id = %s",
+                    (agent["agent_version_id"],),
+                )
+                connection.execute(
+                    "DELETE FROM governance.test_cases WHERE agent_version_id = %s",
+                    (agent["agent_version_id"],),
+                )
+                version_count = connection.execute(
+                    "SELECT count(*) AS count FROM agents.versions WHERE agent_contract_id = %s",
+                    (agent["agent_contract_id"],),
+                ).fetchone()
+                contract_deleted = bool(version_count and version_count["count"] == 1)
+                if contract_deleted:
+                    child = connection.execute(
+                        """
+                        SELECT 1 FROM agents.contracts
+                        WHERE parent_agent_contract_id = %s LIMIT 1
+                        """,
+                        (agent["agent_contract_id"],),
+                    ).fetchone()
+                    if child is not None:
+                        raise AgentConflictError(
+                            "Agent draft is a parent; remove or reassign its draft children first"
+                        )
+                    connection.execute(
+                        "DELETE FROM agents.registry WHERE agent_contract_id = %s",
+                        (agent["agent_contract_id"],),
+                    )
+                connection.execute(
+                    "DELETE FROM agents.versions WHERE agent_version_id = %s",
+                    (agent["agent_version_id"],),
+                )
+                if contract_deleted:
+                    connection.execute(
+                        "DELETE FROM agents.contracts WHERE agent_contract_id = %s",
+                        (agent["agent_contract_id"],),
+                    )
+                else:
+                    connection.execute(
+                        """
+                        UPDATE agents.registry SET updated_at = now()
+                        WHERE agent_contract_id = %s
+                        """,
+                        (agent["agent_contract_id"],),
+                    )
+                self._append_audit(
+                    connection,
+                    organization_id=organization_id,
+                    actor_user_id=actor_user_id,
+                    action="AGENT_DRAFT_DELETED",
+                    entity_type="AGENT_CONTRACT",
+                    entity_id=agent["agent_contract_id"],
+                    correlation_id=correlation_id,
+                    reason="Human deleted a mutable Agent draft without immutable evidence",
+                    metadata={
+                        "workspace_id": str(agent["workspace_id"]),
+                        "agent_key": agent_key,
+                        "semantic_version": agent["semantic_version"],
+                    },
+                )
+                return AgentDraftDeletionResult(
+                    agent_key=agent_key,
+                    semantic_version=agent["semantic_version"],
+                    deleted=True,
+                    contract_deleted=contract_deleted,
+                    correlation_id=correlation_id,
+                )
+        except ForeignKeyViolation as error:
+            raise AgentConflictError(
+                "Agent draft is referenced by governed history and cannot be deleted"
+            ) from error
+
     def list_agents(
         self, organization_id: UUID, workspace_id: UUID
     ) -> list[AgentRegistryRecord]:
@@ -587,9 +747,11 @@ class AgentRegistryRepository:
         agent = connection.execute(
             """
             SELECT child.agent_contract_id, child.agent_key, child.name, child.workspace_id,
-                   child.agent_level,
-                   child.risk_level, parent.agent_key AS parent_agent_key
+                   child.agent_level, child.risk_level, child.created_at,
+                   registry.updated_at, parent.agent_key AS parent_agent_key
             FROM agents.contracts AS child
+            JOIN agents.registry AS registry
+              ON registry.agent_contract_id = child.agent_contract_id
             LEFT JOIN agents.contracts AS parent
               ON parent.agent_contract_id = child.parent_agent_contract_id
             WHERE child.organization_id = %s AND child.agent_key = %s
@@ -600,7 +762,8 @@ class AgentRegistryRepository:
             raise AgentNotFoundError("agent contract was not found")
         versions = connection.execute(
             """
-            SELECT agent_version_id, semantic_version, lifecycle_status, digest, contract_snapshot
+            SELECT agent_version_id, semantic_version, lifecycle_status, digest, contract_snapshot,
+                   created_at
             FROM agents.versions
             WHERE agent_contract_id = %s
             ORDER BY created_at DESC, agent_version_id DESC
@@ -615,6 +778,8 @@ class AgentRegistryRepository:
             parent_agent_key=agent["parent_agent_key"],
             agent_level=agent["agent_level"],
             risk_level=agent["risk_level"],
+            created_at=agent["created_at"],
+            updated_at=agent["updated_at"],
             versions=[AgentVersionRecord(**version) for version in versions],
         )
 

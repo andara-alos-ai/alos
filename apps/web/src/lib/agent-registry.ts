@@ -27,6 +27,7 @@ export type AgentVersion = {
   lifecycle_status: string;
   digest: string;
   contract_snapshot: AgentContractSnapshot;
+  created_at?: string;
 };
 
 export type AgentRecord = {
@@ -37,6 +38,8 @@ export type AgentRecord = {
   parent_agent_key: string | null;
   agent_level: number;
   risk_level: RiskLevel;
+  created_at?: string;
+  updated_at?: string;
   versions: AgentVersion[];
 };
 
@@ -130,6 +133,36 @@ export const agentBuilderSteps = [
 
 export function canEditAgentRegistry(roles: string[]): boolean {
   return roles.includes("IT_LEAD");
+}
+
+export function canReadAgentRegistry(roles: string[]): boolean {
+  return roles.some((role) => ["DIRECTOR", "DIVISION_OWNER", "IT_LEAD", "QA_SECURITY", "BUSINESS_REVIEWER", "TECHNICAL_REVIEWER"].includes(role));
+}
+
+export function agentCrudPolicy(lifecycleStatus: string) {
+  const mutable = ["DRAFT", "RETURNED"].includes(lifecycleStatus);
+  return {
+    create: true,
+    read: true,
+    update: mutable,
+    delete: mutable,
+    createNewVersion: ["APPROVED", "RELEASED", "ACTIVE", "SUSPENDED", "ROLLED_BACK"].includes(lifecycleStatus),
+  };
+}
+
+export function agentStateActions(lifecycleStatus: string): string[] {
+  const matrix: Record<string, string[]> = {
+    DRAFT: ["EDIT_DRAFT", "DELETE_DRAFT", "MANAGE_TESTS", "RUN_TESTS", "SUBMIT_REVIEW"],
+    RETURNED: ["EDIT_DRAFT", "DELETE_DRAFT", "MANAGE_TESTS", "RUN_TESTS", "SUBMIT_REVIEW"],
+    TESTED: ["VIEW_EVIDENCE", "CONTINUE_REVIEW"],
+    IN_REVIEW: ["BUSINESS_REVIEW", "TECHNICAL_REVIEW"],
+    APPROVED: ["RELEASE"],
+    RELEASED: ["ACTIVATE"],
+    ACTIVE: ["VIEW_RUNTIME", "SUSPEND", "KILL_SWITCH", "ROLLBACK", "CREATE_NEW_VERSION"],
+    SUSPENDED: ["VIEW_REASON", "ROLLBACK", "CREATE_NEW_VERSION"],
+    ROLLED_BACK: ["VIEW_HISTORY", "CREATE_NEW_VERSION"],
+  };
+  return matrix[lifecycleStatus] ?? ["READ_HISTORY"];
 }
 
 export function registryConflictMessage(detail?: string): string {

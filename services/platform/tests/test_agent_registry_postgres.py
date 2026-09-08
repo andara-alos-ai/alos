@@ -101,8 +101,10 @@ def test_registry_builder_api_versions_audits_and_rejects_circular_parent(
             )
         }
 
-        denied = client.get(f"/api/v1/agents?workspace_id={workspace_id}", headers=director_headers)
-        assert denied.status_code == 403
+        read_only = client.get(
+            f"/api/v1/agents?workspace_id={workspace_id}", headers=director_headers
+        )
+        assert read_only.status_code == 200
 
         root = client.post(
             "/api/v1/agents/drafts",
@@ -124,6 +126,17 @@ def test_registry_builder_api_versions_audits_and_rejects_circular_parent(
         )
         assert child.status_code == 200
         assert child.json()["agent_level"] == 1
+
+        disposable = client.post(
+            "/api/v1/agents/drafts",
+            json=_payload(workspace_id, "DISPOSABLE_DRAFT"),
+            headers=headers,
+        )
+        assert disposable.status_code == 200
+        deleted = client.delete("/api/v1/agents/DISPOSABLE_DRAFT/draft", headers=headers)
+        assert deleted.status_code == 200
+        assert deleted.json()["deleted"] is True
+        assert client.get("/api/v1/agents/DISPOSABLE_DRAFT", headers=headers).status_code == 404
 
         updated = client.put(
             "/api/v1/agents/PROPERTY_RESEARCH/draft",
@@ -163,6 +176,7 @@ def test_registry_builder_api_versions_audits_and_rejects_circular_parent(
         assert {event["action"] for event in workspace_audit.json()} >= {
             "AGENT_DRAFT_CREATED",
             "AGENT_DRAFT_UPDATED",
+            "AGENT_DRAFT_DELETED",
             "AGENT_RETIRED",
         }
 

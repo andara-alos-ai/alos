@@ -109,7 +109,8 @@ def _response() -> ModelResponse:
 
 
 def _add_workspace_actor(
-    connection: psycopg.Connection[object], organization_id: UUID, workspace_id: UUID, email: str
+    connection: psycopg.Connection[object], organization_id: UUID, workspace_id: UUID, email: str,
+    role: str | None = None,
 ) -> UUID:
     user = connection.execute(
         """
@@ -127,6 +128,19 @@ def _add_workspace_actor(
         """,
         (workspace_id, user_id),
     )
+    if role is not None:
+        division = connection.execute(
+            "SELECT division_id FROM workspace.workspaces WHERE workspace_id = %s",
+            (workspace_id,),
+        ).fetchone()
+        assert division is not None
+        connection.execute(
+            """
+            INSERT INTO identity.role_assignments (user_id, division_id, role_code)
+            VALUES (%s, %s, %s)
+            """,
+            (user_id, division[0], role),
+        )
     return user_id
 
 
@@ -159,6 +173,23 @@ def _complete_release(
             maker_user_id=maker_user_id,
             correlation_id=uuid4(),
         )
+    repository.register_test_case(
+        request.change_request_id,
+        ReleaseTestCaseRequest(
+            test_key="DISPOSABLE_CASE",
+            category="REGRESSION",
+            input_fixture={"input": {"query": "not executed"}},
+            expected_assertions={"status": "SUCCEEDED"},
+        ),
+        actor_user_id=maker_user_id,
+        correlation_id=uuid4(),
+    )
+    repository.delete_test_case(
+        request.change_request_id,
+        "DISPOSABLE_CASE",
+        actor_user_id=maker_user_id,
+        correlation_id=uuid4(),
+    )
     first_case = None
     for category in ("POSITIVE", "NEGATIVE", "REGRESSION", "SECURITY", "RECOVERY"):
         case = repository.register_test_case(
@@ -209,6 +240,13 @@ def _complete_release(
             checker_user_id=checker_user_id,
         )
         assert result.status == "PASSED", runtime_results[-1]
+    with pytest.raises(LifecycleConflictError, match="immutable run evidence"):
+        repository.delete_test_case(
+            request.change_request_id,
+            "FIXTURE_POSITIVE",
+            actor_user_id=maker_user_id,
+            correlation_id=uuid4(),
+        )
     assert {result.semantic_version for result in runtime_results} == {
         request.semantic_version
     }, "governed tests must execute the exact DRAFT version under review"
@@ -293,6 +331,13 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
                 context.organization_id,
                 context.workspace_id,
                 "maker@alos.test",
+                "IT_LEAD",
+            )
+            requester_user_id = _add_workspace_actor(
+                connection,
+                context.organization_id,
+                context.workspace_id,
+                "requester@alos.test",
             )
             checker_user_id = _add_workspace_actor(
                 connection,
@@ -305,12 +350,14 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
                 context.organization_id,
                 context.workspace_id,
                 "business@alos.test",
+                "BUSINESS_REVIEWER",
             )
             technical_reviewer_id = _add_workspace_actor(
                 connection,
                 context.organization_id,
                 context.workspace_id,
                 "technical@alos.test",
+                "TECHNICAL_REVIEWER",
             )
             approver_user_id = _add_workspace_actor(
                 connection,
@@ -337,6 +384,11 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
                 settings,
             )
         release_repository = ReleaseGovernanceRepository(temporary_url)
+        assert release_repository.find_independent_release_maker(
+            context.workspace_id,
+            organization_id=context.organization_id,
+            requested_by_user_id=requester_user_id,
+        ) == maker_user_id
         local_team = release_repository.bootstrap_local_release_team(context.workspace_id, uuid4())
         assert {participant.duty for participant in local_team.participants} == {
             "MAKER",
@@ -386,6 +438,11 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
         assert detail.state == "ACTIVE"
         assert len(detail.test_cases) == 5
         assert len(detail.test_runs) == 5
+        assert {review.reviewer_user_id for review in detail.reviews} == {
+            business_reviewer_id,
+            technical_reviewer_id,
+        }
+        assert any(review.division_code for review in detail.reviews)
         assert {event.to_state for event in detail.lifecycle_events} >= {
             "DRAFT",
             "TESTED",

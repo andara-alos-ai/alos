@@ -4,61 +4,71 @@ export type GovernanceUiError = {
   title: string;
   reason: string;
   nextAction: string;
+  severity?: "warning" | "error" | "critical";
+  field?: string;
   status: number | null;
   correlationId: string | null;
 };
 
-const detailMessages: Record<string, Omit<GovernanceUiError, "status" | "correlationId">> = {
-  "maker cannot act as checker": {
-    title: "Separation of Duties memblokir aksi",
-    reason: "Maker pada release request ini tidak boleh menjadi Checker.",
-    nextAction: "Masuk dengan akun Checker independen, lalu jalankan test kembali.",
-  },
-  "positive, negative, regression, security, and recovery tests must pass": {
-    title: "Evidence test belum lengkap",
-    reason: "Lima kategori test wajib memiliki hasil terbaru yang sesuai expected result.",
-    nextAction: "Buka Test & Evidence, perbaiki test yang gagal, lalu jalankan ulang sebagai Checker.",
-  },
-  "a successful Agent Run is required before review": {
-    title: "Agent Run belum memenuhi gate",
-    reason: "Release belum memiliki Agent Run sukses yang dapat dijadikan evidence.",
-    nextAction: "Jalankan seluruh test yang diwajibkan, lalu kirim kembali evidence untuk review.",
-  },
-  "business and technical review approvals are required": {
-    title: "Review manusia belum lengkap",
-    reason: "Approval Business dan Technical belum keduanya tercatat.",
-    nextAction: "Minta reviewer independen menyelesaikan gate yang masih pending.",
-  },
-  "kill switch is active": {
-    title: "Aktivasi diblokir Kill Switch",
-    reason: "Kontrol penghentian darurat masih aktif pada Agent ini.",
-    nextAction: "Verifikasi penyebabnya, lalu clear Kill Switch dengan alasan yang diaudit bila aman.",
-  },
+type ErrorMessage = Omit<GovernanceUiError, "status" | "correlationId">;
+
+function message(title: string, reason: string, nextAction: string, severity: NonNullable<GovernanceUiError["severity"]> = "warning"): ErrorMessage {
+  return { title, reason, nextAction, severity };
+}
+
+const detailMessages: Record<string, ErrorMessage> = {
+  "maker cannot act as checker": message("Separation of Duties memblokir aksi", "Maker tidak boleh menjadi Checker pada release yang sama.", "Gunakan QA atau Checker independen.", "critical"),
+  "positive, negative, regression, security, and recovery tests must pass": message("Evidence test belum lengkap", "Lima kategori test wajib memiliki hasil terbaru yang sesuai expected result.", "Buka Test & Evidence dan jalankan ulang kategori yang ditandai belum lulus."),
+  "a successful Agent Run is required before review": message("Agent Run belum memenuhi gate", "Belum ada Agent Run SUCCEEDED untuk versi DRAFT yang sedang direview.", "Jalankan kembali test POSITIVE pada versi ini; periksa Reason bila Actual masih BLOCKED."),
+  "business and technical review approvals are required": message("Review manusia belum lengkap", "Business Review dan Technical Review belum keduanya APPROVED.", "Reviewer independen menyelesaikan gate yang masih pending."),
+  "business reviewer must be assigned to the Agent workspace division": message("Business Review di luar scope", "Reviewer Business tidak ditugaskan pada divisi workspace Agent ini.", "Gunakan Business Reviewer pada divisi yang sama dengan scope Agent.", "critical"),
+  "an independent IT Lead release maker is required for this Agent request": message("Release Maker belum tersedia", "Requester atau sponsor Agent tidak boleh otomatis menjadi Release Maker.", "Tambahkan IT Lead independen sebagai anggota workspace agar draft dapat masuk ke persiapan release."),
+  "only the recorded approver can release an approved request": message("Release hanya boleh dilakukan Approver tercatat", "Akun ini bukan Director yang mencatat final approval.", "Gunakan akun Approver yang tercatat pada request."),
+  "only the recorded approver can activate a released request": message("Aktivasi hanya boleh dilakukan Approver tercatat", "Akun ini bukan Director yang merilis versi tersebut.", "Gunakan akun Approver yang tercatat pada request."),
+  "kill switch is active": message("Aktivasi diblokir Kill Switch", "Kontrol penghentian darurat masih aktif pada Agent ini.", "Verifikasi penyebab lalu clear Kill Switch dengan alasan yang diaudit bila aman.", "critical"),
+  "Agent Contract has unresolved capabilities and needs configuration": message("Capability belum siap", "Contract masih merujuk capability yang NEEDS_CONFIGURATION.", "Buka Tools & Permissions dan selesaikan capability resolution."),
+  "Agent tools are unavailable or need configuration": message("Tool Agent belum siap", "Satu atau lebih tool belum APPROVED atau belum memiliki adapter runtime.", "Buka Permissions, cek tool terkait, lalu minta approval teknis."),
+  "Agent permissions are not independently approved": message("Permission belum disetujui", "Permission Agent belum memperoleh approval independen.", "Minta Director atau QA independen menyetujui permission DRAFT."),
+  "daily output token budget cap reached": message("Runtime diblokir budget", "Batas output token harian telah tercapai.", "Buka Governance → Budget; tunggu periode berikutnya atau minta pemilik budget meninjau limit.", "critical"),
+  "daily request budget cap reached": message("Runtime diblokir budget", "Batas request harian telah tercapai.", "Buka Governance → Budget; tunggu periode berikutnya atau minta pemilik budget meninjau limit.", "critical"),
+  "daily cost budget cap reached": message("Runtime diblokir budget", "Hard cost cap harian telah tercapai.", "Buka Governance → Budget dan minta pemilik budget meninjau usage serta limit.", "critical"),
+  "an active workspace cost limit was not found": message("Budget workspace belum aktif", "Runtime tidak menemukan cost limit aktif untuk workspace.", "Director atau IT Lead harus mengatur limit di Governance → Budget."),
+  "an active workspace cost limit is required": message("Budget workspace belum aktif", "Runtime tidak menemukan cost limit aktif untuk workspace.", "Director atau IT Lead harus mengatur limit di Governance → Budget."),
 };
+
+function safeDetail(detail: string): string {
+  return /stack|traceback|postgres|sql|database_url|password|secret|api[_ -]?key/i.test(detail)
+    ? "Server menolak aksi tanpa mengekspos detail internal."
+    : detail;
+}
 
 export function normalizeGovernanceError(error: unknown): GovernanceUiError {
   if (error instanceof ApiError) {
     const exact = detailMessages[error.detail];
     if (exact) return { ...exact, status: error.status, correlationId: error.correlationId };
+    const detail = safeDetail(error.detail);
+    const byStatus: Record<number, ErrorMessage> = {
+      400: { ...message("Input belum valid", detail, "Periksa field yang ditandai lalu kirim kembali."), field: "form" },
+      401: message("Sesi telah berakhir", "ALOS tidak lagi mengenali sesi ini.", "Masuk kembali untuk melanjutkan.", "error"),
+      403: message("Aksi tidak diizinkan", detail || "Role atau scope Anda tidak memiliki izin.", "Gunakan akun dengan role yang tepat atau pilih workspace yang diizinkan.", "critical"),
+      404: message("Data tidak ditemukan", detail, "Muat ulang daftar dan pilih record yang masih tersedia."),
+      409: message("Status Agent telah berubah sejak halaman ini dibuka", detail, "Data terbaru dimuat otomatis. Periksa Current State, Current Blocker, dan Next Action."),
+      422: { ...message("Form belum dapat diproses", detail, "Perbaiki format atau field wajib yang disebutkan."), field: "form" },
+      429: message("Batas penggunaan tercapai", detail, "Buka Governance → Budget atau tunggu periode budget berikutnya.", "critical"),
+      500: message("Layanan Governance mengalami gangguan", "Server tidak dapat menyelesaikan permintaan ini.", "Coba lagi. Jika berulang, berikan Reference ID kepada IT Lead.", "error"),
+    };
+    return { ...(byStatus[error.status] ?? message("Permintaan tidak berhasil", detail, "Muat ulang data lalu coba kembali.", "error")), status: error.status, correlationId: error.correlationId };
+  }
+  if (error instanceof Error) return { ...message("Input belum valid", error.message, "Perbaiki isian yang disebutkan lalu coba kembali."), field: "form", status: null, correlationId: null };
+  return { ...message("Permintaan tidak berhasil", "Terjadi kegagalan yang tidak dikenali.", "Muat ulang halaman lalu coba kembali.", "error"), status: null, correlationId: null };
+}
 
-    const byStatus: Record<number, Omit<GovernanceUiError, "status" | "correlationId">> = {
-      400: { title: "Input belum valid", reason: error.detail, nextAction: "Periksa field yang ditandai lalu kirim kembali." },
-      401: { title: "Sesi telah berakhir", reason: "ALOS tidak lagi mengenali sesi ini.", nextAction: "Masuk kembali untuk melanjutkan." },
-      403: { title: "Aksi tidak diizinkan", reason: error.detail || "Role atau scope Anda tidak memiliki izin.", nextAction: "Gunakan akun dengan role yang tepat atau pilih workspace yang diizinkan." },
-      404: { title: "Data tidak ditemukan", reason: error.detail, nextAction: "Muat ulang daftar dan pilih record yang masih tersedia." },
-      409: { title: "Aksi bertentangan dengan governance", reason: error.detail, nextAction: "Periksa lifecycle, role, evidence, dan status terbaru sebelum mencoba kembali." },
-      422: { title: "Form belum dapat diproses", reason: error.detail, nextAction: "Perbaiki format atau field wajib yang disebutkan." },
-      429: { title: "Batas penggunaan tercapai", reason: error.detail, nextAction: "Tunggu periode budget berikutnya atau minta pemilik budget meninjau limit." },
-      500: { title: "Layanan Governance mengalami gangguan", reason: "Server tidak dapat menyelesaikan permintaan ini.", nextAction: "Coba lagi. Jika berulang, berikan Reference ID kepada IT Lead." },
-    };
-    return {
-      ...(byStatus[error.status] ?? { title: "Permintaan tidak berhasil", reason: error.detail, nextAction: "Muat ulang data lalu coba kembali." }),
-      status: error.status,
-      correlationId: error.correlationId,
-    };
-  }
-  if (error instanceof Error) {
-    return { title: "Input belum valid", reason: error.message, nextAction: "Perbaiki isian yang disebutkan lalu coba kembali.", status: null, correlationId: null };
-  }
-  return { title: "Permintaan tidak berhasil", reason: "Terjadi kegagalan yang tidak dikenali.", nextAction: "Muat ulang halaman lalu coba kembali.", status: null, correlationId: null };
+export function runtimeNextAction(errorCode?: string | null, reason?: string | null): string {
+  const combined = `${errorCode ?? ""} ${reason ?? ""}`.toLowerCase();
+  if (combined.includes("budget") || combined.includes("token") || combined.includes("cost limit")) return "Periksa Governance → Budget.";
+  if (combined.includes("kill switch")) return "Periksa Kill Switch / Rollback sebelum menjalankan ulang.";
+  if (combined.includes("permission")) return "Periksa Controls → Permissions dan minta approval independen.";
+  if (combined.includes("tool") || combined.includes("capabilit")) return "Periksa Tools & Permissions dan selesaikan NEEDS_CONFIGURATION.";
+  if (combined.includes("schema") || combined.includes("input")) return "Perbaiki fixture agar sesuai Contract input schema.";
+  return "Buka detail Runtime, perbaiki blocker yang tercatat, lalu jalankan ulang.";
 }
