@@ -7,7 +7,7 @@ document for a staging run.
 | Field | Value |
 | --- | --- |
 | Repository | `andara-alos-ai/alos` |
-| Branch | `codex/h5-final-closure` |
+| Branch | `develop` |
 | Commit SHA | emitted by `scripts/testing/h5-smoke.ps1` at execution |
 | Environment | local audit; staging verification pending |
 | Latest migration | `024_h5_final_readiness_controls.sql` |
