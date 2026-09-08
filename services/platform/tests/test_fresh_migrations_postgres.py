@@ -52,6 +52,7 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             "021_integrations_and_software_change_governance.sql",
             "022_genesis_chat_and_governance_linkage.sql",
             "023_approved_action_execution.sql",
+            "024_h5_final_readiness_controls.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
@@ -123,6 +124,9 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
                   AND column_name = 'approved_by_user_id'
                 """
             ).fetchone() == ("approved_by_user_id",)
+            assert connection.execute(
+                "SELECT to_regclass('compliance.release_decisions')"
+            ).fetchone() == ("compliance.release_decisions",)
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:
             connection.execute(
