@@ -649,7 +649,11 @@ def login(request: PasswordLoginRequest, response: Response) -> AuthenticationPr
 
 
 @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response) -> Response:
+def logout() -> Response:
+    # Construct the response explicitly.  The injected FastAPI response can
+    # carry a `None` status before route finalisation, while observability
+    # middleware needs a concrete status code during this request.
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
         httponly=True,

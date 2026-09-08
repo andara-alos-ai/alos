@@ -102,7 +102,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 correlation_id,
             )
         latency = time.monotonic() - started
-        metrics.observe(request.method, request.url.path, response.status_code, latency)
+        response_status = response.status_code
+        # A third-party/legacy response object must never bring down a valid
+        # request merely because it omitted the optional status field.
+        if not isinstance(response_status, int):
+            response_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+        metrics.observe(request.method, request.url.path, response_status, latency)
         response.headers["X-Correlation-ID"] = str(correlation_id)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -119,7 +124,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     "event": "api_request",
                     "method": request.method,
                     "path": request.url.path,
-                    "status": response.status_code,
+                    "status": response_status,
                     "correlation_id": str(correlation_id),
                     "latency_ms": round(latency * 1000, 2),
                 }

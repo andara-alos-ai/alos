@@ -523,7 +523,12 @@ class GenesisChatService:
                     "an explicit, human-confirmation-required draft when the user explicitly asks "
                     "for it. If business truth is unknown, use UNSUPPORTED or NEEDS_INFO."
                 ),
-                input_text=json.dumps(input_payload, ensure_ascii=True)[:190_000],
+                # Tool adapters may return UUIDs from governed database rows.
+                # Model input is text-only, so serialize those identifiers
+                # rather than failing the entire conversation turn.
+                input_text=json.dumps(
+                    input_payload, ensure_ascii=True, default=str
+                )[:190_000],
                 data_classification="INTERNAL",
                 max_output_tokens=self._max_output_tokens,
             )
