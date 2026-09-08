@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
-from alos.entrypoints import operational_api
+from alos.entrypoints import operational_api, projects_api
 from alos.identity import HumanRole
 from alos.main import app
 from alos.security.tokens import ActorContext, get_current_actor
@@ -25,6 +25,10 @@ def test_dashboard_delete_endpoints_delegate_to_scoped_repository(monkeypatch) -
         def delete_report(self, _actor, record_id, *, correlation_id) -> None:
             calls.append(("report", record_id, correlation_id))
 
+    class ProjectRepository:
+        def delete_project(self, _actor, record_id, correlation_id) -> None:
+            calls.append(("project", record_id, correlation_id))
+
     now = datetime.now(UTC)
     actor = ActorContext(
         user_id=uuid4(),
@@ -35,6 +39,7 @@ def test_dashboard_delete_endpoints_delegate_to_scoped_repository(monkeypatch) -
         expires_at=now + timedelta(hours=1),
     )
     monkeypatch.setattr(operational_api, "get_operational_repository", Repository)
+    monkeypatch.setattr(projects_api, "repository", ProjectRepository)
     app.dependency_overrides[get_current_actor] = lambda: actor
     try:
         client = TestClient(app)
@@ -43,6 +48,7 @@ def test_dashboard_delete_endpoints_delegate_to_scoped_repository(monkeypatch) -
             ("finding", f"/api/v1/findings/{uuid4()}"),
             ("definition", f"/api/v1/report-definitions/{uuid4()}"),
             ("report", f"/api/v1/reports/{uuid4()}"),
+            ("project", f"/api/v1/projects/{uuid4()}"),
         ]
         for kind, path in expected:
             response = client.delete(path)

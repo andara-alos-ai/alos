@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from alos.config import get_settings
 from alos.project_operations import (
@@ -59,6 +59,18 @@ def update_project(
         return repository().update_project(actor, project_id, request, uuid4())
     except ProjectOperationError as error:
         raise project_error(error) from error
+
+
+@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project(
+    project_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> Response:
+    try:
+        repository().delete_project(actor, project_id, uuid4())
+    except ProjectOperationError as error:
+        raise project_error(error) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

@@ -263,6 +263,66 @@ class ProjectOperationsRepository:
             self._audit(connection, actor, "PROJECT_UPDATED", project_id, correlation_id)
             return ProjectRecord(**row)
 
+    def delete_project(
+        self, actor: ActorContext, project_id: UUID, correlation_id: UUID
+    ) -> None:
+        with self._transaction() as connection:
+            current = self._project(connection, actor, project_id, lock=True)
+            require_business_access(
+                actor,
+                access_mode=AccessMode.UPDATE_SCOPED,
+                workspace_id=current["workspace_id"],
+                division_code=current["division_code"],
+                owner_user_id=current["owner_user_id"],
+            )
+            dependencies = connection.execute(
+                """
+                SELECT
+                    (SELECT count(*) FROM portfolio.project_milestones
+                     WHERE project_id = %s) AS milestones,
+                    (SELECT count(*) FROM portfolio.division_issues
+                     WHERE project_id = %s) AS issues,
+                    (SELECT count(*) FROM operational.tasks
+                     WHERE project_id = %s) AS tasks,
+                    (SELECT count(*) FROM operational.evidence
+                     WHERE project_id = %s) AS evidence,
+                    (SELECT count(*) FROM operational.findings
+                     WHERE project_id = %s) AS findings,
+                    (SELECT count(*) FROM operational.proposed_actions
+                     WHERE project_id = %s) AS proposed_actions,
+                    (SELECT count(*) FROM operational.approval_requests
+                     WHERE project_id = %s) AS approvals,
+                    (SELECT count(*) FROM reporting.definitions
+                     WHERE project_id = %s) AS report_definitions,
+                    (SELECT count(*) FROM business.records
+                     WHERE project_id = %s) AS business_records
+                """,
+                (project_id,) * 9,
+            ).fetchone()
+            if dependencies is None:
+                raise ProjectNotFound("project was not found")
+            blocked = [name for name, count in dependencies.items() if count]
+            if blocked:
+                raise ProjectConflict(
+                    "project has dependent records; remove these first: "
+                    + ", ".join(blocked)
+                )
+            connection.execute(
+                "DELETE FROM portfolio.project_progress_history WHERE project_id = %s",
+                (project_id,),
+            )
+            deleted = connection.execute(
+                """
+                DELETE FROM portfolio.projects
+                WHERE project_id = %s AND organization_id = %s
+                RETURNING project_id
+                """,
+                (project_id, actor.organization_id),
+            ).fetchone()
+            if deleted is None:
+                raise ProjectNotFound("project was not found")
+            self._audit(connection, actor, "PROJECT_DELETED", project_id, correlation_id)
+
     def create_milestone(
         self,
         actor: ActorContext,
