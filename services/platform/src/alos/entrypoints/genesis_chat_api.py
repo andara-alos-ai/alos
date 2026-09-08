@@ -33,7 +33,7 @@ from alos.model_gateway import (
 from alos.model_gateway_factory import create_model_gateway
 from alos.operational.repository import OperationalRepository
 from alos.security.tokens import ActorContext, get_current_actor
-from alos.tools.executor import ToolExecutor
+from alos.tools.executor import ToolExecutionError, ToolExecutor
 
 router = APIRouter(prefix="/api/v1/genesis", tags=["genesis-chat"])
 
@@ -116,6 +116,11 @@ def run_conversation_turn(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except GenesisChatError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+    except ToolExecutionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"GENESIS source access unavailable: {error}",
+        ) from error
     except ModelGatewayError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

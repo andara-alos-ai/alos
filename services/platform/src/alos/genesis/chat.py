@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import datetime
 from typing import Any, Literal, Protocol
 from uuid import UUID
@@ -279,16 +279,20 @@ class GenesisChatService:
         observations: list[dict[str, Any]] = []
         tool_results: list[ToolExecutionResult] = []
         if mode in {"AUTO", "INTERNAL", "INTERNAL_AND_EXTERNAL"}:
-            tool_results.append(
-                self._tools.execute(
-                    StructuredToolCall(
-                        tool_key="global.search",
-                        arguments={"query": request.content, "limit": 20},
-                    ),
-                    actor=actor,
-                    correlation_id=correlation_id,
+            # Search is helpful context, not a prerequisite for a safe answer.
+            # A temporarily unavailable catalog/tool therefore degrades to an
+            # explicit no-source response instead of 500.
+            with suppress(ToolExecutionError):
+                tool_results.append(
+                    self._tools.execute(
+                        StructuredToolCall(
+                            tool_key="global.search",
+                            arguments={"query": request.content, "limit": 20},
+                        ),
+                        actor=actor,
+                        correlation_id=correlation_id,
+                    )
                 )
-            )
             for item in context[:20]:
                 tool_results.append(
                     self.authorize_context(
