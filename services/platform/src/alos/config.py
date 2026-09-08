@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     auth_token_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
 
     object_storage_provider: Literal["filesystem", "s3"] = "filesystem"
+    allow_staging_filesystem_object_storage: bool = False
     object_storage_bucket: str = "alos-documents"
     object_storage_path: Path = Path("./data/objects")
     object_storage_max_upload_bytes: int = Field(default=25 * 1024 * 1024, ge=1024)
@@ -99,10 +100,12 @@ class Settings(BaseSettings):
             secret == "local-development-only-change-me" or len(secret) < 32
         ):
             raise ValueError("staging/production requires a unique signing secret")
-        if (
-            self.environment in {"staging", "production"}
-            and self.object_storage_provider != "s3"
-        ):
+        if self.allow_staging_filesystem_object_storage and self.environment != "staging":
+            raise ValueError("filesystem object storage override is limited to staging")
+        requires_remote_object_storage = self.environment == "production" or (
+            self.environment == "staging" and not self.allow_staging_filesystem_object_storage
+        )
+        if requires_remote_object_storage and self.object_storage_provider != "s3":
             raise ValueError(
                 "staging/production requires object storage outside the local filesystem"
             )

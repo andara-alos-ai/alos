@@ -20,6 +20,29 @@ def test_local_allows_disabled_model_gateway() -> None:
     assert settings.genesis_conversation_follow_up_enabled is False
 
 
+def test_staging_filesystem_storage_requires_an_explicit_temporary_override() -> None:
+    with pytest.raises(ValueError, match="object storage outside"):
+        Settings(_env_file=None, environment="staging", auth_signing_secret="a" * 32)
+
+    settings = Settings(
+        _env_file=None,
+        environment="staging",
+        auth_signing_secret="a" * 32,
+        object_storage_provider="filesystem",
+        allow_staging_filesystem_object_storage=True,
+    )
+    assert settings.object_storage_provider == "filesystem"
+
+    with pytest.raises(ValueError, match="limited to staging"):
+        Settings(
+            _env_file=None,
+            environment="production",
+            auth_signing_secret="a" * 32,
+            object_storage_provider="filesystem",
+            allow_staging_filesystem_object_storage=True,
+        )
+
+
 def test_follow_up_flag_is_independent_from_initial_semantic_analysis() -> None:
     settings = Settings(
         _env_file=None,
