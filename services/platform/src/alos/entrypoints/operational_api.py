@@ -168,6 +168,19 @@ def update_task_status(
         raise operational_http_error(error) from error
 
 
+@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_task(
+    task_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    correlation: Annotated[UUID, Depends(correlation_id)],
+) -> Response:
+    try:
+        get_operational_repository().delete_task(actor, task_id, correlation_id=correlation)
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/evidence", response_model=list[EvidenceRecord])
 def list_evidence(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
@@ -231,6 +244,21 @@ def update_finding_status(
         )
     except OperationalError as error:
         raise operational_http_error(error) from error
+
+
+@router.delete("/findings/{finding_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_finding(
+    finding_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    correlation: Annotated[UUID, Depends(correlation_id)],
+) -> Response:
+    try:
+        get_operational_repository().delete_finding(
+            actor, finding_id, correlation_id=correlation
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/proposed-actions", response_model=list[ProposedActionRecord])
@@ -359,11 +387,41 @@ def configure_report_schedule(
         raise operational_http_error(error) from error
 
 
+@router.delete(
+    "/report-definitions/{report_definition_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_report_definition(
+    report_definition_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    correlation: Annotated[UUID, Depends(correlation_id)],
+) -> Response:
+    try:
+        get_operational_repository().delete_report_definition(
+            actor, report_definition_id, correlation_id=correlation
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/reports", response_model=list[ReportRecord])
 def list_reports(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> list[ReportRecord]:
     return get_operational_repository().list_reports(actor)
+
+
+@router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_report(
+    report_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    correlation: Annotated[UUID, Depends(correlation_id)],
+) -> Response:
+    try:
+        get_operational_repository().delete_report(actor, report_id, correlation_id=correlation)
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/report-definitions/{report_definition_id}/generate", response_model=ReportRecord)

@@ -302,6 +302,51 @@ class OperationalRepository:
             )
         return self.get_task(actor, task_id)
 
+    def delete_task(
+        self, actor: ActorContext, task_id: UUID, *, correlation_id: UUID
+    ) -> None:
+        task = self.get_task(actor, task_id)
+        require_business_access(
+            actor,
+            access_mode=AccessMode.UPDATE_SCOPED,
+            workspace_id=task.workspace_id,
+            division_code=task.division_code,
+            owner_user_id=task.owner_user_id,
+            assignee_user_id=task.assignee_user_id,
+        )
+        with self._transaction() as connection:
+            evidence = connection.execute(
+                """
+                SELECT count(*) AS count FROM operational.evidence
+                WHERE organization_id = %s AND task_id = %s
+                """,
+                (actor.organization_id, task_id),
+            ).fetchone()
+            if evidence is not None and evidence["count"]:
+                raise OperationalConflict(
+                    "task has registered evidence and cannot be deleted; remove evidence first"
+                )
+            deleted = connection.execute(
+                """
+                DELETE FROM operational.tasks
+                WHERE task_id = %s AND organization_id = %s
+                RETURNING task_id
+                """,
+                (task_id, actor.organization_id),
+            ).fetchone()
+            if deleted is None:
+                raise OperationalNotFound("task was not found")
+            self._audit(
+                connection,
+                actor,
+                action="TASK_DELETED",
+                entity_type="TASK",
+                entity_id=task_id,
+                correlation_id=correlation_id,
+                reason="A scoped human permanently deleted an operational task",
+                metadata={"title": task.title},
+            )
+
     def list_evidence(
         self, actor: ActorContext, *, task_id: UUID | None = None, project_id: UUID | None = None
     ) -> list[EvidenceRecord]:
@@ -532,6 +577,43 @@ class OperationalRepository:
                 metadata={"from": current.status, "to": request.status},
             )
         return next(item for item in self.list_findings(actor) if item.finding_id == finding_id)
+
+    def delete_finding(
+        self, actor: ActorContext, finding_id: UUID, *, correlation_id: UUID
+    ) -> None:
+        current = next(
+            (item for item in self.list_findings(actor) if item.finding_id == finding_id), None
+        )
+        if current is None:
+            raise OperationalNotFound("finding was not found in the authenticated scope")
+        require_business_access(
+            actor,
+            access_mode=AccessMode.UPDATE_SCOPED,
+            workspace_id=current.workspace_id,
+            division_code=current.division_code,
+            owner_user_id=current.owner_user_id,
+        )
+        with self._transaction() as connection:
+            deleted = connection.execute(
+                """
+                DELETE FROM operational.findings
+                WHERE finding_id = %s AND organization_id = %s
+                RETURNING finding_id
+                """,
+                (finding_id, actor.organization_id),
+            ).fetchone()
+            if deleted is None:
+                raise OperationalNotFound("finding was not found")
+            self._audit(
+                connection,
+                actor,
+                action="FINDING_DELETED",
+                entity_type="FINDING",
+                entity_id=finding_id,
+                correlation_id=correlation_id,
+                reason="A scoped human permanently deleted a finding",
+                metadata={"title": current.title},
+            )
 
     def list_proposed_actions(self, actor: ActorContext) -> list[ProposedActionRecord]:
         where, parameters = self._generic_scope(
@@ -1252,6 +1334,56 @@ class OperationalRepository:
             if item.report_definition_id == report_definition_id
         )
 
+    def delete_report_definition(
+        self,
+        actor: ActorContext,
+        report_definition_id: UUID,
+        *,
+        correlation_id: UUID,
+    ) -> None:
+        definition = next(
+            (
+                item
+                for item in self.list_report_definitions(actor)
+                if item.report_definition_id == report_definition_id
+            ),
+            None,
+        )
+        if definition is None:
+            raise OperationalNotFound("report definition was not found")
+        require_business_access(
+            actor,
+            access_mode=AccessMode.UPDATE_SCOPED,
+            workspace_id=definition.workspace_id,
+            division_code=definition.division_code,
+            owner_user_id=definition.owner_user_id,
+        )
+        with self._transaction() as connection:
+            connection.execute(
+                "DELETE FROM reporting.reports WHERE report_definition_id = %s",
+                (report_definition_id,),
+            )
+            deleted = connection.execute(
+                """
+                DELETE FROM reporting.definitions
+                WHERE report_definition_id = %s AND organization_id = %s
+                RETURNING report_definition_id
+                """,
+                (report_definition_id, actor.organization_id),
+            ).fetchone()
+            if deleted is None:
+                raise OperationalNotFound("report definition was not found")
+            self._audit(
+                connection,
+                actor,
+                action="REPORT_DEFINITION_DELETED",
+                entity_type="REPORT_DEFINITION",
+                entity_id=report_definition_id,
+                correlation_id=correlation_id,
+                reason="A scoped human permanently deleted a report definition",
+                metadata={"name": definition.name},
+            )
+
     def list_reports(self, actor: ActorContext) -> list[ReportRecord]:
         if not actor.workspace_ids:
             return []
@@ -1268,6 +1400,42 @@ class OperationalRepository:
                 (actor.organization_id, actor.workspace_ids),
             ).fetchall()
         return [ReportRecord(**row) for row in rows]
+
+    def delete_report(
+        self, actor: ActorContext, report_id: UUID, *, correlation_id: UUID
+    ) -> None:
+        report = next(
+            (item for item in self.list_reports(actor) if item.report_id == report_id),
+            None,
+        )
+        if report is None:
+            raise OperationalNotFound("report was not found in the authenticated scope")
+        require_business_access(
+            actor,
+            access_mode=AccessMode.UPDATE_SCOPED,
+            workspace_id=report.workspace_id,
+        )
+        with self._transaction() as connection:
+            deleted = connection.execute(
+                """
+                DELETE FROM reporting.reports
+                WHERE report_id = %s AND organization_id = %s
+                RETURNING report_id
+                """,
+                (report_id, actor.organization_id),
+            ).fetchone()
+            if deleted is None:
+                raise OperationalNotFound("report was not found")
+            self._audit(
+                connection,
+                actor,
+                action="REPORT_DELETED",
+                entity_type="REPORT",
+                entity_id=report_id,
+                correlation_id=correlation_id,
+                reason="A scoped human permanently deleted a generated report",
+                metadata={"report_definition_id": str(report.report_definition_id)},
+            )
 
     def generate_report(
         self,
