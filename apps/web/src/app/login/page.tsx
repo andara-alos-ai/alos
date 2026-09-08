@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { ApiError, apiRequest } from "@/lib/api-client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,21 +18,16 @@ export default function LoginPage() {
     setError("");
     setSubmitting(true);
     try {
-      const response = await fetch("/api/v1/auth/login", {
+      await apiRequest<{ access_token?: string }>("/api/v1/auth/login", {
         method: "POST",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      if (!response.ok) {
-        setError("Email atau password tidak valid.");
-        return;
-      }
       router.replace("/");
       router.refresh();
-    } catch {
-      setError("Tidak dapat terhubung ke ALOS. Coba lagi.");
+    } catch (failure) {
+      setError(failure instanceof ApiError && failure.status === 401
+        ? "Email atau password tidak valid."
+        : "Tidak dapat terhubung ke ALOS. Coba lagi.");
     } finally {
       setSubmitting(false);
     }

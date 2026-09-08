@@ -59,6 +59,7 @@ export type ProjectPortfolioSnapshot = {
   distribution: Array<{ status: ProjectStatus; label: string; count: number }>;
   projects: Array<{
     project_id: string;
+    workspace_id: string;
     code: string;
     name: string;
     division_code: string;

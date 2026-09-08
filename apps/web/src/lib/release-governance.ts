@@ -88,7 +88,7 @@ export function canMakeRelease(roles: string[]): boolean {
 
 /**
  * Match the backend Agent Registry read authority. Only the IT Lead may load
- * contracts; H4 reviewers and the Director load release evidence without it.
+ * contracts; independent reviewers and the Director load release evidence without it.
  */
 export function canReadReleaseRegistry(roles: string[]): boolean {
   return roles.includes("IT_LEAD");
@@ -124,11 +124,11 @@ export function defaultTestForm(category: TestCategory = "POSITIVE") {
   const blocked = category !== "POSITIVE";
   return {
     category,
-    testKey: `H4_${category}_FIXTURE`,
+    testKey: `RELEASE_${category}_FIXTURE`,
     fixture: JSON.stringify(
       blocked
         ? { input: { query: `${category.toLowerCase()} fixture` }, requested_tool_keys: ["UNAUTHORIZED_TOOL"] }
-        : { input: { query: "Buat ringkasan singkat untuk uji positif H4." } },
+        : { input: { query: "Buat ringkasan singkat untuk uji positif release." } },
       null,
       2,
     ),
@@ -180,7 +180,7 @@ export function releaseErrorMessage(detail?: string): string {
     "kill switch is active": "Kill switch aktif; Agent tidak dapat diaktifkan.",
     "clear the active kill switch before rollback": "Bersihkan kill switch secara eksplisit sebelum rollback.",
   };
-  return messages[detail ?? ""] ?? "Aksi H4 ditolak oleh kontrol lifecycle atau separation of duties.";
+  return messages[detail ?? ""] ?? "Aksi release ditolak oleh kontrol lifecycle atau separation of duties.";
 }
 
 export function latestRunByTestCase(runs: TestRunEvidence[]): Map<string, TestRunEvidence> {

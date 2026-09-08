@@ -878,6 +878,7 @@ class ReleaseGovernanceRepository:
             ).fetchone()
             if killed is not None:
                 raise LifecycleConflictError("kill switch is active")
+            self._require_activation_controls(connection, context["agent_version_id"])
             connection.execute(
                 """
                 UPDATE agents.registry
@@ -899,6 +900,80 @@ class ReleaseGovernanceRepository:
                 correlation_id,
             )
             return self._record_from_context(connection, change_request_id)
+
+    @staticmethod
+    def _require_activation_controls(
+        connection: psycopg.Connection[Any], agent_version_id: UUID
+    ) -> None:
+        version = connection.execute(
+            """
+            SELECT contract_snapshot FROM agents.versions WHERE agent_version_id = %s
+            """,
+            (agent_version_id,),
+        ).fetchone()
+        if version is None:
+            raise LifecycleConflictError("Agent Contract version was not found")
+        snapshot = version["contract_snapshot"]
+        model_policy = snapshot.get("model_policy", {})
+        if model_policy.get("activation_readiness") == "NEEDS_CONFIGURATION":
+            raise LifecycleConflictError(
+                "Agent Contract has unresolved capabilities and needs configuration"
+            )
+
+        tool_keys = list(dict.fromkeys(snapshot.get("tool_keys", [])))
+        if tool_keys:
+            rows = connection.execute(
+                """
+                SELECT tool.tool_key, tool.lifecycle_status, definition.availability,
+                       definition.configuration_status
+                FROM capabilities.tools AS tool
+                JOIN capabilities.definitions AS definition
+                  ON definition.capability_key = tool.capability_key
+                WHERE tool.tool_key = ANY(%s)
+                """,
+                (tool_keys,),
+            ).fetchall()
+            configured = {
+                row["tool_key"]
+                for row in rows
+                if row["lifecycle_status"] == "APPROVED"
+                and row["availability"] == "AVAILABLE"
+                and row["configuration_status"] == "CONFIGURED"
+            }
+            missing = set(tool_keys).difference(configured)
+            if missing:
+                legacy_rows = connection.execute(
+                    """
+                    SELECT tool_key FROM agents.tool_definitions
+                    WHERE tool_key = ANY(%s) AND lifecycle_status = 'APPROVED'
+                    """,
+                    (sorted(missing),),
+                ).fetchall()
+                configured.update(row["tool_key"] for row in legacy_rows)
+            missing = set(tool_keys).difference(configured)
+            if missing:
+                raise LifecycleConflictError(
+                    "Agent tools are unavailable or need configuration: "
+                    + ", ".join(sorted(missing))
+                )
+
+        permission_keys = list(dict.fromkeys(snapshot.get("permission_keys", [])))
+        if permission_keys:
+            rows = connection.execute(
+                """
+                SELECT permission_key FROM governance.permission_policies
+                WHERE agent_version_id = %s AND permission_key = ANY(%s)
+                  AND effect = 'ALLOW' AND lifecycle_status = 'APPROVED'
+                """,
+                (agent_version_id, permission_keys),
+            ).fetchall()
+            approved = {row["permission_key"] for row in rows}
+            missing = set(permission_keys).difference(approved)
+            if missing:
+                raise LifecycleConflictError(
+                    "Agent permissions are not independently approved: "
+                    + ", ".join(sorted(missing))
+                )
 
     def suspend(
         self, change_request_id: UUID, *, actor_user_id: UUID, reason: str, correlation_id: UUID

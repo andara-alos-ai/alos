@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ApiError, apiRequest as api } from "@/lib/api-client";
 
 import { formatRoleLabel } from "@/lib/dashboard-access";
 import {
-  ApiError,
   type AuditEvent,
   type Budget,
   canChangeBudget,
@@ -33,18 +33,6 @@ type DashboardData = {
 };
 
 type Foundation = Pick<DashboardData, "actor" | "workspaces" | "policy">;
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    cache: "no-store",
-    credentials: "same-origin",
-    ...init,
-  });
-  if (!response.ok) {
-    throw new ApiError(response.status);
-  }
-  return (await response.json()) as T;
-}
 
 export function GovernanceDashboard() {
   const router = useRouter();
@@ -148,11 +136,7 @@ export function GovernanceDashboard() {
   }
 
   async function logout() {
-    await fetch("/api/v1/auth/logout", {
-      method: "POST",
-      credentials: "same-origin",
-      cache: "no-store",
-    });
+    await api<void>("/api/v1/auth/logout", { method: "POST" });
     router.replace("/login");
     router.refresh();
   }
@@ -183,7 +167,7 @@ export function GovernanceDashboard() {
         <div className="header-actions">
           <span className="role-badge">{formatRoleLabel(data.actor.roles)}</span>
           {data.actor.roles.includes("IT_LEAD") ? <Link className="secondary-button button-link" href="/agents">Agent Registry</Link> : null}
-          {data.actor.roles.some((role) => ["DIRECTOR", "IT_LEAD", "QA_SECURITY"].includes(role)) ? <Link className="secondary-button button-link" href="/h5">Source Vault &amp; UAT</Link> : null}
+          {data.actor.roles.some((role) => ["DIRECTOR", "IT_LEAD", "QA_SECURITY"].includes(role)) ? <Link className="secondary-button button-link" href="/validation">Source Vault &amp; UAT</Link> : null}
           <Link className="secondary-button button-link" href="/releases">Release</Link>
           <button className="secondary-button" onClick={() => void logout()} type="button">Keluar</button>
         </div>

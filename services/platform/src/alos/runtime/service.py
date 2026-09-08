@@ -27,7 +27,14 @@ from alos.model_gateway import (
     ModelResponse,
 )
 from alos.persistence.database import psycopg_url
+from alos.security.tokens import ActorContext
 from alos.sources.registry import SourceRegistryRepository
+from alos.tools.executor import (
+    StructuredToolCall,
+    ToolExecutionDenied,
+    ToolExecutionError,
+    ToolExecutor,
+)
 
 RunStatus = Literal["SUCCEEDED", "FAILED", "BLOCKED"]
 H3_FIXTURE_ENVIRONMENTS = frozenset({"local", "test", "staging"})
@@ -62,6 +69,8 @@ class AgentRunRequest(BaseModel):
     workspace_id: UUID
     input: dict[str, Any] = Field(default_factory=dict)
     requested_tool_keys: list[str] = Field(default_factory=list)
+    tool_calls: list[StructuredToolCall] = Field(default_factory=list, max_length=20)
+    testing: bool = False
 
 
 class WorkspaceBudgetRequest(BaseModel):
@@ -137,6 +146,7 @@ class _ExecutionVersion:
     agent_key: str
     semantic_version: str
     contract: AgentContract
+    lifecycle_status: str = "DRAFT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,11 +171,13 @@ class AgentRuntime:
         gateway: ModelGateway,
         settings: Settings,
         close_gateway: Callable[[], None] | None = None,
+        tool_executor: ToolExecutor | None = None,
     ) -> None:
         self._repository = repository
         self._gateway = gateway
         self._settings = settings
         self._close_gateway = close_gateway
+        self._tool_executor = tool_executor
 
     def execute(
         self,
@@ -175,6 +187,8 @@ class AgentRuntime:
         organization_id: UUID,
         actor_user_id: UUID,
         correlation_id: UUID | None = None,
+        actor: ActorContext | None = None,
+        allow_draft: bool = True,
     ) -> AgentRunResult:
         correlation_id = correlation_id or uuid4()
         prepared = self._repository.prepare_run(
@@ -184,21 +198,84 @@ class AgentRuntime:
             actor_user_id=actor_user_id,
             correlation_id=correlation_id,
             max_output_tokens=self._max_output_tokens,
+            allow_draft=allow_draft,
         )
         if isinstance(prepared, AgentRunResult):
             self._close()
             return prepared
 
         response: ModelResponse | None = None
+        runtime_context = list(prepared.fixture_context)
         try:
+            self._record_step(
+                prepared,
+                "PLAN",
+                {
+                    "tool_call_count": len(request.tool_calls),
+                    "model_step_limit": 1,
+                    "tool_call_limit": 20,
+                },
+            )
+            if request.tool_calls and actor is None:
+                raise AgentRuntimeBlocked("typed tool execution requires an authenticated actor")
+            if request.tool_calls and self._tool_executor is None:
+                self._tool_executor = ToolExecutor(self._repository.database_url)
+            for call in request.tool_calls:
+                if actor is None:  # Narrowed for static analysis after the guard above.
+                    raise AgentRuntimeBlocked(
+                        "typed tool execution requires an authenticated actor"
+                    )
+                if self._tool_executor is None:
+                    raise AgentRuntimeBlocked("typed tool executor is unavailable")
+                self._record_step(
+                    prepared,
+                    "TOOL_REQUEST",
+                    {"tool_key": call.tool_key, "arguments_sha256": _digest(call.arguments)},
+                )
+                tool_result = self._tool_executor.execute(
+                    call,
+                    actor=actor,
+                    correlation_id=prepared.correlation_id,
+                    agent_version_id=prepared.execution.agent_version_id,
+                    agent_run_id=prepared.agent_run_id,
+                )
+                runtime_context.append(
+                    {
+                        "tool_key": call.tool_key,
+                        "capability_key": tool_result.capability_key,
+                        "observation": tool_result.output,
+                    }
+                )
+                self._record_step(
+                    prepared,
+                    "TOOL_RESULT",
+                    {
+                        "tool_key": call.tool_key,
+                        "status": tool_result.status,
+                        "elapsed_milliseconds": tool_result.elapsed_milliseconds,
+                    },
+                )
+            self._record_step(prepared, "MODEL", {"model_step": 1})
             model_request = self._model_request(
-                prepared.execution.contract, request, prepared.fixture_context
+                prepared.execution.contract, request, tuple(runtime_context)
             )
             response = self._gateway.generate(model_request)
             output = _parse_and_validate_output(
                 response.output_text, prepared.execution.contract.output_schema
             )
-            _validate_output_citations(output, prepared.fixture_context)
+            _validate_output_citations(output, tuple(runtime_context))
+        except (ToolExecutionDenied, ToolExecutionError) as error:
+            self._repository.complete_blocked(
+                prepared,
+                reason=str(error),
+                tool_key="TYPED_TOOL_EXECUTION",
+            )
+            return _blocked_result(
+                prepared,
+                error_code="TOOL_EXECUTION_BLOCKED",
+                tool_key="TYPED_TOOL_EXECUTION",
+                reason=str(error),
+            )
         except AgentRuntimeBlocked as error:
             self._repository.complete_failure(prepared, str(error))
             return _failure_result(prepared, "CONTRACT_POLICY_BLOCKED")
@@ -224,6 +301,11 @@ class AgentRuntime:
             self._close()
 
         self._repository.complete_success(prepared, response, output)
+        self._record_step(
+            prepared,
+            "FINAL",
+            {"output_sha256": _digest(output), "schema_valid": True},
+        )
         return AgentRunResult(
             agent_run_id=prepared.agent_run_id,
             agent_key=prepared.execution.agent_key,
@@ -267,6 +349,13 @@ class AgentRuntime:
         if self._close_gateway is not None:
             self._close_gateway()
 
+    def _record_step(
+        self, prepared: _PreparedRun, step_type: str, content: dict[str, Any]
+    ) -> None:
+        recorder = getattr(self._repository, "record_step", None)
+        if callable(recorder):
+            recorder(prepared, step_type, content)
+
 
 class AgentRuntimeRepository:
     """Persist executions, budgets, tool decisions, usage, and audit events."""
@@ -274,6 +363,10 @@ class AgentRuntimeRepository:
     def __init__(self, database_url: str, settings: Settings) -> None:
         self._database_url = psycopg_url(database_url)
         self._settings = settings
+
+    @property
+    def database_url(self) -> str:
+        return self._database_url
 
     def prepare_run(
         self,
@@ -284,13 +377,18 @@ class AgentRuntimeRepository:
         actor_user_id: UUID,
         correlation_id: UUID,
         max_output_tokens: int,
+        allow_draft: bool = True,
     ) -> _PreparedRun | AgentRunResult:
         with self._transaction() as connection:
             self._require_actor_workspace(
                 connection, organization_id, actor_user_id, request.workspace_id
             )
             execution = self._load_execution(
-                connection, organization_id, request.workspace_id, agent_key
+                connection,
+                organization_id,
+                request.workspace_id,
+                agent_key,
+                allow_draft=allow_draft,
             )
             input_hash = _digest(request.input)
             permission_error = self._evaluate_permissions(connection, execution)
@@ -412,11 +510,11 @@ class AgentRuntimeRepository:
                 entity_type="AGENT_RUN",
                 entity_id=agent_run_id,
                 correlation_id=correlation_id,
-                reason="Human requested a bounded read-only fixture Agent Runtime execution",
+                reason="Human requested a bounded shared Agent Runtime execution",
                 metadata={
                     "agent_key": execution.agent_key,
                     "version": execution.semantic_version,
-                    "execution_mode": "FIXTURE_READ_ONLY",
+                    "execution_mode": execution.lifecycle_status,
                 },
             )
             return _PreparedRun(
@@ -640,6 +738,23 @@ class AgentRuntimeRepository:
                 metadata={"agent_key": prepared.execution.agent_key},
             )
 
+    def record_step(
+        self,
+        prepared: _PreparedRun,
+        step_type: str,
+        content: dict[str, Any],
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO runtime.run_steps (agent_run_id, step_sequence, step_type, content)
+                SELECT %s, coalesce(max(step_sequence), 0) + 1, %s, %s
+                FROM runtime.run_steps
+                WHERE agent_run_id = %s
+                """,
+                (prepared.agent_run_id, step_type, Jsonb(content), prepared.agent_run_id),
+            )
+
     def complete_failure(
         self, prepared: _PreparedRun, reason: str, response: ModelResponse | None = None
     ) -> None:
@@ -658,6 +773,14 @@ class AgentRuntimeRepository:
                 WHERE agent_run_id = %s
                 """,
                 (Jsonb({"reason": reason}), prepared.agent_run_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO runtime.run_steps (agent_run_id, step_sequence, step_type, content)
+                SELECT %s, coalesce(max(step_sequence), 0) + 1, 'FAILED', %s
+                FROM runtime.run_steps WHERE agent_run_id = %s
+                """,
+                (prepared.agent_run_id, Jsonb({"reason": reason}), prepared.agent_run_id),
             )
             self._append_audit(
                 connection,
@@ -693,6 +816,18 @@ class AgentRuntimeRepository:
                 """,
                 (prepared.agent_run_id, tool_key, reason),
             )
+            connection.execute(
+                """
+                INSERT INTO runtime.run_steps (agent_run_id, step_sequence, step_type, content)
+                SELECT %s, coalesce(max(step_sequence), 0) + 1, 'BLOCKED', %s
+                FROM runtime.run_steps WHERE agent_run_id = %s
+                """,
+                (
+                    prepared.agent_run_id,
+                    Jsonb({"reason": reason, "tool_key": tool_key}),
+                    prepared.agent_run_id,
+                ),
+            )
             self._append_audit(
                 connection,
                 organization_id=prepared.organization_id,
@@ -711,28 +846,33 @@ class AgentRuntimeRepository:
         organization_id: UUID,
         workspace_id: UUID,
         agent_key: str,
+        *,
+        allow_draft: bool,
     ) -> _ExecutionVersion:
-        if not h3_fixture_runtime_enabled(self._settings.environment):
-            raise AgentRuntimeBlocked(
-                "fixture runtime execution is disabled outside local/test/staging"
-            )
-        allow_active_version = self._settings.environment in {"local", "test"}
+        allow_test_draft = allow_draft and self._settings.environment in {
+            "local",
+            "test",
+            "staging",
+        }
         row = connection.execute(
             """
             SELECT contract.agent_contract_id, version.agent_version_id, contract.agent_key,
-                   version.semantic_version, version.contract_snapshot
+                   version.semantic_version, version.lifecycle_status, version.contract_snapshot
             FROM agents.contracts AS contract
             JOIN agents.registry AS registry
               ON registry.agent_contract_id = contract.agent_contract_id
             JOIN LATERAL (
-                SELECT agent_version_id, semantic_version, contract_snapshot
+                SELECT agent_version_id, semantic_version, lifecycle_status, contract_snapshot
                 FROM agents.versions
                 WHERE agent_contract_id = contract.agent_contract_id
                   AND (
-                      lifecycle_status = 'DRAFT'
-                      OR (%s AND agent_version_id = registry.active_version_id)
+                      (
+                          agent_version_id = registry.active_version_id
+                          AND lifecycle_status = 'ACTIVE'
+                      )
+                      OR (%s AND lifecycle_status = 'DRAFT')
                   )
-                ORDER BY CASE WHEN lifecycle_status = 'DRAFT' THEN 0 ELSE 1 END,
+                ORDER BY CASE WHEN lifecycle_status = 'ACTIVE' THEN 0 ELSE 1 END,
                          created_at DESC, agent_version_id DESC
                 LIMIT 1
             ) AS version ON true
@@ -740,10 +880,10 @@ class AgentRuntimeRepository:
               AND contract.workspace_id = %s
               AND contract.agent_key = %s
             """,
-            (allow_active_version, organization_id, workspace_id, agent_key),
+            (allow_test_draft, organization_id, workspace_id, agent_key),
         ).fetchone()
         if row is None:
-            raise AgentRuntimeBlocked("an eligible DRAFT Agent Contract was not found")
+            raise AgentRuntimeBlocked("an eligible ACTIVE Agent Version was not found")
         kill_switch = connection.execute(
             """
             SELECT 1 FROM governance.kill_switches
@@ -762,6 +902,7 @@ class AgentRuntimeRepository:
             agent_version_id=row["agent_version_id"],
             agent_key=row["agent_key"],
             semantic_version=row["semantic_version"],
+            lifecycle_status=row["lifecycle_status"],
             contract=contract,
         )
 

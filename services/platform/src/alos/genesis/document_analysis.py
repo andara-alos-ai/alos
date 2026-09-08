@@ -486,7 +486,7 @@ class GenesisDocumentAnalysisService:
             workflow=updated, source=source, artifact=artifact, draft=None
         )
 
-    def create_h4_handoff(
+    def create_governance_handoff(
         self,
         workflow_id: UUID,
         request: GenesisApprovalHandoffRequest,
@@ -502,7 +502,7 @@ class GenesisDocumentAnalysisService:
         artifact = self._history.record_system_artifact(
             workflow.conversation_id,
             "RELEASE_PROPOSAL",
-            _h4_handoff_artifact_content(workflow, source, request.note),
+            _governance_handoff_artifact_content(workflow, source, request.note),
             organization_id=organization_id,
             actor_user_id=actor_user_id,
             correlation_id=correlation_id,
@@ -510,14 +510,14 @@ class GenesisDocumentAnalysisService:
         updated = self._workflows.advance(
             workflow_id,
             expected_status="AGENT_PROPOSAL_DRAFT",
-            next_status="READY_FOR_H4",
+            next_status="READY_FOR_GOVERNANCE",
             organization_id=organization_id,
             actor_user_id=actor_user_id,
             correlation_id=correlation_id,
-            audit_action="GENESIS_DOCUMENT_WORKFLOW_H4_HANDOFF_RECORDED",
-            audit_reason="Genesis recorded a handoff to the existing H4 human approval path",
+            audit_action="GENESIS_DOCUMENT_WORKFLOW_GOVERNANCE_HANDOFF_RECORDED",
+            audit_reason="GENESIS recorded a handoff to the governed agent release lifecycle",
             metadata={"artifact_id": str(artifact.artifact_id), "note": request.note.strip()},
-            artifact_column="h4_handoff_artifact_id",
+            artifact_column="governance_handoff_artifact_id",
             artifact_id=artifact.artifact_id,
         )
         return GenesisDocumentWorkflowStageResult(
@@ -894,11 +894,11 @@ def _agent_proposal_artifact_content(
                 "Do not activate, release, or approve any Agent Contract.",
             ],
         },
-        "status": "DRAFT_RECOMMENDATION_ONLY",
-        "next_owner": "IT_LEAD",
+        "status": "AGENT_CONTRACT_DRAFT_REQUESTED",
+        "next_owner": "AGENT_GOVERNANCE",
         "required_human_controls": [
-            "IT Lead creates a separate Agent Registry DRAFT with final controls.",
-            "Independent H4 tests, reviews, and approval remain mandatory.",
+            "Backend policy resolves capabilities, tools, permissions, and risk.",
+            "Independent tests, business review, technical review, and approval are mandatory.",
         ],
     }
 
@@ -910,27 +910,23 @@ def _suggest_agent_key(source_title: str) -> str:
     return f"GENESIS_{suffix}"[:80].rstrip("_")
 
 
-def _h4_handoff_artifact_content(
+def _governance_handoff_artifact_content(
     workflow: GenesisDocumentWorkflowRecord,
     source: GenesisDocumentSourceReference,
     note: str,
 ) -> dict[str, Any]:
     return {
-        "kind": "H4_HANDOFF",
+        "kind": "GOVERNANCE_HANDOFF",
         **_workflow_source_payload(workflow, source),
         "director_note": note.strip(),
-        "status": "PENDING_AGENT_REGISTRY_DRAFT",
+        "status": "PENDING_GOVERNANCE_REVIEW",
         "handoff": {
-            "next_owner": "IT_LEAD",
-            "required_action": "Create a separate Agent Registry DRAFT from the proposal.",
-            "not_created": (
-                "No Agent Contract, version, release request, or activation was created."
-            ),
-            "h4_requirements": [
-                "Create the Agent Registry DRAFT with explicit tool and permission controls.",
+            "next_owner": "AGENT_GOVERNANCE",
+            "required_action": "Review the linked Agent Contract and its generated tests.",
+            "governance_requirements": [
+                "Approve explicit tool and permission controls independently.",
                 "Run the required positive, negative, regression, security, and recovery tests.",
-                "Record independent reviewer and approver decisions under H4 segregation "
-                "of duties.",
+                "Record independent business, technical, and final approval decisions.",
             ],
         },
     }

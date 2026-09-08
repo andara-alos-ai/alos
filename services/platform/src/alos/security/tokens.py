@@ -7,7 +7,7 @@ from fastapi import Cookie, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from alos.config import Settings, get_settings
-from alos.identity import DivisionCode, HumanRole
+from alos.identity import DataScope, DivisionCode, HumanRole
 
 
 class LocalTokenRequest(BaseModel):
@@ -16,6 +16,8 @@ class LocalTokenRequest(BaseModel):
     roles: list[HumanRole] = Field(min_length=1)
     division_codes: list[DivisionCode] = Field(default_factory=list)
     workspace_ids: list[UUID] = Field(default_factory=list)
+    data_scope: DataScope = DataScope.OWN_ASSIGNED
+    permissions: list[str] = Field(default_factory=list)
 
 
 class ActorContext(LocalTokenRequest):
@@ -36,6 +38,8 @@ def issue_access_token(request: LocalTokenRequest, settings: Settings) -> str:
         "roles": [role.value for role in request.roles],
         "division_codes": [division.value for division in request.division_codes],
         "workspace_ids": [str(workspace_id) for workspace_id in request.workspace_ids],
+        "data_scope": request.data_scope.value,
+        "permissions": request.permissions,
         "iat": now,
         "exp": expires_at,
         "iss": settings.auth_issuer,
@@ -78,6 +82,8 @@ def decode_access_token(token: str, settings: Settings) -> ActorContext:
             roles=claims["roles"],
             division_codes=claims["division_codes"],
             workspace_ids=claims["workspace_ids"],
+            data_scope=claims.get("data_scope", DataScope.OWN_ASSIGNED.value),
+            permissions=claims.get("permissions", []),
             issued_at=datetime.fromtimestamp(claims["iat"], UTC),
             expires_at=datetime.fromtimestamp(claims["exp"], UTC),
         )

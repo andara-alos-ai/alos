@@ -195,8 +195,8 @@ def test_director_document_analysis_binds_approved_source_to_a_draft() -> None:
         )
         assert proposal.workflow.status == "AGENT_PROPOSAL_DRAFT"
         assert proposal.draft is None
-        assert proposal.artifact.content["status"] == "DRAFT_RECOMMENDATION_ONLY"
-        handoff = service.create_h4_handoff(
+        assert proposal.artifact.content["status"] == "AGENT_CONTRACT_DRAFT_REQUESTED"
+        handoff = service.create_governance_handoff(
             result.workflow.workflow_id,
             GenesisApprovalHandoffRequest(
                 note="Direktur meminta IT Lead menyiapkan draft kontrak."
@@ -205,9 +205,9 @@ def test_director_document_analysis_binds_approved_source_to_a_draft() -> None:
             actor_user_id=director_id,
             correlation_id=uuid4(),
         )
-        assert handoff.workflow.status == "READY_FOR_H4"
+        assert handoff.workflow.status == "READY_FOR_GOVERNANCE"
         assert handoff.draft is None
-        assert handoff.artifact.content["handoff"]["not_created"].startswith("No Agent Contract")
+        assert handoff.artifact.content["kind"] == "GOVERNANCE_HANDOFF"
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM agents.contracts").fetchone() == (0,)
             assert connection.execute(

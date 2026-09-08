@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ApiError, apiMessage, apiRequest } from "@/lib/api-client";
 
 import {
   canApproveDocument,
@@ -48,8 +49,6 @@ type DocumentCenterProps = {
   actor: SessionActor;
   mode: "documents" | "genesis";
 };
-
-type ApiFailure = { detail?: string };
 
 type GenesisHistoryConversation = GenesisDocumentAnalysisResult["conversation"];
 
@@ -131,12 +130,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   const refreshDocuments = useCallback(async (nextWorkspaceId: string) => {
     setError(null);
     try {
-      const response = await fetch(`/api/v1/documents?workspace_id=${encodeURIComponent(nextWorkspaceId)}`, {
-        credentials: "same-origin",
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(await errorDetail(response));
-      const items = (await response.json()) as DocumentRecord[];
+      const items = await apiRequest<DocumentRecord[]>(`/api/v1/documents?workspace_id=${encodeURIComponent(nextWorkspaceId)}`);
       setDocuments(items);
       if (mode === "genesis") {
         setAnalysisSourceId((current) => (
@@ -161,12 +155,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
       return;
     }
     try {
-      const response = await fetch(`/api/v1/genesis/uploads?workspace_id=${encodeURIComponent(nextWorkspaceId)}`, {
-        credentials: "same-origin",
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(await errorDetail(response));
-      setUploads((await response.json()) as GenesisUploadRecord[]);
+      setUploads(await apiRequest<GenesisUploadRecord[]>(`/api/v1/genesis/uploads?workspace_id=${encodeURIComponent(nextWorkspaceId)}`));
     } catch (failure) {
       setError(messageFrom(failure));
     }
@@ -175,30 +164,18 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   useEffect(() => {
     async function initialize() {
       try {
-        const response = await fetch("/api/v1/workspaces", { credentials: "same-origin", cache: "no-store" });
-        if (!response.ok) throw new Error(await errorDetail(response));
-        const items = (await response.json()) as DocumentWorkspace[];
+        const items = await apiRequest<DocumentWorkspace[]>("/api/v1/workspaces");
         setWorkspaces(items);
         const firstWorkspaceId = items[0]?.workspace_id ?? "";
         setWorkspaceId(firstWorkspaceId);
         if (firstWorkspaceId) {
-          const documentResponse = await fetch(
-            `/api/v1/documents?workspace_id=${encodeURIComponent(firstWorkspaceId)}`,
-            { credentials: "same-origin", cache: "no-store" },
-          );
-          if (!documentResponse.ok) throw new Error(await errorDetail(documentResponse));
-          const documentItems = (await documentResponse.json()) as DocumentRecord[];
+          const documentItems = await apiRequest<DocumentRecord[]>(`/api/v1/documents?workspace_id=${encodeURIComponent(firstWorkspaceId)}`);
           setDocuments(documentItems);
           if (mode === "genesis") {
             setAnalysisSourceId(documentItems.find(canGenesisReadDocument)?.document_id ?? "");
           }
           if (mode === "genesis" && canUploadToGenesis) {
-            const uploadResponse = await fetch(
-              `/api/v1/genesis/uploads?workspace_id=${encodeURIComponent(firstWorkspaceId)}`,
-              { credentials: "same-origin", cache: "no-store" },
-            );
-            if (!uploadResponse.ok) throw new Error(await errorDetail(uploadResponse));
-            setUploads((await uploadResponse.json()) as GenesisUploadRecord[]);
+            setUploads(await apiRequest<GenesisUploadRecord[]>(`/api/v1/genesis/uploads?workspace_id=${encodeURIComponent(firstWorkspaceId)}`));
           }
         }
       } catch (failure) {
@@ -228,9 +205,7 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
   async function selectDocument(documentId: string) {
     setError(null);
     try {
-      const response = await fetch(`/api/v1/documents/${documentId}`, { credentials: "same-origin", cache: "no-store" });
-      if (!response.ok) throw new Error(await errorDetail(response));
-      setSelected((await response.json()) as DocumentDetail);
+      setSelected(await apiRequest<DocumentDetail>(`/api/v1/documents/${documentId}`));
     } catch (failure) {
       setError(messageFrom(failure));
     }
@@ -244,14 +219,10 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     setNotice(null);
     const payload = { workspace_id: workspaceId, title, content, category: "GENERAL", classification: "INTERNAL" };
     try {
-      const response = await fetch("/api/v1/documents/drafts", {
+      const document = await apiRequest<DocumentRecord>("/api/v1/documents/drafts", {
         method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error(await errorDetail(response));
-      const document = (await response.json()) as DocumentRecord;
       setTitle("");
       setContent("");
       setComposerOpen(false);
@@ -272,18 +243,14 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/v1/genesis/document-analysis", {
+      const result = await apiRequest<GenesisDocumentAnalysisResult>("/api/v1/genesis/document-analysis", {
         method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspace_id: workspaceId,
           source_document_id: analysisSourceId,
           prompt: analysisPrompt,
         }),
       });
-      if (!response.ok) throw new Error(await errorDetail(response));
-      const result = (await response.json()) as GenesisDocumentAnalysisResult;
       setAnalysisResult(result);
       setConversationMessages([]);
       setDirectorReply("");
@@ -307,18 +274,10 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     setNotice(null);
     try {
       const base = `/api/v1/genesis/conversations/${encodeURIComponent(document.genesis_conversation_id)}`;
-      const [conversationResponse, messageResponse, artifactResponse] = await Promise.all([
-        fetch(base, { credentials: "same-origin", cache: "no-store" }),
-        fetch(`${base}/messages`, { credentials: "same-origin", cache: "no-store" }),
-        fetch(`${base}/artifacts`, { credentials: "same-origin", cache: "no-store" }),
-      ]);
-      if (!conversationResponse.ok) throw new Error(await errorDetail(conversationResponse));
-      if (!messageResponse.ok) throw new Error(await errorDetail(messageResponse));
-      if (!artifactResponse.ok) throw new Error(await errorDetail(artifactResponse));
       const [conversation, messages, artifacts] = await Promise.all([
-        conversationResponse.json() as Promise<GenesisHistoryConversation>,
-        messageResponse.json() as Promise<GenesisHistoryMessage[]>,
-        artifactResponse.json() as Promise<GenesisHistoryArtifact[]>,
+        apiRequest<GenesisHistoryConversation>(base),
+        apiRequest<GenesisHistoryMessage[]>(`${base}/messages`),
+        apiRequest<GenesisHistoryArtifact[]>(`${base}/artifacts`),
       ]);
       const restored = restoreGenesisAnalysis(
         document,
@@ -359,28 +318,13 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     setConversationMessages((current) => [...current, optimistic]);
     setDirectorReply("");
     try {
-      const response = await fetch(
+      const result = await apiRequest<GenesisFollowUpResponse>(
         `/api/v1/genesis/conversations/${encodeURIComponent(analysisResult.conversation.conversation_id)}/follow-ups`,
         {
           method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ correlation_id: correlationId, content: message }),
         },
       );
-      const payload = await response.json().catch(() => null) as unknown;
-      if (!response.ok && isGenesisFollowUpFailure(payload)) {
-        setFollowUpFailure(payload);
-        setConversationMessages((current) => (
-          rollbackOptimisticMessage(current, correlationId)
-        ));
-        setDirectorReply(message);
-        return;
-      }
-      if (!response.ok) {
-        throw new Error(apiFailureMessage(payload));
-      }
-      const result = payload as GenesisFollowUpResponse;
       setConversationMessages((current) => (
         settleFollowUpMessages(current, correlationId, result)
       ));
@@ -388,6 +332,10 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     } catch (failure) {
       setConversationMessages((current) => rollbackOptimisticMessage(current, correlationId));
       setDirectorReply(message);
+      if (failure instanceof ApiError && isGenesisFollowUpFailure(failure.payload)) {
+        setFollowUpFailure(failure.payload);
+        return;
+      }
       setError(messageFrom(failure));
     } finally {
       directorReplyInFlightRef.current = false;
@@ -420,13 +368,10 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     payload.set("workspace_id", workspaceId);
     payload.set("file", file);
     try {
-      const response = await fetch("/api/v1/genesis/uploads", {
+      const uploaded = await apiRequest<GenesisUploadRecord>("/api/v1/genesis/uploads", {
         method: "POST",
-        credentials: "same-origin",
         body: payload,
       });
-      if (!response.ok) throw new Error(await errorDetail(response));
-      const uploaded = (await response.json()) as GenesisUploadRecord;
       setUploads((current) => [uploaded, ...current.filter((item) => item.genesis_upload_id !== uploaded.genesis_upload_id)]);
       setNotice(
         uploaded.extraction_complete
@@ -466,14 +411,10 @@ export function DocumentCenter({ actor, mode }: DocumentCenterProps) {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch(endpoint, {
+      const detail = await apiRequest<DocumentDetail>(endpoint, {
         method: "POST",
-        credentials: "same-origin",
-        headers: body ? { "Content-Type": "application/json" } : undefined,
         body: body ? JSON.stringify(body) : undefined,
       });
-      if (!response.ok) throw new Error(await errorDetail(response));
-      const detail = (await response.json()) as DocumentDetail;
       setSelected(detail);
       setNotice(success);
       await refreshDocuments(workspaceId);
@@ -905,17 +846,6 @@ function DocumentDetailPanel({ actor, detail, pendingChecks, checkNotes, reviewN
   </article>;
 }
 
-async function errorDetail(response: Response): Promise<string> {
-  const payload = await response.json().catch(() => null) as ApiFailure | null;
-  return payload?.detail ?? "Permintaan tidak dapat diproses.";
-}
-
-function apiFailureMessage(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "Permintaan tidak dapat diproses.";
-  const detail = (payload as ApiFailure).detail;
-  return typeof detail === "string" ? detail : "Permintaan tidak dapat diproses.";
-}
-
 function messageFrom(failure: unknown): string {
-  return failure instanceof Error ? failure.message : "Terjadi kesalahan yang tidak diketahui.";
+  return apiMessage(failure);
 }

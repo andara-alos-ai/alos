@@ -1,5 +1,5 @@
-import { H5PilotConsole } from "@/components/h5-pilot-console";
+import { redirect } from "next/navigation";
 
 export default function H5PilotPage() {
-  return <H5PilotConsole />;
+  redirect("/validation");
 }

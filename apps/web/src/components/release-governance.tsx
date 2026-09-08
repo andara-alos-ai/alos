@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ApiError, apiRequest as api } from "@/lib/api-client";
 
 import type { AgentRecord } from "@/lib/agent-registry";
-import { ApiError, apiErrorDetail, formatDateTime, type SessionActor, type Workspace } from "@/lib/governance";
+import { formatDateTime, type SessionActor, type Workspace } from "@/lib/governance";
 import {
   canApproveRelease,
   canCheckRelease,
@@ -35,15 +36,6 @@ type ReleaseData = {
 };
 
 type ReleaseFoundation = Pick<ReleaseData, "actor" | "workspaces">;
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, { cache: "no-store", credentials: "same-origin", ...init });
-  if (!response.ok) {
-    const payload: unknown = await response.json().catch(() => undefined);
-    throw new ApiError(response.status, apiErrorDetail(payload));
-  }
-  return (await response.json()) as T;
-}
 
 export function ReleaseGovernance() {
   const router = useRouter();
@@ -254,7 +246,7 @@ export function ReleaseGovernance() {
   }
 
   async function logout() {
-    await fetch("/api/v1/auth/logout", { method: "POST", credentials: "same-origin", cache: "no-store" });
+    await api<void>("/api/v1/auth/logout", { method: "POST" });
     router.replace("/login");
     router.refresh();
   }
@@ -265,11 +257,11 @@ export function ReleaseGovernance() {
   return (
     <main className="release-shell">
       <header className="dashboard-header registry-header">
-        <div><p className="eyebrow">ALOS / H4 RELEASE</p><h1>Release Governance</h1><p className="muted">Lifecycle berotorisasi: DRAFT → RUN → TEST → REVIEW → APPROVED → ACTIVE.</p></div>
+        <div><p className="eyebrow">ALOS / RELEASE GOVERNANCE</p><h1>Release Governance</h1><p className="muted">Lifecycle berotorisasi: DRAFT → RUN → TEST → REVIEW → APPROVED → ACTIVE.</p></div>
         <div className="header-actions"><span className="role-badge">{data.actor.roles.join(" · ")}</span><Link className="secondary-button button-link" href="/governance">Governance</Link><Link className="secondary-button button-link" href="/agents">Registry</Link><button className="secondary-button" onClick={() => void logout()} type="button">Keluar</button></div>
       </header>
 
-      <section className="workspace-bar registry-workspace" aria-label="Pemilihan workspace H4">
+      <section className="workspace-bar registry-workspace" aria-label="Pemilihan workspace release">
         <div><label htmlFor="release-workspace">Workspace aktif</label><select id="release-workspace" onChange={(event) => void selectWorkspace(event.target.value)} value={workspaceId}>{data.workspaces.map((workspace) => <option key={workspace.workspace_id} value={workspace.workspace_id}>{workspace.name} · {workspace.workspace_key}</option>)}</select></div>
         <p>SoD tidak dapat dilewati oleh prompt: Maker, Checker, dua Reviewer, dan Approver harus akun yang berbeda.</p>
       </section>
@@ -278,7 +270,7 @@ export function ReleaseGovernance() {
       {notice ? <p className="banner-success" role="status">{notice}</p> : null}
 
       <section className="release-grid">
-        <article className="panel release-list-panel"><div className="panel-heading"><div><p className="eyebrow">RELEASE REQUESTS</p><h2>{data.requests.length} Request</h2></div><span className="permission-readonly">Audit persist</span></div><ol className="agent-list">{data.requests.map((request) => <li key={request.change_request_id}><button className={selectedRequestId === request.change_request_id ? "agent-row selected" : "agent-row"} onClick={() => void selectRequest(request.change_request_id)} type="button"><span className="agent-level">H4</span><span><strong>{request.agent_key}</strong><small>{request.semantic_version} · {request.state}</small></span><span className={`lifecycle-pill lifecycle-${request.state.toLowerCase()}`}>{request.state}</span></button></li>)}</ol>{data.requests.length === 0 ? <p className="empty-state">Belum ada release request. Buat DRAFT lalu buka request pertama.</p> : null}</article>
+        <article className="panel release-list-panel"><div className="panel-heading"><div><p className="eyebrow">RELEASE REQUESTS</p><h2>{data.requests.length} Request</h2></div><span className="permission-readonly">Audit persist</span></div><ol className="agent-list">{data.requests.map((request) => <li key={request.change_request_id}><button className={selectedRequestId === request.change_request_id ? "agent-row selected" : "agent-row"} onClick={() => void selectRequest(request.change_request_id)} type="button"><span className="agent-level">REL</span><span><strong>{request.agent_key}</strong><small>{request.semantic_version} · {request.state}</small></span><span className={`lifecycle-pill lifecycle-${request.state.toLowerCase()}`}>{request.state}</span></button></li>)}</ol>{data.requests.length === 0 ? <p className="empty-state">Belum ada release request. Buat DRAFT lalu buka request pertama.</p> : null}</article>
 
         <section className="release-content">
           <article className="panel designer-panel">
@@ -326,12 +318,12 @@ function handleError(error: unknown, setError: (message: string) => void, router
   if (error instanceof ApiError && error.status === 401) {
     router.replace("/login");
   } else if (error instanceof ApiError && error.status === 403) {
-    setError("Akun ini tidak memiliki peran atau akses workspace untuk aksi H4 tersebut.");
+    setError("Akun ini tidak memiliki peran atau akses workspace untuk aksi release tersebut.");
   } else if (error instanceof ApiError) {
     setError(releaseErrorMessage(error.detail));
   } else if (error instanceof Error) {
     setError(error.message);
   } else {
-    setError("Permintaan H4 tidak dapat diproses.");
+    setError("Permintaan release tidak dapat diproses.");
   }
 }

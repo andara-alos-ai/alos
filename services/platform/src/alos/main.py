@@ -20,6 +20,7 @@ from alos.agents.registry import (
 )
 from alos.agents.validation_catalog import validation_agent_requests
 from alos.audit.reader import AuditEventRecord, AuditReader
+from alos.authorization import can_govern_agents
 from alos.config import get_settings
 from alos.documents.center import (
     ChecklistCompletionRequest,
@@ -33,10 +34,19 @@ from alos.documents.center import (
     DocumentReviewDecisionRequest,
     GenesisDocumentDraftRequest,
 )
+from alos.entrypoints.documents_api import router as documents_intelligence_router
+from alos.entrypoints.genesis_agents_api import create_genesis_agent_designer
+from alos.entrypoints.genesis_agents_api import router as genesis_agents_router
+from alos.entrypoints.genesis_chat_api import router as genesis_chat_router
+from alos.entrypoints.integrations_api import router as integrations_router
+from alos.entrypoints.jobs_api import router as jobs_router
+from alos.entrypoints.operational_api import router as operational_router
+from alos.entrypoints.projects_api import router as projects_router
 from alos.executive_dashboard import (
     ExecutiveDashboardRepository,
     ExecutiveDashboardSnapshot,
 )
+from alos.genesis.agent_designer import AgentDesignRequest, GenesisAgentDesignerError
 from alos.genesis.document_analysis import (
     GenesisDocumentAnalysisError,
     GenesisDocumentAnalysisRequest,
@@ -86,6 +96,8 @@ from alos.genesis.uploads import (
     GenesisUploadRecord,
     GenesisUploadRepository,
     GenesisUploadService,
+    S3GenesisUploadStorage,
+    object_storage_is_ready,
 )
 from alos.identity import DivisionCode, HumanRole
 from alos.identity.authentication import (
@@ -146,6 +158,7 @@ from alos.runtime.service import (
     WorkspaceBudgetRequest,
     WorkspaceUsageSummary,
 )
+from alos.security.middleware import install_security_middleware, metrics
 from alos.security.tokens import (
     SESSION_COOKIE_NAME,
     ActorContext,
@@ -176,6 +189,14 @@ from alos.tools.registry import (
 )
 
 app = FastAPI(title="ALOS", version="0.2.0")
+install_security_middleware(app, get_settings())
+app.include_router(operational_router)
+app.include_router(documents_intelligence_router)
+app.include_router(genesis_agents_router)
+app.include_router(genesis_chat_router)
+app.include_router(jobs_router)
+app.include_router(integrations_router)
+app.include_router(projects_router)
 
 
 class AgentDesignerRequest(BaseModel):
@@ -367,9 +388,14 @@ def get_genesis_upload_repository() -> GenesisUploadRepository:
 
 def get_genesis_upload_service() -> GenesisUploadService:
     settings = get_settings()
+    storage = (
+        S3GenesisUploadStorage(settings)
+        if settings.object_storage_provider == "s3"
+        else FilesystemGenesisUploadStorage(settings)
+    )
     return GenesisUploadService(
         get_genesis_upload_repository(),
-        FilesystemGenesisUploadStorage(settings),
+        storage,
         get_document_center_repository(),
     )
 
@@ -558,14 +584,25 @@ def health() -> dict[str, str]:
     }
 
 
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics() -> Response:
+    return Response(content=metrics.prometheus(), media_type="text/plain; version=0.0.4")
+
+
 @app.get("/health/ready")
 def readiness() -> dict[str, str]:
-    if not database_is_ready(get_settings().database_url):
+    settings = get_settings()
+    if not database_is_ready(settings.database_url):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="database is not ready",
         )
-    return {"status": "ok", "database": "ready"}
+    if not object_storage_is_ready(settings):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="object storage is not ready",
+        )
+    return {"status": "ok", "database": "ready", "object_storage": "ready"}
 
 
 @app.post("/api/v1/auth/local-token")
@@ -591,6 +628,8 @@ def login(request: PasswordLoginRequest, response: Response) -> AuthenticationPr
             roles=principal.roles,
             division_codes=principal.division_codes,
             workspace_ids=principal.workspace_ids,
+            data_scope=principal.data_scope,
+            permissions=principal.permissions,
         ),
         settings,
     )
@@ -1180,42 +1219,77 @@ def create_genesis_completion_draft(
 
 @app.post(
     "/api/v1/genesis/document-workflows/{workflow_id}/agent-proposal",
-    response_model=GenesisDocumentWorkflowStageResult,
 )
 def create_genesis_agent_proposal(
     workflow_id: UUID,
     request: GenesisAgentProposalRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
-) -> GenesisDocumentWorkflowStageResult:
+) -> dict[str, object]:
     require_genesis_director(actor)
+    correlation_id = uuid4()
+
+    def close_gateway() -> None:
+        return None
+
     try:
-        return get_genesis_document_analysis_service().create_agent_proposal(
+        stage = get_genesis_document_analysis_service().create_agent_proposal(
             workflow_id,
             request,
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
-            correlation_id=uuid4(),
+            correlation_id=correlation_id,
         )
+        designer, close_gateway = create_genesis_agent_designer(
+            get_settings(), deterministic=False
+        )
+        design = designer.design(
+            AgentDesignRequest(
+                workspace_id=stage.workflow.workspace_id,
+                requirement=(
+                    f"{request.objective.strip()} Source requirement: "
+                    f"{stage.source.title} version {stage.source.version_number}."
+                ),
+                name=request.name,
+            ),
+            actor,
+            correlation_id=correlation_id,
+        )
+        get_genesis_document_workflow_repository().link_agent_contract(
+            workflow_id,
+            agent_contract_id=design.draft.agent_contract_id,
+            release_change_request_id=design.release_request.change_request_id,
+            organization_id=actor.organization_id,
+            actor_user_id=actor.user_id,
+            correlation_id=correlation_id,
+        )
+        return {
+            **stage.model_dump(mode="json"),
+            "agent_design": design.model_dump(mode="json"),
+        }
     except GenesisDocumentAnalysisError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except GenesisDocumentWorkflowError as error:
         raise genesis_document_workflow_http_error(error) from error
     except GenesisHistoryError as error:
         raise genesis_http_error(error) from error
+    except (GenesisAgentDesignerError, AgentRegistryError, ReleaseGovernanceError) as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    finally:
+        close_gateway()
 
 
 @app.post(
-    "/api/v1/genesis/document-workflows/{workflow_id}/h4-handoff",
+    "/api/v1/genesis/document-workflows/{workflow_id}/governance-handoff",
     response_model=GenesisDocumentWorkflowStageResult,
 )
-def create_genesis_h4_handoff(
+def create_genesis_governance_handoff(
     workflow_id: UUID,
     request: GenesisApprovalHandoffRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> GenesisDocumentWorkflowStageResult:
     require_genesis_director(actor)
     try:
-        return get_genesis_document_analysis_service().create_h4_handoff(
+        return get_genesis_document_analysis_service().create_governance_handoff(
             workflow_id,
             request,
             organization_id=actor.organization_id,
@@ -1727,7 +1801,8 @@ def _h5_control_summary(organization_id: UUID, workspace_id: UUID) -> H5ControlS
     )
 
 
-@app.get("/api/v1/h5/validation-controls", response_model=H5ControlSummary)
+@app.get("/api/v1/validation/controls", response_model=H5ControlSummary)
+@app.get("/api/v1/h5/validation-controls", response_model=H5ControlSummary, include_in_schema=False)
 def get_h5_validation_controls(
     workspace_id: UUID,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
@@ -1738,7 +1813,8 @@ def get_h5_validation_controls(
     return _h5_control_summary(actor.organization_id, workspace_id)
 
 
-@app.post("/api/v1/h5/validation-runs", response_model=AgentRunResult)
+@app.post("/api/v1/validation/runs", response_model=AgentRunResult)
+@app.post("/api/v1/h5/validation-runs", response_model=AgentRunResult, include_in_schema=False)
 def run_h5_validation_fixture(
     request: H5ValidationRunRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
@@ -1775,7 +1851,8 @@ def run_h5_validation_fixture(
         raise runtime_http_error(error) from error
 
 
-@app.post("/api/v1/h5/validation-agents/drafts")
+@app.post("/api/v1/validation/agents/drafts")
+@app.post("/api/v1/h5/validation-agents/drafts", include_in_schema=False)
 def create_h5_validation_agent_drafts(
     request: H5PilotRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
@@ -1834,7 +1911,8 @@ def create_h5_validation_agent_drafts(
     return {"workspace_id": str(request.workspace_id), "agents": results}
 
 
-@app.post("/api/v1/h5/validation-controls/drafts")
+@app.post("/api/v1/validation/controls/drafts")
+@app.post("/api/v1/h5/validation-controls/drafts", include_in_schema=False)
 def create_h5_validation_control_drafts(
     request: H5PilotRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
@@ -2080,9 +2158,11 @@ def run_agent(
     request: AgentRunRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> AgentRunResult:
-    # H3 is limited to IT Lead-controlled fixture execution. Broader runtime
-    # authority is introduced only after lifecycle/review gates are complete.
-    require_agent_registry_editor(actor)
+    if request.testing and not can_govern_agents(actor):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="explicit DRAFT testing requires Agent Control authority",
+        )
     require_workspace_access(actor, request.workspace_id)
     try:
         return get_agent_runtime().execute(
@@ -2090,6 +2170,8 @@ def run_agent(
             request,
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
+            actor=actor,
+            allow_draft=request.testing,
         )
     except AgentRuntimeError as error:
         raise runtime_http_error(error) from error

@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ApiError, apiRequest as api } from "@/lib/api-client";
 
-import { ApiError, type SessionActor, type Workspace } from "@/lib/governance";
+import { type SessionActor, type Workspace } from "@/lib/governance";
 
 type SourceVault = {
   source_vault_policy_id: string;
@@ -81,21 +82,7 @@ type H5Data = {
 const permittedRoot = "https://drive.google.com/drive/folders/1D66GYJVl7WZlefS8e8FO9lkL034CA9wS";
 const excludedFolder = "https://drive.google.com/drive/folders/1rf-8esLauaCNylWm6Y65oQfMU68AvTqj";
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    cache: "no-store",
-    credentials: "same-origin",
-    ...init,
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { detail?: unknown } | null;
-    const detail = typeof payload?.detail === "string" ? payload.detail : undefined;
-    throw new ApiError(response.status, detail);
-  }
-  return (await response.json()) as T;
-}
-
-export function H5PilotConsole() {
+export function AgentValidationConsole() {
   const router = useRouter();
   const [data, setData] = useState<H5Data | null>(null);
   const [workspaceId, setWorkspaceId] = useState("");
@@ -106,7 +93,7 @@ export function H5PilotConsole() {
   const [vaultForm, setVaultForm] = useState({
     allowedRootUrl: permittedRoot,
     excludedFolderUrl: excludedFolder,
-    reason: "Membatasi pilot H5 pada sumber manajemen yang disetujui dan satu folder yang dikecualikan.",
+    reason: "Membatasi validasi agent pada sumber manajemen yang disetujui dan satu folder yang dikecualikan.",
   });
   const [sourceForm, setSourceForm] = useState({
     sourceKey: "",
@@ -132,7 +119,7 @@ export function H5PilotConsole() {
       setVaultForm({
         allowedRootUrl: vault.allowed_root_url,
         excludedFolderUrl: vault.excluded_folder_url,
-        reason: "Memperbarui batas Source Vault H5 yang telah disetujui.",
+        reason: "Memperbarui batas Source Vault yang telah disetujui.",
       });
     }
   }, []);
@@ -153,7 +140,7 @@ export function H5PilotConsole() {
           router.replace("/login");
           return;
         }
-        setError("Kontrol H5 tidak dapat dimuat. Coba muat ulang halaman.");
+        setError("Kontrol validasi agent tidak dapat dimuat. Coba muat ulang halaman.");
       } finally {
         setLoading(false);
       }
@@ -234,13 +221,13 @@ export function H5PilotConsole() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspace_id: workspaceId,
-          reason: "Verifikasi manusia untuk pilot H5; sumber tersedia hanya sebagai evidence read-only.",
+          reason: "Verifikasi manusia untuk validasi agent; sumber tersedia hanya sebagai evidence read-only.",
         }),
       });
     });
   }
 
-  async function createDrafts(path: "/api/v1/h5/validation-agents/drafts" | "/api/v1/h5/validation-controls/drafts", success: string) {
+  async function createDrafts(path: "/api/v1/validation/agents/drafts" | "/api/v1/validation/controls/drafts", success: string) {
     if (!workspaceId) return;
     await mutate(success, async () => {
       await api<Record<string, unknown>>(path, {
@@ -273,8 +260,8 @@ export function H5PilotConsole() {
       setError("Input fixture harus berupa JSON object yang valid.");
       return;
     }
-    await mutate("Fixture H5 selesai; hasil, correlation ID, usage, dan audit telah disimpan.", async () => {
-      const result = await api<H5RunResult>("/api/v1/h5/validation-runs", {
+    await mutate("UAT agent selesai; hasil, correlation ID, usage, dan audit telah disimpan.", async () => {
+      const result = await api<H5RunResult>("/api/v1/validation/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workspace_id: workspaceId, agent_key: selectedAgent, input }),
@@ -295,7 +282,7 @@ export function H5PilotConsole() {
       if (mutationError instanceof ApiError && mutationError.status === 401) {
         router.replace("/login");
       } else if (mutationError instanceof ApiError && mutationError.status === 403) {
-        setError("Peran Anda tidak memiliki izin untuk aksi H5 ini pada workspace aktif.");
+        setError("Peran Anda tidak memiliki izin untuk aksi validasi ini pada workspace aktif.");
       } else if (mutationError instanceof ApiError && mutationError.detail) {
         setError(mutationError.detail);
       } else {
@@ -306,14 +293,14 @@ export function H5PilotConsole() {
     }
   }
 
-  if (loading && !data) return <main className="loading-shell">Memuat H5 Controlled Pilot…</main>;
+  if (loading && !data) return <main className="loading-shell">Memuat Agent Validation Console…</main>;
   if (!data) return <main className="loading-shell"><p>{error || "Sesi tidak tersedia."}</p><Link className="text-link" href="/login">Ke halaman login</Link></main>;
 
   return (
     <main className="dashboard-shell h5-shell">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">ALOS / H5 VALIDATION PILOT</p>
+          <p className="eyebrow">ALOS / AGENT VALIDATION</p>
           <h1>Source Vault &amp; Validation</h1>
           <p className="muted">Sumber dicatat manual, diverifikasi manusia, dan dipakai hanya oleh kontrak Agent DRAFT yang read-only.</p>
         </div>
@@ -321,11 +308,11 @@ export function H5PilotConsole() {
           <span className="role-badge">{data.actor.roles.join(" · ")}</span>
           <Link className="secondary-button button-link" href="/genesis">Genesis</Link>
           <Link className="secondary-button button-link" href="/agents">Registry</Link>
-          <Link className="secondary-button button-link" href="/releases">H4 Release</Link>
+          <Link className="secondary-button button-link" href="/releases">Release Governance</Link>
         </div>
       </header>
 
-      <section className="workspace-bar" aria-label="Workspace H5">
+      <section className="workspace-bar" aria-label="Workspace validasi agent">
         <div>
           <label htmlFor="h5-workspace">Workspace aktif</label>
           <select disabled={saving} id="h5-workspace" onChange={(event) => void selectWorkspace(event.target.value)} value={workspaceId}>
@@ -338,7 +325,7 @@ export function H5PilotConsole() {
       {error ? <p className="banner-error" role="alert">{error}</p> : null}
       {notice ? <p className="banner-success" role="status">{notice}</p> : null}
 
-      <section className="h5-step-grid" aria-label="Tahapan H5">
+      <section className="h5-step-grid" aria-label="Tahapan validasi agent">
         <StatusCard label="1. Source Vault" ready={Boolean(data.vault)} value={data.vault ? "Configured" : "Belum diatur"} />
         <StatusCard label="2. Evidence" ready={data.sources.some((source) => source.status === "VERIFIED")} value={`${data.sources.filter((source) => source.status === "VERIFIED").length} terverifikasi`} />
         <StatusCard label="3. Agent & control" ready={Boolean(data.controls?.source_tool)} value={data.controls?.ready_for_uat ? "Siap UAT" : "Menunggu approval"} />
@@ -360,13 +347,13 @@ export function H5PilotConsole() {
           <h2>Siapkan tanpa menjalankan Agent</h2>
           <p className="muted">Catalog yang dibuat: Daily Brief, Evidence Checker, dan Permit/Overdue Monitor. Semua LOW risk, output bercitation, dan tetap DRAFT.</p>
           <ol className="h5-control-list">
-            <li><strong>1. Agent Contracts</strong><span>Buat atau perbarui successor DRAFT dari catalog H5.</span><button disabled={!canOperatePilot || saving} onClick={() => void createDrafts("/api/v1/h5/validation-agents/drafts", "Tiga Agent Contract H5 telah disiapkan sebagai DRAFT.")} type="button">Siapkan 3 Agent DRAFT</button></li>
-            <li><strong>2. Tool &amp; permissions</strong><span>Hanya menyiapkan Tool dan Permission Policy DRAFT. Persetujuan independen tetap wajib.</span><button disabled={!canOperatePilot || saving} onClick={() => void createDrafts("/api/v1/h5/validation-controls/drafts", "Control DRAFT telah disiapkan. Setujui secara independen sebelum UAT.")} type="button">Siapkan Control DRAFT</button></li>
-            <li><strong>3. UAT &amp; GO / HOLD / NO-GO</strong><span>Jalankan fixture, review, dan keputusan manusia melalui lifecycle release.</span><Link className="secondary-button button-link" href="/releases">Buka H4 Release Governance</Link></li>
+            <li><strong>1. Agent Contracts</strong><span>Buat atau perbarui successor DRAFT dari katalog validasi.</span><button disabled={!canOperatePilot || saving} onClick={() => void createDrafts("/api/v1/validation/agents/drafts", "Tiga Agent Contract telah disiapkan sebagai DRAFT.")} type="button">Siapkan 3 Agent DRAFT</button></li>
+            <li><strong>2. Tool &amp; permissions</strong><span>Hanya menyiapkan Tool dan Permission Policy DRAFT. Persetujuan independen tetap wajib.</span><button disabled={!canOperatePilot || saving} onClick={() => void createDrafts("/api/v1/validation/controls/drafts", "Control DRAFT telah disiapkan. Setujui secara independen sebelum UAT.")} type="button">Siapkan Control DRAFT</button></li>
+            <li><strong>3. UAT &amp; GO / HOLD / NO-GO</strong><span>Jalankan fixture, review, dan keputusan manusia melalui lifecycle release.</span><Link className="secondary-button button-link" href="/releases">Buka Release Governance</Link></li>
           </ol>
           <div className="h5-approval-card">
             <div><p className="eyebrow">INDEPENDENT APPROVAL</p><h3>Tool &amp; permission control</h3></div>
-            {!data.controls ? <p className="empty-state">Masuk sebagai IT Lead, Director, atau QA Security untuk melihat control H5.</p> : <>
+            {!data.controls ? <p className="empty-state">Masuk sebagai IT Lead, Director, atau QA Security untuk melihat kontrol validasi.</p> : <>
               <div className="h5-approval-row"><span><strong>Tool: SOURCE_REGISTRY_SEARCH</strong><small>{data.controls.source_tool?.lifecycle_status ?? "Belum dibuat"} · hanya read-only</small></span>{data.controls.source_tool?.lifecycle_status === "APPROVED" ? <b className="permission-ok">APPROVED</b> : <button disabled={!canApproveControls || saving || data.controls.source_tool?.lifecycle_status !== "DRAFT"} onClick={() => void approveTool()} type="button">Approve Tool</button>}</div>
               {data.controls.permissions.map((control) => <div className="h5-approval-row" key={control.agent_key}><span><strong>{control.agent_key}: SOURCE_READ_INTERNAL</strong><small>{control.semantic_version ? `v${control.semantic_version}` : "Agent belum tersedia"} · {control.permission_policy?.lifecycle_status ?? "Belum dibuat"}</small></span>{control.permission_policy?.lifecycle_status === "APPROVED" ? <b className="permission-ok">APPROVED</b> : <button disabled={!canApproveControls || saving || control.permission_policy?.lifecycle_status !== "DRAFT"} onClick={() => control.permission_policy && void approvePermission(control.permission_policy.permission_policy_id, control.agent_key)} type="button">Approve Permission</button>}</div>)}
               <p className="safe-note">Hanya DIRECTOR atau QA_SECURITY yang dapat menyetujui. Pembuat control tidak dapat menyetujui control buatannya sendiri.</p>
@@ -403,7 +390,7 @@ export function H5PilotConsole() {
 
       <section className="dashboard-grid h5-grid lower-grid">
         <article className="panel h5-uat-panel">
-          <p className="eyebrow">H5 FIXTURE UAT</p>
+          <p className="eyebrow">BOUNDED AGENT UAT</p>
           <h2>Jalankan satu Agent DRAFT secara terbatas</h2>
           <p className="muted">Memakai shared Runtime, satu Tool read-only, evidence yang telah VERIFIED, dan limit biaya workspace yang berlaku. Tidak ada perubahan pada dokumen atau Drive.</p>
           <label className="h5-field">Agent<select disabled={!canOperatePilot || saving || !canRunFixture} onChange={(event) => { const agentKey = event.target.value as typeof selectedAgent; setSelectedAgent(agentKey); setFixtureInput(defaultFixtureInput(agentKey)); }} value={selectedAgent}><option value="DAILY_BRIEF">Daily Brief Agent</option><option value="EVIDENCE_CHECKER">Evidence Checker Agent</option><option value="PERMIT_OVERDUE_MONITOR">Permit/Overdue Monitor Agent</option></select></label>
@@ -414,7 +401,7 @@ export function H5PilotConsole() {
         <article className="panel h5-run-result">
           <p className="eyebrow">UAT RESULT</p>
           <h2>Correlation &amp; evidence</h2>
-          {!runResult ? <p className="empty-state">Belum ada fixture run H5 pada sesi ini.</p> : <div className="h5-result-body"><div><span>Status</span><strong>{runResult.status}</strong></div><div><span>Correlation ID</span><code>{runResult.correlation_id}</code></div><div><span>Provider / model</span><strong>{runResult.provider ?? "—"} / {runResult.model ?? "—"}</strong></div><div><span>Token / latency</span><strong>{runResult.input_tokens ?? "—"} input · {runResult.output_tokens ?? "—"} output · {runResult.latency_milliseconds ?? "—"} ms</strong></div>{runResult.output ? <pre>{JSON.stringify(runResult.output, null, 2)}</pre> : <p className="banner-error">{runResult.error_code ?? "Run tidak menghasilkan output."}</p>}</div>}
+          {!runResult ? <p className="empty-state">Belum ada UAT run pada sesi ini.</p> : <div className="h5-result-body"><div><span>Status</span><strong>{runResult.status}</strong></div><div><span>Correlation ID</span><code>{runResult.correlation_id}</code></div><div><span>Provider / model</span><strong>{runResult.provider ?? "—"} / {runResult.model ?? "—"}</strong></div><div><span>Token / latency</span><strong>{runResult.input_tokens ?? "—"} input · {runResult.output_tokens ?? "—"} output · {runResult.latency_milliseconds ?? "—"} ms</strong></div>{runResult.output ? <pre>{JSON.stringify(runResult.output, null, 2)}</pre> : <p className="banner-error">{runResult.error_code ?? "Run tidak menghasilkan output."}</p>}</div>}
         </article>
       </section>
     </main>
@@ -440,7 +427,7 @@ async function loadVault(workspaceId: string): Promise<SourceVault | null> {
 
 async function loadControls(workspaceId: string): Promise<H5ControlSummary | null> {
   try {
-    return await api<H5ControlSummary>(`/api/v1/h5/validation-controls?workspace_id=${workspaceId}`);
+    return await api<H5ControlSummary>(`/api/v1/validation/controls?workspace_id=${workspaceId}`);
   } catch (error: unknown) {
     if (error instanceof ApiError && error.status === 403) return null;
     throw error;

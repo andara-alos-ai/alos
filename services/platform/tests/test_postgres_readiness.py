@@ -20,4 +20,8 @@ def test_readiness_reports_a_disposable_postgres_database() -> None:
     response = TestClient(app).get("/health/ready")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "database": "ready"}
+    assert response.json() == {
+        "status": "ok",
+        "database": "ready",
+        "object_storage": "ready",
+    }

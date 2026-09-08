@@ -12,9 +12,14 @@ x-platform-environment: &platform-environment
   ALOS_AUTH_AUDIENCE: alos-platform
   ALOS_AUTH_SIGNING_SECRET: ${ALOS_AUTH_SIGNING_SECRET:?set ALOS_AUTH_SIGNING_SECRET in the staging env file}
   ALOS_AUTH_TOKEN_TTL_SECONDS: ${ALOS_AUTH_TOKEN_TTL_SECONDS:-3600}
-  ALOS_OBJECT_STORAGE_PROVIDER: filesystem
-  ALOS_OBJECT_STORAGE_BUCKET: alos-documents
-  ALOS_OBJECT_STORAGE_PATH: /var/lib/alos/objects
+  ALOS_OBJECT_STORAGE_PROVIDER: s3
+  ALOS_OBJECT_STORAGE_BUCKET: ${ALOS_OBJECT_STORAGE_BUCKET:?set object storage bucket}
+  ALOS_OBJECT_STORAGE_ENDPOINT_URL: ${ALOS_OBJECT_STORAGE_ENDPOINT_URL:-}
+  ALOS_OBJECT_STORAGE_REGION: ${ALOS_OBJECT_STORAGE_REGION:-auto}
+  ALOS_OBJECT_STORAGE_ACCESS_KEY_ID: ${ALOS_OBJECT_STORAGE_ACCESS_KEY_ID:-}
+  ALOS_OBJECT_STORAGE_SECRET_ACCESS_KEY: ${ALOS_OBJECT_STORAGE_SECRET_ACCESS_KEY:-}
+  ALOS_OBJECT_STORAGE_FORCE_PATH_STYLE: ${ALOS_OBJECT_STORAGE_FORCE_PATH_STYLE:-false}
+  ALOS_OBJECT_STORAGE_SERVER_SIDE_ENCRYPTION: ${ALOS_OBJECT_STORAGE_SERVER_SIDE_ENCRYPTION:-AES256}
   ALOS_OBJECT_STORAGE_MAX_UPLOAD_BYTES: ${ALOS_OBJECT_STORAGE_MAX_UPLOAD_BYTES:-26214400}
   ALOS_MIGRATIONS_PATH: /app/infra/database
   ALOS_LLM_PROVIDER: ${ALOS_LLM_PROVIDER:-disabled}
@@ -76,8 +81,6 @@ services:
       context: ../..
       dockerfile: infra/docker/platform.Dockerfile
     environment: *platform-environment
-    volumes:
-      - alos-objects:/var/lib/alos/objects
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -92,6 +95,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/platform.Dockerfile
+    command: ["python", "-m", "alos.jobs.worker"]
+    environment: *platform-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: ../..
+      dockerfile: infra/docker/platform.Dockerfile
+    command: ["python", "-m", "alos.jobs.scheduler"]
+    environment: *platform-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   web:
@@ -124,6 +149,5 @@ services:
 
 volumes:
   alos-postgres:
-  alos-objects:
   alos-caddy-data:
   alos-caddy-config:

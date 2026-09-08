@@ -1,0 +1,25 @@
+[Unit]
+Description=ALOS Platform API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=alos
+Group=alos
+WorkingDirectory=/opt/alos/services/platform
+EnvironmentFile=/etc/alos/alos.production.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/alos/.venv/bin/python -m uvicorn alos.main:app --app-dir src --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/alos/data
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

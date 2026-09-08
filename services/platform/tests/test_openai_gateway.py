@@ -14,6 +14,7 @@ def openai_settings(**overrides: object) -> Settings:
     values: dict[str, object] = {
         "_env_file": None,
         "environment": "staging",
+        "object_storage_provider": "s3",
         "auth_signing_secret": "test-only-signing-secret-that-is-long-enough",
         "llm_provider": "openai",
         "llm_api_key": "test-only-key",

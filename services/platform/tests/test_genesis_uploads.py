@@ -20,6 +20,7 @@ from alos.genesis.uploads import (
     WithdrawableGenesisUpload,
     _extract_text,
     _validate_upload_filename,
+    _validate_uploaded_content,
 )
 
 
@@ -101,6 +102,22 @@ def test_unsupported_extension_is_rejected_before_the_file_is_stored() -> None:
 
     with pytest.raises(GenesisUploadError, match="filename is not valid"):
         _validate_upload_filename("../rencana.pdf")
+
+
+def test_uploaded_content_must_match_the_declared_supported_format(tmp_path: Path) -> None:
+    fake_pdf = tmp_path / "bukan-pdf.pdf"
+    fake_pdf.write_text("bukan berkas PDF", encoding="utf-8")
+    broken_json = tmp_path / "rusak.json"
+    broken_json.write_text("{tidak-valid}", encoding="utf-8")
+    binary_text = tmp_path / "biner.txt"
+    binary_text.write_bytes(b"rencana\x00internal")
+
+    with pytest.raises(GenesisUploadError, match="PDF content"):
+        _validate_uploaded_content(fake_pdf, "pdf")
+    with pytest.raises(GenesisUploadError, match="JSON content"):
+        _validate_uploaded_content(broken_json, "json")
+    with pytest.raises(GenesisUploadError, match="binary data"):
+        _validate_uploaded_content(binary_text, "txt")
 
 
 def test_original_upload_is_stored_under_a_generated_path_with_a_digest(tmp_path: Path) -> None:

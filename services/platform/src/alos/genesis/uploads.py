@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid4
 from xml.etree import ElementTree
 
@@ -111,6 +111,21 @@ class StoredObject:
     byte_size: int
     file_sha256: str
     local_path: Path
+
+
+class GenesisUploadStorage(Protocol):
+    async def store(
+        self,
+        upload: UploadFile,
+        *,
+        organization_id: UUID,
+        workspace_id: UUID,
+        upload_id: UUID,
+    ) -> StoredObject: ...
+
+    def remove(self, object_key: str) -> None: ...
+
+    def cleanup_local(self, stored: StoredObject) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +229,137 @@ class FilesystemGenesisUploadStorage:
             target.unlink(missing_ok=True)
         except OSError as error:
             raise GenesisUploadStorageError("uploaded file could not be removed safely") from error
+
+    def cleanup_local(self, stored: StoredObject) -> None:
+        return None
+
+
+class S3GenesisUploadStorage:
+    """S3/R2 adapter with a bounded local spool used only for safe extraction."""
+
+    def __init__(self, settings: Settings) -> None:
+        if settings.object_storage_provider != "s3":
+            raise GenesisUploadStorageError("S3 object storage is not enabled")
+        self._bucket = settings.object_storage_bucket
+        self._max_bytes = settings.object_storage_max_upload_bytes
+        self._encryption = settings.object_storage_server_side_encryption
+        try:
+            boto3 = importlib.import_module("boto3")
+            botocore_config = importlib.import_module("botocore.config")
+        except ImportError as error:
+            raise GenesisUploadStorageError("S3 object storage adapter is unavailable") from error
+        client_options: dict[str, Any] = {
+            "region_name": settings.object_storage_region,
+            "config": botocore_config.Config(
+                s3={
+                    "addressing_style": (
+                        "path" if settings.object_storage_force_path_style else "auto"
+                    )
+                }
+            ),
+        }
+        if settings.object_storage_endpoint_url:
+            client_options["endpoint_url"] = settings.object_storage_endpoint_url
+        if settings.object_storage_access_key_id:
+            client_options["aws_access_key_id"] = (
+                settings.object_storage_access_key_id.get_secret_value()
+            )
+            client_options["aws_secret_access_key"] = (
+                settings.object_storage_secret_access_key.get_secret_value()
+                if settings.object_storage_secret_access_key
+                else ""
+            )
+        self._client = boto3.client("s3", **client_options)
+
+    async def store(
+        self,
+        upload: UploadFile,
+        *,
+        organization_id: UUID,
+        workspace_id: UUID,
+        upload_id: UUID,
+    ) -> StoredObject:
+        object_key = (
+            f"genesis-uploads/{organization_id.hex}/{workspace_id.hex}/{upload_id.hex}.bin"
+        )
+        digest = hashlib.sha256()
+        byte_size = 0
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", prefix=f"alos-{upload_id.hex}-", suffix=".upload", delete=False
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                while chunk := await upload.read(64 * 1024):
+                    byte_size += len(chunk)
+                    if byte_size > self._max_bytes:
+                        raise GenesisUploadError(
+                            f"file exceeds the upload limit of {self._max_bytes} bytes"
+                        )
+                    digest.update(chunk)
+                    temporary.write(chunk)
+            if byte_size == 0:
+                raise GenesisUploadError("uploaded file cannot be empty")
+            options: dict[str, Any] = {
+                "Bucket": self._bucket,
+                "Key": object_key,
+                "ContentLength": byte_size,
+                "ContentType": upload.content_type or "application/octet-stream",
+                "Metadata": {"sha256": digest.hexdigest()},
+            }
+            if self._encryption:
+                options["ServerSideEncryption"] = self._encryption
+            with temporary_path.open("rb") as source:
+                self._client.put_object(Body=source, **options)
+        except GenesisUploadError:
+            if temporary_path:
+                temporary_path.unlink(missing_ok=True)
+            raise
+        except Exception as error:
+            if temporary_path:
+                temporary_path.unlink(missing_ok=True)
+            raise GenesisUploadStorageError("uploaded file could not be stored safely") from error
+        finally:
+            await upload.close()
+        if temporary_path is None:
+            raise GenesisUploadStorageError("upload spool was not created")
+        return StoredObject(
+            object_key=object_key,
+            byte_size=byte_size,
+            file_sha256=digest.hexdigest(),
+            local_path=temporary_path,
+        )
+
+    def remove(self, object_key: str) -> None:
+        if not object_key.startswith("genesis-uploads/") or ".." in object_key:
+            raise GenesisUploadStorageError("object key is outside the upload namespace")
+        try:
+            self._client.delete_object(Bucket=self._bucket, Key=object_key)
+        except Exception as error:
+            raise GenesisUploadStorageError(
+                "uploaded object could not be removed safely"
+            ) from error
+
+    def cleanup_local(self, stored: StoredObject) -> None:
+        try:
+            stored.local_path.unlink(missing_ok=True)
+        except OSError as error:
+            raise GenesisUploadStorageError(
+                "temporary upload spool could not be removed"
+            ) from error
+
+
+def object_storage_is_ready(settings: Settings) -> bool:
+    """Bound readiness to the configured storage without exposing credentials."""
+
+    if settings.object_storage_provider == "filesystem":
+        return settings.object_storage_path.is_dir()
+    try:
+        storage = S3GenesisUploadStorage(settings)
+        storage._client.head_bucket(Bucket=settings.object_storage_bucket)
+    except Exception:
+        return False
+    return True
 
 
 class GenesisUploadRepository:
@@ -599,7 +745,7 @@ class GenesisUploadService:
     def __init__(
         self,
         repository: GenesisUploadRepository,
-        storage: FilesystemGenesisUploadStorage,
+        storage: GenesisUploadStorage,
         documents: DocumentCenterRepository,
     ) -> None:
         self._repository = repository
@@ -629,6 +775,7 @@ class GenesisUploadService:
             upload_id=upload_id,
         )
         try:
+            _validate_uploaded_content(stored.local_path, extension)
             extracted = await asyncio.to_thread(_extract_text, stored.local_path, extension)
             return self._repository.create(
                 upload_id=upload_id,
@@ -645,6 +792,8 @@ class GenesisUploadService:
         except Exception:
             self._storage.remove(stored.object_key)
             raise
+        finally:
+            self._storage.cleanup_local(stored)
 
     def create_document_draft(
         self,
@@ -733,6 +882,48 @@ def _validate_upload_filename(filename: str | None) -> tuple[str, GenesisUploadE
         supported = ", ".join(sorted(_SUPPORTED_EXTENSIONS))
         raise GenesisUploadError(f"unsupported document format; supported formats: {supported}")
     return normalized, cast(GenesisUploadExtension, extension)
+
+
+def _validate_uploaded_content(path: Path, extension: GenesisUploadExtension) -> None:
+    """Reject content that does not match the declared supported document type.
+
+    A filename or browser MIME type is not proof of file type.  This intentionally
+    performs only structural checks; uploaded content is still never executed.
+    """
+
+    header = path.read_bytes()[:16]
+    if extension == "pdf":
+        if not header.startswith(b"%PDF-"):
+            raise GenesisUploadError("uploaded PDF content is not valid")
+        return
+    if extension == "xls":
+        if not header.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+            raise GenesisUploadError("uploaded XLS content is not valid")
+        return
+    if extension in {"docx", "xlsx"}:
+        if not zipfile.is_zipfile(path):
+            raise GenesisUploadError(f"uploaded {extension.upper()} content is not valid")
+        try:
+            with zipfile.ZipFile(path) as archive:
+                members = set(archive.namelist())
+        except zipfile.BadZipFile as error:
+            message = f"uploaded {extension.upper()} content is not valid"
+            raise GenesisUploadError(message) from error
+        required_member = "word/document.xml" if extension == "docx" else "xl/workbook.xml"
+        if required_member not in members:
+            raise GenesisUploadError(f"uploaded {extension.upper()} content is not valid")
+        return
+    try:
+        content = _decode_text(path.read_bytes())
+    except UnicodeDecodeError as error:
+        raise GenesisUploadError("uploaded text content must use a supported encoding") from error
+    if "\x00" in content:
+        raise GenesisUploadError("uploaded text content contains binary data")
+    if extension == "json":
+        try:
+            json.loads(content)
+        except json.JSONDecodeError as error:
+            raise GenesisUploadError("uploaded JSON content is not valid") from error
 
 
 def _draft_title(filename: str) -> str:

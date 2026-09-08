@@ -18,7 +18,34 @@ from alos.persistence.database import psycopg_url
 
 ToolRisk = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 ToolState = Literal["DRAFT", "IN_REVIEW", "APPROVED", "RETIRED"]
-_APPROVABLE_HANDLERS = {"FIXTURE_SOURCE_READ", "SOURCE_REGISTRY_SEARCH"}
+_APPROVABLE_HANDLERS = {
+    "FIXTURE_SOURCE_READ",
+    "SOURCE_REGISTRY_SEARCH",
+    "ORGANIZATION_CONTEXT_READ",
+    "DIVISION_CONTEXT_READ",
+    "PROJECT_LIST",
+    "PROJECT_READ",
+    "TASK_LIST",
+    "TASK_READ",
+    "TASK_CREATE_DRAFT",
+    "TASK_UPDATE_STATUS",
+    "EVIDENCE_READ",
+    "DOCUMENT_SEARCH",
+    "DOCUMENT_READ",
+    "DOCUMENT_COMPARE",
+    "FINDING_CREATE",
+    "APPROVAL_REQUEST",
+    "REPORT_GENERATE",
+    "GLOBAL_SEARCH",
+}
+_ACCESS_MODES = {
+    "READ",
+    "READ_ONLY",
+    "CREATE_DRAFT",
+    "UPDATE_SCOPED",
+    "REQUEST_APPROVAL",
+    "EXECUTE_APPROVED_ACTION",
+}
 
 
 class ToolRegistryError(RuntimeError):
@@ -42,11 +69,21 @@ class ToolDefinitionRequest(BaseModel):
     manifest: dict[str, Any]
 
     @model_validator(mode="after")
-    def validate_mvp_read_only_manifest(self) -> ToolDefinitionRequest:
-        if self.manifest.get("access_mode") != "READ_ONLY":
-            raise ValueError("MVP Tool Registry only accepts READ_ONLY tools")
+    def validate_runtime_manifest(self) -> ToolDefinitionRequest:
+        if self.manifest.get("access_mode") not in _ACCESS_MODES:
+            raise ValueError("tool access_mode is not supported")
         if self.manifest.get("runtime_handler") not in _APPROVABLE_HANDLERS:
             raise ValueError("tool runtime handler is not implemented by the shared Runtime")
+        for schema_key in ("input_schema", "output_schema"):
+            schema = self.manifest.setdefault(schema_key, {"type": "object"})
+            if not isinstance(schema, dict) or schema.get("type") not in {"object", "array"}:
+                raise ValueError(f"tool {schema_key} must be a typed JSON schema")
+        self.manifest.setdefault("required_permission", self.tool_key)
+        self.manifest.setdefault("allowed_scopes", ["COMPANY", "DIVISION", "PROJECT"])
+        if self.manifest.get("access_mode") == "EXECUTE_APPROVED_ACTION" and not self.manifest.get(
+            "approval_digest_required", False
+        ):
+            raise ValueError("direct execution requires an approval-bound payload digest")
         return self
 
 
@@ -105,7 +142,7 @@ class ToolRegistryRepository:
                 "TOOL_DRAFT_REGISTERED",
                 row["tool_definition_id"],
                 correlation_id,
-                "Human registered a read-only Tool Registry draft",
+                "Human registered a typed Tool Registry draft",
                 {
                     "tool_key": request.tool_key,
                     "runtime_handler": request.manifest["runtime_handler"],
@@ -167,7 +204,7 @@ class ToolRegistryRepository:
                 "TOOL_APPROVED",
                 row["tool_definition_id"],
                 correlation_id,
-                "Independent human approved a read-only Runtime tool",
+                "Independent human approved a typed Runtime tool",
                 {"tool_key": row["tool_key"]},
             )
             return ToolDefinitionRecord(**row)

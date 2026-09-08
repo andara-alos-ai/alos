@@ -18,6 +18,9 @@ from alos.persistence.database import psycopg_url
 
 PermissionEffect = Literal["ALLOW", "DENY"]
 PermissionState = Literal["DRAFT", "IN_REVIEW", "APPROVED", "REVOKED"]
+PermissionAccessMode = Literal[
+    "READ", "CREATE_DRAFT", "UPDATE_SCOPED", "REQUEST_APPROVAL", "EXECUTE_APPROVED_ACTION"
+]
 
 
 class PermissionRegistryError(RuntimeError):
@@ -38,17 +41,36 @@ class PermissionPolicyRequest(BaseModel):
     workspace_id: UUID
     agent_key: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
     semantic_version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
-    permission_key: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
+    permission_key: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.]{2,119}$")
     effect: PermissionEffect
     resource_scope: dict[str, Any] = Field(default_factory=dict)
+    capability_key: str | None = Field(
+        default=None, pattern=r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"
+    )
+    tool_key: str | None = Field(
+        default=None, pattern=r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"
+    )
+    access_mode: PermissionAccessMode = "READ"
+    resource_type: str = Field(default="GENERIC", min_length=2, max_length=80)
+    division_scope: UUID | None = None
+    project_scope: UUID | None = None
+    classification: Literal["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"] = "INTERNAL"
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    approval_required: bool = True
 
     @model_validator(mode="after")
-    def validate_mvp_read_only_scope(self) -> PermissionPolicyRequest:
+    def validate_scope(self) -> PermissionPolicyRequest:
         if self.effect == "ALLOW":
-            if self.resource_scope.get("access_mode") != "READ_ONLY":
-                raise ValueError("an ALLOW permission must be limited to READ_ONLY access")
-            if self.resource_scope.get("classification") not in {"PUBLIC", "INTERNAL"}:
-                raise ValueError("MVP permission classification must be PUBLIC or INTERNAL")
+            legacy_mode = self.resource_scope.get("access_mode")
+            if legacy_mode not in {None, "READ_ONLY", self.access_mode}:
+                raise ValueError("resource scope access mode conflicts with permission access mode")
+            legacy_classification = self.resource_scope.get("classification")
+            if legacy_classification is not None and legacy_classification != self.classification:
+                raise ValueError(
+                    "resource scope classification conflicts with permission classification"
+                )
+            if self.access_mode == "EXECUTE_APPROVED_ACTION" and not self.approval_required:
+                raise ValueError("direct execution requires approval")
         return self
 
 
@@ -65,6 +87,14 @@ class PermissionPolicyRecord(BaseModel):
     created_by_user_id: UUID | None
     approved_by_user_id: UUID | None
     created_at: datetime
+    capability_key: str | None = None
+    tool_key: str | None = None
+    access_mode: PermissionAccessMode = "READ"
+    resource_type: str = "GENERIC"
+    division_scope: UUID | None = None
+    project_scope: UUID | None = None
+    classification: str = "INTERNAL"
+    conditions: dict[str, Any] = Field(default_factory=dict)
 
 
 class PermissionRegistryRepository:
@@ -89,11 +119,18 @@ class PermissionRegistryRepository:
                     """
                     INSERT INTO governance.permission_policies (
                         organization_id, workspace_id, agent_version_id, permission_key, effect,
-                        resource_scope, approval_required, lifecycle_status, created_by_user_id
-                    ) VALUES (%s, %s, %s, %s, %s, %s, true, 'DRAFT', %s)
+                        resource_scope, approval_required, lifecycle_status, created_by_user_id,
+                        capability_key, tool_key, access_mode, resource_type, organization_scope,
+                        division_scope, project_scope, classification, conditions
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, 'DRAFT', %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
                     RETURNING permission_policy_id, organization_id, workspace_id, agent_version_id,
                               permission_key, effect, resource_scope, approval_required,
-                              lifecycle_status, created_by_user_id, approved_by_user_id, created_at
+                              lifecycle_status, created_by_user_id, approved_by_user_id, created_at,
+                              capability_key, tool_key, access_mode, resource_type, division_scope,
+                              project_scope, classification, conditions
                     """,
                     (
                         organization_id,
@@ -102,7 +139,17 @@ class PermissionRegistryRepository:
                         request.permission_key,
                         request.effect,
                         Jsonb(request.resource_scope),
+                        request.approval_required,
                         actor_user_id,
+                        request.capability_key,
+                        request.tool_key,
+                        request.access_mode,
+                        request.resource_type,
+                        organization_id,
+                        request.division_scope,
+                        request.project_scope,
+                        request.classification,
+                        Jsonb(request.conditions),
                     ),
                 ).fetchone()
             except UniqueViolation as error:
@@ -137,7 +184,9 @@ class PermissionRegistryRepository:
                 """
                 SELECT permission_policy_id, organization_id, workspace_id, agent_version_id,
                        permission_key, effect, resource_scope, approval_required, lifecycle_status,
-                       created_by_user_id, approved_by_user_id, created_at
+                       created_by_user_id, approved_by_user_id, created_at, capability_key,
+                       tool_key, access_mode, resource_type, division_scope, project_scope,
+                       classification, conditions
                 FROM governance.permission_policies
                 WHERE permission_policy_id = %s AND organization_id = %s
                 FOR UPDATE
@@ -157,6 +206,15 @@ class PermissionRegistryRepository:
                 permission_key=policy["permission_key"],
                 effect=policy["effect"],
                 resource_scope=policy["resource_scope"],
+                capability_key=policy["capability_key"],
+                tool_key=policy["tool_key"],
+                access_mode=policy["access_mode"],
+                resource_type=policy["resource_type"],
+                division_scope=policy["division_scope"],
+                project_scope=policy["project_scope"],
+                classification=policy["classification"],
+                conditions=policy["conditions"],
+                approval_required=policy["approval_required"],
             )
             row = connection.execute(
                 """
@@ -165,7 +223,9 @@ class PermissionRegistryRepository:
                 WHERE permission_policy_id = %s
                 RETURNING permission_policy_id, organization_id, workspace_id, agent_version_id,
                           permission_key, effect, resource_scope, approval_required,
-                          lifecycle_status, created_by_user_id, approved_by_user_id, created_at
+                          lifecycle_status, created_by_user_id, approved_by_user_id, created_at,
+                          capability_key, tool_key, access_mode, resource_type, division_scope,
+                          project_scope, classification, conditions
                 """,
                 (approver_user_id, permission_policy_id),
             ).fetchone()
@@ -178,7 +238,7 @@ class PermissionRegistryRepository:
                 "PERMISSION_POLICY_APPROVED",
                 permission_policy_id,
                 correlation_id,
-                "Independent human approved a version-bound read-only permission",
+                "Independent human approved a version-bound permission",
                 {"permission_key": row["permission_key"]},
             )
             return PermissionPolicyRecord(**row)
@@ -198,7 +258,10 @@ class PermissionRegistryRepository:
                 SELECT policy.permission_policy_id, policy.organization_id, policy.workspace_id,
                        policy.agent_version_id, policy.permission_key, policy.effect,
                        policy.resource_scope, policy.approval_required, policy.lifecycle_status,
-                       policy.created_by_user_id, policy.approved_by_user_id, policy.created_at
+                       policy.created_by_user_id, policy.approved_by_user_id, policy.created_at,
+                       policy.capability_key, policy.tool_key, policy.access_mode,
+                       policy.resource_type, policy.division_scope, policy.project_scope,
+                       policy.classification, policy.conditions
                 FROM governance.permission_policies AS policy
                 JOIN agents.versions AS version
                   ON version.agent_version_id = policy.agent_version_id

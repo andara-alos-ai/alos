@@ -53,6 +53,7 @@ describe("portfolio dashboards", () => {
       distribution: [{ status: "AT_RISK", label: "At Risk", count: 1 }],
       projects: [{
         project_id: "00000000-0000-0000-0000-000000000003",
+        workspace_id: "00000000-0000-0000-0000-000000000001",
         code: "ALOS-PLATFORM",
         name: "ALOS Platform",
         division_code: "IT",

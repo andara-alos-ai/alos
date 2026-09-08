@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { ApiError, apiMessage, apiRequest } from "@/lib/api-client";
 
 import {
   dashboardModules,
@@ -16,6 +17,9 @@ import {
   type DashboardProfile,
 } from "@/lib/dashboard-access";
 import { DocumentCenter } from "@/components/document-center";
+import { GenesisChat } from "@/components/genesis-chat";
+import { GlobalCommand } from "@/components/global-command";
+import { OperationalModuleDashboard } from "@/components/operational-modules";
 import {
   DivisionsOverviewDashboard,
   ProjectPortfolioDashboard,
@@ -57,33 +61,20 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
   useEffect(() => {
     async function loadActor() {
       try {
-        const response = await fetch("/api/v1/whoami", { cache: "no-store", credentials: "same-origin" });
-        if (response.status === 401) {
-          router.replace("/login");
-          return;
-        }
-        if (!response.ok) {
-          setLoadFailed(true);
-          return;
-        }
-        const currentActor = (await response.json()) as SessionActor;
+        const currentActor = await apiRequest<SessionActor>("/api/v1/whoami");
         setActor(currentActor);
         if (currentActor.roles.includes("DIRECTOR")) {
           try {
-            const dashboardResponse = await fetch("/api/v1/executive-dashboard", {
-              cache: "no-store",
-              credentials: "same-origin",
-            });
-            if (!dashboardResponse.ok) {
-              setExecutiveLoadFailed(true);
-              return;
-            }
-            setExecutiveData((await dashboardResponse.json()) as ExecutiveDashboardSnapshot);
+            setExecutiveData(await apiRequest<ExecutiveDashboardSnapshot>("/api/v1/executive-dashboard"));
           } catch {
             setExecutiveLoadFailed(true);
           }
         }
-      } catch {
+      } catch (failure) {
+        if (failure instanceof ApiError && failure.status === 401) {
+          router.replace("/login");
+          return;
+        }
         setLoadFailed(true);
       }
     }
@@ -91,7 +82,7 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
   }, [router]);
 
   async function logout() {
-    await fetch("/api/v1/auth/logout", { method: "POST", credentials: "same-origin", cache: "no-store" });
+    await apiRequest<void>("/api/v1/auth/logout", { method: "POST" });
     router.replace("/login");
     router.refresh();
   }
@@ -161,14 +152,9 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
 
       <section className="alos-main">
         <header className="alos-topbar">
-          <label className="alos-search" aria-label="Pencarian ALOS">
-            <AppIcon name="search" />
-            <input disabled placeholder={searchPlaceholder} />
-            <kbd>⌘ K</kbd>
-          </label>
+          <GlobalCommand placeholder={searchPlaceholder} />
           <div className="alos-profile">
             <div className="alos-date"><strong>{formatCurrentDate()}</strong><span>{formatCurrentTime()}</span></div>
-            <button aria-label="Notifikasi belum tersedia" className="alos-notifications" disabled type="button"><AppIcon name="bell" /><i /></button>
             <div className="alos-avatar" aria-hidden="true">{roleInitial(displayRoleLabel)}</div>
             <div className="alos-profile-copy"><strong>{profileName}</strong><span>{executiveData?.profile.role_label ?? displayRoleLabel}</span></div>
             <AppIcon name="chevron" />
@@ -447,49 +433,15 @@ function ModuleDashboard({ actor, module }: { actor: SessionActor; module: Dashb
   if (module === "settings") return <SettingsDashboard actor={actor} />;
   if (module === "documents") return <DocumentCenter actor={actor} mode="documents" />;
   if (module === "divisions") return <DivisionsOverviewDashboard />;
-  if (module === "projects") return <ProjectPortfolioDashboard />;
-
-  const page = dashboardModules[module];
-  return (
-    <section className="alos-content" aria-label={`${page.title} ALOS`}>
-      <div className="alos-section-heading"><div><p className="alos-kicker">ALOS / {module.toUpperCase()}</p><h2>{page.title}</h2></div><span>Menunggu sumber data terverifikasi</span></div>
-      <MetricGrid metrics={page.metrics} />
-      {module === "tasks" ? <TaskBoard emptyMessage={page.emptyMessage} /> : <OperationalDashboard module={module} />}
-    </section>
-  );
-}
-
-function OperationalDashboard({ module }: { module: Exclude<DashboardModuleKey, "genesis" | "settings" | "tasks"> }) {
-  const page = dashboardModules[module];
-  const detailTitle = module === "documents" ? "Daftar Dokumen" : module === "reports" ? "Semua Laporan" : module === "approvals" ? "Daftar Approval" : module === "findings" ? "Daftar Temuan" : module === "projects" ? "Daftar Proyek" : "Isu Divisi";
-  const primaryType = module === "documents" ? "donut" : module === "findings" ? "severity" : "chart";
-  return (
-    <>
-      <div className="alos-dashboard-grid">
-        <DataPanel eyebrow="RINGKASAN" title={page.primaryPanel} type={primaryType} />
-        <DataPanel eyebrow="PRIORITAS" title={page.secondaryPanel} type="list" />
-      </div>
-      <article className="alos-panel alos-table-panel">
-        <div className="alos-panel-heading-row"><PanelTitle eyebrow="DATA TERDAFTAR" title={detailTitle} /><button className="alos-outline-button" disabled type="button">Filter</button></div>
-        <EmptyMessage text={page.emptyMessage} compact />
-      </article>
-    </>
-  );
-}
-
-function TaskBoard({ emptyMessage }: { emptyMessage: string }) {
-  const columns = ["To Do", "In Progress", "In Review", "Completed"];
-  return (
-    <>
-      <article className="alos-panel alos-task-board"><PanelTitle eyebrow="TUGAS TERDAFTAR" title="Task Board" /><div className="alos-kanban">{columns.map((column) => <div key={column}><strong>{column}</strong><EmptyMessage compact text="Belum ada tugas" /></div>)}</div></article>
-      <div className="alos-dashboard-grid alos-lower-grid"><DataPanel eyebrow="STATUS" title="Task Status Overview" type="donut" /><DataPanel eyebrow="PRIORITAS" title="Tugas Prioritas Tinggi" type="list" /></div>
-      <article className="alos-panel alos-table-panel"><PanelTitle eyebrow="DATA TERDAFTAR" title="Daftar Tugas" /><EmptyMessage compact text={emptyMessage} /></article>
-    </>
-  );
+  if (module === "projects") return <ProjectPortfolioDashboard actor={actor} />;
+  if (module === "tasks" || module === "approvals" || module === "findings" || module === "reports") {
+    return <OperationalModuleDashboard actor={actor} module={module} />;
+  }
+  return null;
 }
 
 function GenesisDashboard({ actor }: { actor: SessionActor }) {
-  return <DocumentCenter actor={actor} mode="genesis" />;
+  return <GenesisChat actor={actor} />;
 }
 
 function SettingsDashboard({ actor }: { actor: SessionActor }) {
@@ -497,14 +449,30 @@ function SettingsDashboard({ actor }: { actor: SessionActor }) {
   return (
     <section className="alos-content" aria-label="Pengaturan ALOS">
       <div className="alos-section-heading"><div><p className="alos-kicker">ALOS / ADMINISTRATION</p><h2>Settings &amp; Administration</h2></div><span>Hak akses aktif</span></div>
-      <div className="alos-settings-top"><article className="alos-panel"><PanelTitle eyebrow="AKUN" title="Profile Settings" /><EmptyMessage compact text="Profil personal belum dihubungkan ke direktori pengguna." /></article><article className="alos-panel"><PanelTitle eyebrow="ORGANISASI" title="Company Settings" /><EmptyMessage compact text="Informasi organisasi yang dapat diubah akan muncul sesuai peran Anda." /></article><article className="alos-panel"><PanelTitle eyebrow="AKSES" title="Your Role & Access" /><div className="alos-role-card"><AppIcon name="shield" /><div><strong>{roleLabel}</strong><span>Peran aktif dari sesi staging</span></div></div></article></div>
-      <div className="alos-settings-grid"><SettingsCard icon="divisions" title="User & Access Management" text="Daftar pengguna, peran, dan akses akan muncul setelah directory pengguna terintegrasi." /><SettingsCard icon="bell" title="Notification Settings" text="Preferensi notifikasi belum dikonfigurasi untuk akun ini." /><SettingsCard icon="shield" title="Security Settings" text="Kebijakan keamanan dikelola melalui Governance & Agent Control." /><SettingsCard icon="settings" title="System Preferences" text="Preferensi tampilan akan tersedia setelah profil pengguna terdaftar." /></div>
+      <div className="alos-settings-top"><article className="alos-panel"><PanelTitle eyebrow="AKUN" title="Sesi aktif" /><dl className="review-list"><div><dt>User ID</dt><dd className="digest-value">{actor.user_id}</dd></div><div><dt>Berlaku hingga</dt><dd>{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(actor.expires_at))}</dd></div></dl></article><article className="alos-panel"><PanelTitle eyebrow="ORGANISASI" title="Scope organisasi" /><dl className="review-list"><div><dt>Organization ID</dt><dd className="digest-value">{actor.organization_id}</dd></div><div><dt>Workspace terakses</dt><dd>{actor.workspace_ids.length}</dd></div><div><dt>Divisi terakses</dt><dd>{actor.division_codes.join(", ") || "Lintas organisasi sesuai policy"}</dd></div></dl></article><article className="alos-panel"><PanelTitle eyebrow="AKSES" title="Role &amp; control" /><div className="alos-role-card"><AppIcon name="shield" /><div><strong>{roleLabel}</strong><span>{actor.roles.join(" · ") || "Role terdaftar"}</span></div></div><Link className="alos-text-button" href="/governance">Buka Governance &amp; Agent Control →</Link></article></div>
+      <div className="alos-settings-grid"><article className="alos-panel alos-setting-card"><AppIcon name="bell" /><div><h3>Notifikasi</h3><p>Gunakan ikon notifikasi di bar atas untuk melihat dan menandai inbox Anda.</p></div></article><IntegrationStatusPanel actor={actor} /></div>
     </section>
   );
 }
 
-function SettingsCard({ icon, text, title }: { icon: IconName; text: string; title: string }) {
-  return <article className="alos-panel alos-setting-card"><AppIcon name={icon} /><div><h3>{title}</h3><p>{text}</p></div><AppIcon name="chevron" /></article>;
+type IntegrationStatus = { integration_key: string; provider: string; status: string; allowed_hosts: string[]; updated_at: string };
+
+function IntegrationStatusPanel({ actor }: { actor: SessionActor }) {
+  const canView = actor.roles.some((role) => ["DIRECTOR", "IT_ADMIN", "AI_ADMIN", "IT_LEAD"].includes(role));
+  const [items, setItems] = useState<IntegrationStatus[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!canView) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      apiRequest<IntegrationStatus[]>("/api/v1/integrations/status", { signal: controller.signal }).then(setItems).catch((failure) => {
+        if (!controller.signal.aborted) setError(apiMessage(failure));
+      });
+    }, 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [canView]);
+  if (!canView) return <article className="alos-panel alos-setting-card"><AppIcon name="shield" /><div><h3>Status integrasi</h3><p>Status konektor hanya tersedia untuk peran observability.</p></div></article>;
+  return <article className="alos-panel alos-setting-card"><AppIcon name="settings" /><div><h3>Status integrasi</h3>{error ? <p>{error}</p> : items.length ? <ul>{items.map((item) => <li key={item.integration_key}>{item.integration_key}: <strong>{item.status}</strong> · {item.provider}</li>)}</ul> : <p>Belum ada integrasi yang terdaftar untuk organisasi ini.</p>}</div><Link aria-label="Buka governance" href="/governance"><AppIcon name="chevron" /></Link></article>;
 }
 
 function MetricGrid({ metrics }: { metrics: readonly DashboardMetric[] }) {
@@ -541,10 +509,6 @@ function EmptySeverity() {
 
 function EmptyList() {
   return <div className="alos-empty-list"><div /><div /><div /><p>Belum ada item untuk ditampilkan.</p></div>;
-}
-
-function EmptyMessage({ compact = false, text }: { compact?: boolean; text: string }) {
-  return <div className={`alos-empty-message${compact ? " compact" : ""}`}><span aria-hidden="true">○</span><p>{text}</p></div>;
 }
 
 function AppIcon({ name }: { name: IconName }) {

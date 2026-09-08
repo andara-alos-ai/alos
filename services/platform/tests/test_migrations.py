@@ -24,4 +24,10 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "015_genesis_semantic_analysis_runs.sql",
         "016_genesis_conversation_follow_ups.sql",
         "017_portfolio_dashboards.sql",
+        "018_identity_capability_and_operational_core.sql",
+        "019_division_capability_packs.sql",
+        "020_capability_and_tool_catalog.sql",
+        "021_integrations_and_software_change_governance.sql",
+        "022_genesis_chat_and_governance_linkage.sql",
+        "023_approved_action_execution.sql",
     ]

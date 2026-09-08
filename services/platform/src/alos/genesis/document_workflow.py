@@ -1,8 +1,4 @@
-"""Durable state machine for Genesis document workflows.
-
-Each transition is source-bound, append-only in the Genesis artifact history,
-and ends at an H4 handoff rather than a release or activation.
-"""
+"""Durable, source-bound state machine for GENESIS document workflows."""
 
 from __future__ import annotations
 
@@ -25,12 +21,16 @@ WorkflowStatus = Literal[
     "CHECKLIST_DRAFT",
     "COMPLETION_DRAFT",
     "AGENT_PROPOSAL_DRAFT",
-    "READY_FOR_H4",
+    "READY_FOR_GOVERNANCE",
 ]
 WorkflowDraftColumn = Literal[
     "rnd_document_id", "checklist_document_id", "completion_document_id"
 ]
-WorkflowArtifactColumn = Literal["agent_proposal_artifact_id", "h4_handoff_artifact_id"]
+WorkflowArtifactColumn = Literal[
+    "agent_proposal_artifact_id",
+    "h4_handoff_artifact_id",
+    "governance_handoff_artifact_id",
+]
 
 
 class GenesisDocumentWorkflowError(RuntimeError):
@@ -59,6 +59,9 @@ class GenesisDocumentWorkflowRecord(BaseModel):
     completion_document_id: UUID | None
     agent_proposal_artifact_id: UUID | None
     h4_handoff_artifact_id: UUID | None
+    governance_handoff_artifact_id: UUID | None = None
+    agent_contract_id: UUID | None = None
+    release_change_request_id: UUID | None = None
     status: WorkflowStatus
     created_by_user_id: UUID
     created_at: datetime
@@ -122,7 +125,9 @@ class GenesisDocumentWorkflowRepository:
                           source_document_id, source_version_number, source_content_sha256,
                           analysis_document_id, rnd_document_id, checklist_document_id,
                           completion_document_id, agent_proposal_artifact_id,
-                          h4_handoff_artifact_id, status, created_by_user_id, created_at, updated_at
+                          h4_handoff_artifact_id, governance_handoff_artifact_id,
+                          agent_contract_id, release_change_request_id, status,
+                          created_by_user_id, created_at, updated_at
                 """,
                 (
                     organization_id,
@@ -179,7 +184,9 @@ class GenesisDocumentWorkflowRepository:
                        source_document_id, source_version_number, source_content_sha256,
                        analysis_document_id, rnd_document_id, checklist_document_id,
                        completion_document_id, agent_proposal_artifact_id,
-                       h4_handoff_artifact_id, status, created_by_user_id, created_at, updated_at
+                       h4_handoff_artifact_id, governance_handoff_artifact_id,
+                       agent_contract_id, release_change_request_id, status,
+                       created_by_user_id, created_at, updated_at
                 FROM genesis.document_workflows
                 WHERE organization_id = %s AND workspace_id = %s
                 ORDER BY updated_at DESC, workflow_id DESC
@@ -220,6 +227,7 @@ class GenesisDocumentWorkflowRepository:
             None,
             "agent_proposal_artifact_id",
             "h4_handoff_artifact_id",
+            "governance_handoff_artifact_id",
         }:
             raise ValueError("invalid workflow artifact column")
         with self._transaction() as connection:
@@ -252,7 +260,9 @@ class GenesisDocumentWorkflowRepository:
                           source_document_id, source_version_number, source_content_sha256,
                           analysis_document_id, rnd_document_id, checklist_document_id,
                           completion_document_id, agent_proposal_artifact_id,
-                          h4_handoff_artifact_id, status, created_by_user_id, created_at, updated_at
+                          h4_handoff_artifact_id, governance_handoff_artifact_id,
+                          agent_contract_id, release_change_request_id, status,
+                          created_by_user_id, created_at, updated_at
                 """,
                 params,
             ).fetchone()
@@ -268,6 +278,49 @@ class GenesisDocumentWorkflowRepository:
                 metadata=metadata,
             )
             return GenesisDocumentWorkflowRecord(**row)
+
+    def link_agent_contract(
+        self,
+        workflow_id: UUID,
+        *,
+        agent_contract_id: UUID,
+        release_change_request_id: UUID,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> None:
+        with self._transaction() as connection:
+            workflow = self._load_workflow(
+                connection,
+                workflow_id,
+                organization_id,
+                actor_user_id,
+                for_update=True,
+            )
+            if workflow["status"] != "AGENT_PROPOSAL_DRAFT":
+                raise GenesisDocumentWorkflowConflictError(
+                    "workflow must contain an agent proposal before Contract linkage"
+                )
+            connection.execute(
+                """
+                UPDATE genesis.document_workflows
+                SET agent_contract_id = %s, release_change_request_id = %s, updated_at = now()
+                WHERE workflow_id = %s
+                """,
+                (agent_contract_id, release_change_request_id, workflow_id),
+            )
+            self._append_system_audit(
+                connection,
+                organization_id=organization_id,
+                action="GENESIS_DOCUMENT_AGENT_CONTRACT_LINKED",
+                entity_id=workflow_id,
+                correlation_id=correlation_id,
+                reason="GENESIS linked the document requirement to a real governed Agent Contract",
+                metadata={
+                    "agent_contract_id": str(agent_contract_id),
+                    "release_change_request_id": str(release_change_request_id),
+                },
+            )
 
     @staticmethod
     def _load_workflow(
@@ -287,7 +340,9 @@ class GenesisDocumentWorkflowRepository:
                    workflow.analysis_document_id, workflow.rnd_document_id,
                    workflow.checklist_document_id, workflow.completion_document_id,
                    workflow.agent_proposal_artifact_id, workflow.h4_handoff_artifact_id,
-                   workflow.status, workflow.created_by_user_id, workflow.created_at,
+                   workflow.governance_handoff_artifact_id, workflow.agent_contract_id,
+                   workflow.release_change_request_id, workflow.status,
+                   workflow.created_by_user_id, workflow.created_at,
                    workflow.updated_at
             FROM genesis.document_workflows AS workflow
             JOIN workspace.memberships AS membership

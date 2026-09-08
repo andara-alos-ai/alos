@@ -46,6 +46,12 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             "015_genesis_semantic_analysis_runs.sql",
             "016_genesis_conversation_follow_ups.sql",
             "017_portfolio_dashboards.sql",
+            "018_identity_capability_and_operational_core.sql",
+            "019_division_capability_packs.sql",
+            "020_capability_and_tool_catalog.sql",
+            "021_integrations_and_software_change_governance.sql",
+            "022_genesis_chat_and_governance_linkage.sql",
+            "023_approved_action_execution.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
@@ -95,6 +101,21 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             assert connection.execute(
                 "SELECT to_regclass('portfolio.division_issues')"
             ).fetchone() == ("portfolio.division_issues",)
+            assert connection.execute(
+                "SELECT to_regclass('capabilities.definitions')"
+            ).fetchone() == ("capabilities.definitions",)
+            assert connection.execute(
+                "SELECT to_regclass('operational.tasks')"
+            ).fetchone() == ("operational.tasks",)
+            assert connection.execute(
+                "SELECT to_regclass('reporting.reports')"
+            ).fetchone() == ("reporting.reports",)
+            assert connection.execute(
+                "SELECT to_regclass('jobs.queue')"
+            ).fetchone() == ("jobs.queue",)
+            assert connection.execute(
+                "SELECT to_regclass('business.records')"
+            ).fetchone() == ("business.records",)
             assert connection.execute(
                 """
                 SELECT column_name FROM information_schema.columns

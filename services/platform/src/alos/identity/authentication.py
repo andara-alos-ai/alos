@@ -18,7 +18,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from alos.config import Settings
-from alos.identity.models import DivisionCode, HumanRole
+from alos.identity.models import DataScope, DivisionCode, HumanRole
 from alos.persistence.database import psycopg_url
 
 _HASH_ALGORITHM = "pbkdf2_sha256"
@@ -63,6 +63,8 @@ class AuthenticationPrincipal(BaseModel):
     roles: list[HumanRole]
     division_codes: list[DivisionCode]
     workspace_ids: list[UUID]
+    data_scope: DataScope
+    permissions: list[str] = Field(default_factory=list)
 
 
 class WorkspaceSummary(BaseModel):
@@ -156,7 +158,8 @@ class IdentityAuthenticationRepository:
             row = connection.execute(
                 """
                 SELECT user_record.user_id, user_record.organization_id, user_record.email,
-                       user_record.display_name, user_record.status, credential.password_hash,
+                       user_record.display_name, user_record.status, user_record.default_data_scope,
+                       credential.password_hash,
                        credential.locked_until, credential.locked_until > now() AS is_locked
                 FROM identity.users AS user_record
                 JOIN identity.user_credentials AS credential
@@ -685,17 +688,34 @@ class IdentityAuthenticationRepository:
             """,
             (account["user_id"], account["organization_id"]),
         ).fetchall()
+        duty_rows = connection.execute(
+            """
+            SELECT DISTINCT duty_code
+            FROM identity.duty_assignments
+            WHERE user_id = %s AND revoked_at IS NULL
+            ORDER BY duty_code
+            """,
+            (account["user_id"],),
+        ).fetchall()
+        roles = {HumanRole(row["role_code"]) for row in role_rows}
+        data_scope = DataScope(account.get("default_data_scope", "OWN_ASSIGNED"))
+        if HumanRole.DIRECTOR in roles:
+            data_scope = DataScope.COMPANY
+        elif roles.intersection({HumanRole.DIVISION_LEAD, HumanRole.DIVISION_OWNER}):
+            data_scope = DataScope.DIVISION
         return AuthenticationPrincipal(
             user_id=account["user_id"],
             organization_id=account["organization_id"],
             email=account["email"],
             display_name=account["display_name"],
-            roles=sorted({HumanRole(row["role_code"]) for row in role_rows}, key=str),
+            roles=sorted(roles, key=str),
             division_codes=sorted(
                 {DivisionCode(row["division_code"]) for row in role_rows if row["division_code"]},
                 key=str,
             ),
             workspace_ids=[row["workspace_id"] for row in workspace_rows],
+            data_scope=data_scope,
+            permissions=[str(row["duty_code"]) for row in duty_rows],
         )
 
     @staticmethod

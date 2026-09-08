@@ -1,3 +1,3 @@
-from alos.identity.models import DivisionCode, HumanRole, SystemActor
+from alos.identity.models import DataScope, DivisionCode, HumanRole, SystemActor
 
-__all__ = ["DivisionCode", "HumanRole", "SystemActor"]
+__all__ = ["DataScope", "DivisionCode", "HumanRole", "SystemActor"]

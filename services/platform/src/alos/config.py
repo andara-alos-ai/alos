@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_host: str = "0.0.0.0"
     api_port: int = Field(default=8000, ge=1, le=65535)
+    api_max_request_bytes: int = Field(default=30 * 1024 * 1024, ge=1024)
+    api_rate_limit_per_minute: int = Field(default=300, ge=10, le=100_000)
     web_origin: str = "http://localhost:3000"
     database_url: str = "postgresql+psycopg://alos:change-me@127.0.0.1:5433/alos"
 
@@ -49,6 +51,12 @@ class Settings(BaseSettings):
     object_storage_bucket: str = "alos-documents"
     object_storage_path: Path = Path("./data/objects")
     object_storage_max_upload_bytes: int = Field(default=25 * 1024 * 1024, ge=1024)
+    object_storage_endpoint_url: str | None = None
+    object_storage_region: str = "auto"
+    object_storage_access_key_id: SecretStr | None = None
+    object_storage_secret_access_key: SecretStr | None = None
+    object_storage_force_path_style: bool = False
+    object_storage_server_side_encryption: str | None = "AES256"
 
     llm_provider: LlmProvider = "disabled"
     llm_api_key: SecretStr | None = None
@@ -91,8 +99,33 @@ class Settings(BaseSettings):
             secret == "local-development-only-change-me" or len(secret) < 32
         ):
             raise ValueError("staging/production requires a unique signing secret")
-        if self.environment == "production" and self.object_storage_provider != "s3":
-            raise ValueError("production requires object storage outside the local filesystem")
+        if (
+            self.environment in {"staging", "production"}
+            and self.object_storage_provider != "s3"
+        ):
+            raise ValueError(
+                "staging/production requires object storage outside the local filesystem"
+            )
+        access_key = (
+            self.object_storage_access_key_id.get_secret_value().strip()
+            if self.object_storage_access_key_id
+            else ""
+        )
+        secret_key = (
+            self.object_storage_secret_access_key.get_secret_value().strip()
+            if self.object_storage_secret_access_key
+            else ""
+        )
+        if bool(access_key) != bool(secret_key):
+            raise ValueError("S3 access key and secret key must be configured together")
+        if self.object_storage_provider == "s3" and not self.object_storage_bucket.strip():
+            raise ValueError("S3 object storage requires a bucket")
+        if (
+            self.object_storage_provider == "s3"
+            and self.object_storage_endpoint_url
+            and not access_key
+        ):
+            raise ValueError("S3-compatible endpoint requires environment credentials")
         if self.llm_provider == "local" and self.environment not in {"local", "test"}:
             raise ValueError("local LLM is limited to local/test")
         if self.llm_provider == "gemini" and self.environment not in {"local", "test"}:

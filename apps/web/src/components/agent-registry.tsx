@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ApiError, apiRequest as api } from "@/lib/api-client";
 
 import {
   agentBuilderSteps,
@@ -23,8 +24,6 @@ import {
   type AgentRunResult,
 } from "@/lib/agent-registry";
 import {
-  ApiError,
-  apiErrorDetail,
   formatDateTime,
   type AuditEvent,
   type SessionActor,
@@ -39,19 +38,6 @@ type RegistryData = {
 };
 
 type RegistryFoundation = Pick<RegistryData, "actor" | "workspaces">;
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    cache: "no-store",
-    credentials: "same-origin",
-    ...init,
-  });
-  if (!response.ok) {
-    const payload: unknown = await response.json().catch(() => undefined);
-    throw new ApiError(response.status, apiErrorDetail(payload));
-  }
-  return (await response.json()) as T;
-}
 
 export function AgentRegistry() {
   const router = useRouter();
@@ -187,7 +173,7 @@ export function AgentRegistry() {
       return;
     }
     if (selectedVersion.lifecycle_status !== "DRAFT") {
-      setError("H3 Test Run hanya tersedia untuk Agent dengan versi DRAFT aktif.");
+      setError("Bounded test run hanya tersedia untuk Agent dengan versi DRAFT aktif.");
       return;
     }
     setRunning(true);
@@ -277,7 +263,7 @@ export function AgentRegistry() {
   }
 
   async function logout() {
-    await fetch("/api/v1/auth/logout", { method: "POST", credentials: "same-origin", cache: "no-store" });
+    await api<void>("/api/v1/auth/logout", { method: "POST" });
     router.replace("/login");
     router.refresh();
   }
@@ -310,7 +296,7 @@ export function AgentRegistry() {
     <main className="registry-shell">
       <header className="dashboard-header registry-header">
         <div>
-          <p className="eyebrow">ALOS / H2 REGISTRY</p>
+          <p className="eyebrow">ALOS / AGENT REGISTRY</p>
           <h1>Agent Registry</h1>
           <p className="muted">Kontrak terversi, hierarki terbatas, dan audit append-only. Semua hasil Builder tetap DRAFT.</p>
         </div>
@@ -410,7 +396,7 @@ export function AgentRegistry() {
 
           <article className="panel runtime-test-panel">
             <div className="panel-heading">
-              <div><p className="eyebrow">H3 FIXTURE TEST RUN</p><h2>Jalankan DRAFT dengan aman</h2></div>
+              <div><p className="eyebrow">BOUNDED DRAFT TEST</p><h2>Jalankan DRAFT dengan aman</h2></div>
               <span className="permission-ok">IT Lead only</span>
             </div>
             {!selectedAgent || !selectedVersion ? <p className="empty-state">Pilih Agent DRAFT untuk menyiapkan fixture run Gate B.</p> : null}
