@@ -167,7 +167,7 @@ class LocalReleaseTeam(BaseModel):
     participants: list[LocalReleaseParticipant]
 
 
-Executor = Callable[[str, AgentRunRequest], AgentRunResult]
+Executor = Callable[[str, AgentRunRequest, UUID], AgentRunResult]
 
 
 class AgentTestRunner:
@@ -203,6 +203,7 @@ class AgentTestRunner:
                 input=input_data,
                 requested_tool_keys=requested_tools,
             ),
+            case.agent_version_id,
         )
         expected_status = case.expected_assertions.get("status")
         if expected_status not in {"SUCCEEDED", "FAILED", "BLOCKED"}:

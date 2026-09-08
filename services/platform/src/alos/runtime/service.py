@@ -189,6 +189,7 @@ class AgentRuntime:
         correlation_id: UUID | None = None,
         actor: ActorContext | None = None,
         allow_draft: bool = True,
+        target_agent_version_id: UUID | None = None,
     ) -> AgentRunResult:
         correlation_id = correlation_id or uuid4()
         prepared = self._repository.prepare_run(
@@ -199,6 +200,7 @@ class AgentRuntime:
             correlation_id=correlation_id,
             max_output_tokens=self._max_output_tokens,
             allow_draft=allow_draft,
+            target_agent_version_id=target_agent_version_id,
         )
         if isinstance(prepared, AgentRunResult):
             self._close()
@@ -378,6 +380,7 @@ class AgentRuntimeRepository:
         correlation_id: UUID,
         max_output_tokens: int,
         allow_draft: bool = True,
+        target_agent_version_id: UUID | None = None,
     ) -> _PreparedRun | AgentRunResult:
         with self._transaction() as connection:
             self._require_actor_workspace(
@@ -389,6 +392,7 @@ class AgentRuntimeRepository:
                 request.workspace_id,
                 agent_key,
                 allow_draft=allow_draft,
+                target_agent_version_id=target_agent_version_id,
             )
             input_hash = _digest(request.input)
             permission_error = self._evaluate_permissions(connection, execution)
@@ -848,6 +852,7 @@ class AgentRuntimeRepository:
         agent_key: str,
         *,
         allow_draft: bool,
+        target_agent_version_id: UUID | None = None,
     ) -> _ExecutionVersion:
         allow_test_draft = allow_draft and self._settings.environment in {
             "local",
@@ -866,11 +871,18 @@ class AgentRuntimeRepository:
                 FROM agents.versions
                 WHERE agent_contract_id = contract.agent_contract_id
                   AND (
-                      (
-                          agent_version_id = registry.active_version_id
-                          AND lifecycle_status = 'ACTIVE'
+                      (%s::uuid IS NOT NULL
+                          AND agent_version_id = %s::uuid
+                          AND %s
+                          AND lifecycle_status = 'DRAFT'
                       )
-                      OR (%s AND lifecycle_status = 'DRAFT')
+                      OR (%s::uuid IS NULL AND (
+                          (
+                              agent_version_id = registry.active_version_id
+                              AND lifecycle_status = 'ACTIVE'
+                          )
+                          OR (%s AND lifecycle_status = 'DRAFT')
+                      ))
                   )
                 ORDER BY CASE WHEN lifecycle_status = 'ACTIVE' THEN 0 ELSE 1 END,
                          created_at DESC, agent_version_id DESC
@@ -880,7 +892,16 @@ class AgentRuntimeRepository:
               AND contract.workspace_id = %s
               AND contract.agent_key = %s
             """,
-            (allow_test_draft, organization_id, workspace_id, agent_key),
+            (
+                target_agent_version_id,
+                target_agent_version_id,
+                allow_test_draft,
+                target_agent_version_id,
+                allow_test_draft,
+                organization_id,
+                workspace_id,
+                agent_key,
+            ),
         ).fetchone()
         if row is None:
             raise AgentRuntimeBlocked("an eligible ACTIVE Agent Version was not found")

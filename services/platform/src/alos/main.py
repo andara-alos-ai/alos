@@ -2387,11 +2387,12 @@ def execute_release_test_case(
     try:
         runner = AgentTestRunner(
             get_release_repository(),
-            lambda agent_key, runtime_request: runtime.execute(
+            lambda agent_key, runtime_request, agent_version_id: runtime.execute(
                 agent_key,
                 runtime_request,
                 organization_id=actor.organization_id,
                 actor_user_id=actor.user_id,
+                target_agent_version_id=agent_version_id,
             ),
         )
         return runner.execute(

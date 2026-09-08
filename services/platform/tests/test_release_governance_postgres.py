@@ -188,12 +188,15 @@ def _complete_release(
 
     runtime_results = []
 
-    def execute_fixture(agent_key: str, run_request: AgentRunRequest) -> AgentRunResult:
+    def execute_fixture(
+        agent_key: str, run_request: AgentRunRequest, agent_version_id: UUID
+    ) -> AgentRunResult:
         result = runtime.execute(
             agent_key,
             run_request,
             organization_id=organization_id,
             actor_user_id=checker_user_id,
+            target_agent_version_id=agent_version_id,
         )
         runtime_results.append(result)
         return result
@@ -206,6 +209,9 @@ def _complete_release(
             checker_user_id=checker_user_id,
         )
         assert result.status == "PASSED", runtime_results[-1]
+    assert {result.semantic_version for result in runtime_results} == {
+        request.semantic_version
+    }, "governed tests must execute the exact DRAFT version under review"
 
     assert (
         repository.submit_for_review(
