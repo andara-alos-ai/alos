@@ -152,12 +152,16 @@ def test_genesis_history_preserves_human_requirement_and_system_artifacts() -> N
             organization_id=context.organization_id,
             actor_user_id=context.user_id,
         ) == []
-        assert history.list_conversations(
+        archived_items = history.list_conversations(
             context.workspace_id,
             organization_id=context.organization_id,
             actor_user_id=context.user_id,
             include_archived=True,
-        ) == [archived]
+        )
+        assert len(archived_items) == 1
+        assert archived_items[0].conversation_id == archived.conversation_id
+        assert archived_items[0].status == "CLOSED"
+        assert archived_items[0].last_message_preview
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:
             connection.execute(

@@ -57,6 +57,7 @@ class GenesisConversationRecord(BaseModel):
     title: str | None = None
     context_mode: ContextMode = "AUTO"
     updated_at: datetime | None = None
+    last_message_preview: str | None = None
 
 
 class GenesisMessageRecord(BaseModel):
@@ -182,13 +183,23 @@ class GenesisHistoryRepository:
             )
             rows = connection.execute(
                 """
-                SELECT conversation_id, organization_id, workspace_id, created_by_user_id,
-                       status, title, context_mode, created_at, updated_at
-                FROM genesis.conversations
-                WHERE organization_id = %s AND workspace_id = %s
-                  AND created_by_user_id = %s
-                  AND (%s OR status = 'OPEN')
-                ORDER BY updated_at DESC, conversation_id DESC
+                SELECT conversation.conversation_id, conversation.organization_id,
+                       conversation.workspace_id, conversation.created_by_user_id,
+                       conversation.status, conversation.title, conversation.context_mode,
+                       conversation.created_at, conversation.updated_at,
+                       left(latest_message.content, 120) AS last_message_preview
+                FROM genesis.conversations AS conversation
+                LEFT JOIN LATERAL (
+                    SELECT message.content
+                    FROM genesis.messages AS message
+                    WHERE message.conversation_id = conversation.conversation_id
+                    ORDER BY message.created_at DESC, message.message_id DESC
+                    LIMIT 1
+                ) AS latest_message ON true
+                WHERE conversation.organization_id = %s AND conversation.workspace_id = %s
+                  AND conversation.created_by_user_id = %s
+                  AND (%s OR conversation.status = 'OPEN')
+                ORDER BY conversation.updated_at DESC, conversation.conversation_id DESC
                 LIMIT %s
                 """,
                 (organization_id, workspace_id, actor_user_id, include_archived, limit),

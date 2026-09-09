@@ -10,6 +10,7 @@ from alos.genesis.chat import (
     _intent_for_prompt,
     _parse_model_response,
 )
+from alos.genesis.router import AgentCandidate
 from alos.identity import HumanRole
 from alos.model_gateway import ModelResponse, ModelUsage
 from alos.security.tokens import ActorContext
@@ -117,6 +118,14 @@ def test_model_input_serializes_uuid_values_returned_by_governed_tools() -> None
         max_output_tokens=100,
     )
     source_id = uuid4()
+    selected_agent = AgentCandidate(
+        agent_key="EVIDENCE_CHECKER",
+        name="Evidence Checker",
+        semantic_version="1.0.0",
+        purpose="Check governed evidence completeness.",
+        risk_level="LOW",
+        capability_keys=["evidence.read"],
+    )
     actor = ActorContext(
         user_id=uuid4(),
         organization_id=uuid4(),
@@ -134,12 +143,16 @@ def test_model_input_serializes_uuid_values_returned_by_governed_tools() -> None
         [{"source_kind": "INTERNAL_SOURCE", "output": {"document_id": source_id}}],
         True,
         [],
+        selected_agent,
         ExternalResearchResult(status="NOT_REQUESTED"),
         uuid4(),
     )
 
     assert response.reliability == "SUPPORTED"
     assert str(source_id) in captured[0]
+    payload = json.loads(captured[0])
+    assert payload["selected_agent"]["agent_key"] == "EVIDENCE_CHECKER"
+    assert payload["selected_agent"]["capability_keys"] == ["evidence.read"]
 
 
 def _external_not_requested():

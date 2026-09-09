@@ -10,6 +10,7 @@ export type GenesisConversation = {
   status: "OPEN" | "CLOSED";
   created_at: string;
   updated_at: string | null;
+  last_message_preview?: string | null;
 };
 
 export type GenesisContextOption = {

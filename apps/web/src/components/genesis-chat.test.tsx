@@ -17,13 +17,14 @@ describe("GENESIS workspace", () => {
   it("renders the company workspace navigation, chat, and inspector without UUID input", () => {
     const html = renderToStaticMarkup(<GenesisChat actor={actor} />);
 
-    expect(html).toContain("Company AI Workspace");
-    expect(html).toContain("Conversations");
-    expect(html).toContain("New Conversation");
-    expect(html).toContain("Context");
+    expect(html).toContain("Your AI Business Companion");
+    expect(html).toContain("Percakapan");
+    expect(html).toContain("Percakapan Baru");
+    expect(html).toContain("Konteks");
     expect(html).toContain("Agents");
-    expect(html).toContain("Activity");
+    expect(html).toContain("Aktivitas");
     expect(html).toContain("Unggah dokumen");
+    expect(html).toContain("<svg");
     expect(html).not.toContain("UUID entitas");
   });
 

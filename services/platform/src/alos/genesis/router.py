@@ -16,8 +16,6 @@ from alos.security.tokens import ActorContext
 
 
 class AgentCandidate(BaseModel):
-    agent_contract_id: UUID
-    agent_version_id: UUID
     agent_key: str
     name: str
     semantic_version: str
@@ -59,8 +57,7 @@ class AgentRouter:
         with self._connection() as connection:
             rows = connection.execute(
                 """
-                SELECT contract.agent_contract_id, version.agent_version_id,
-                       contract.agent_key, contract.name, version.semantic_version,
+                SELECT contract.agent_key, contract.name, version.semantic_version,
                        version.contract_snapshot ->> 'purpose' AS purpose,
                        contract.risk_level,
                        coalesce(

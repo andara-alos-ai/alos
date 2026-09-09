@@ -160,6 +160,16 @@ export function GenesisChat({
   const [uploading, setUploading] = useState(false);
   const [promotingUploadId, setPromotingUploadId] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [favoriteConversationIds, setFavoriteConversationIds] = useState<string[]>(
+    () => {
+      if (typeof window === "undefined") return [];
+      try {
+        return JSON.parse(window.localStorage.getItem("alos-genesis-favorites") ?? "[]") as string[];
+      } catch {
+        return [];
+      }
+    },
+  );
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const loadWorkspaceData = useCallback(async (nextWorkspaceId: string) => {
@@ -244,9 +254,15 @@ export function GenesisChat({
         setWorkspaceId(first);
         if (first) {
           const items = await loadWorkspaceData(first);
-          if (items[0]) {
-            setConversationId(items[0].conversation_id);
-            await loadConversation(items[0].conversation_id, items, first);
+          const requestedId =
+            typeof window === "undefined"
+              ? ""
+              : new URLSearchParams(window.location.search).get("conversation") ?? "";
+          const selected =
+            items.find((item) => item.conversation_id === requestedId) ?? items[0];
+          if (selected) {
+            setConversationId(selected.conversation_id);
+            await loadConversation(selected.conversation_id, items, first);
           }
         }
       } catch (failure) {
@@ -282,13 +298,19 @@ export function GenesisChat({
         )
       : activeAgents;
   }, [activeAgents, agentSearch]);
+  const suggestedActiveAgents = candidateAgents
+    .map((candidate) =>
+      activeAgents.find((agent) => agent.agent_key === candidate.agent_key),
+    )
+    .filter((agent): agent is GenesisActiveAgent => Boolean(agent));
 
   const selectedAgent = activeAgents.find((agent) => agent.agent_key === selectedAgentKey);
   const drawerAgent = activeAgents.find((agent) => agent.agent_key === agentDrawerKey);
   const drawerDraft = draftAgents.find((agent) => agent.agent_key === agentDrawerKey);
-  const activeTitle =
-    conversations.find((item) => item.conversation_id === conversationId)?.title ??
-    "Percakapan baru";
+  const activeConversation = conversations.find(
+    (item) => item.conversation_id === conversationId,
+  );
+  const activeTitle = activeConversation?.title ?? "Percakapan baru";
 
   async function refreshWorkspace(selectConversation = conversationId) {
     if (!workspaceId) return;
@@ -327,6 +349,7 @@ export function GenesisChat({
     setError(null);
     try {
       await loadConversation(nextConversationId, conversations, workspaceId);
+      window.history.replaceState(null, "", "/genesis?conversation=" + encodeURIComponent(nextConversationId));
     } catch (failure) {
       setError(normalizeGenesisError(failure));
     }
@@ -352,6 +375,7 @@ export function GenesisChat({
       setContextLabels({});
       setMode("AUTO");
       setNotice("Percakapan baru berhasil dibuat.");
+      window.history.replaceState(null, "", "/genesis?conversation=" + encodeURIComponent(created.conversation_id));
     } catch (failure) {
       setError(normalizeGenesisError(failure));
     } finally {
@@ -395,6 +419,36 @@ export function GenesisChat({
       destructive: true,
       onConfirm: () => void archiveConversation(item),
     });
+  }
+
+  function toggleFavorite() {
+    if (!conversationId) return;
+    setFavoriteConversationIds((current) => {
+      const next = current.includes(conversationId)
+        ? current.filter((item) => item !== conversationId)
+        : [...current, conversationId];
+      window.localStorage.setItem("alos-genesis-favorites", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  async function shareConversation() {
+    if (!conversationId) return;
+    const url =
+      window.location.origin +
+      "/genesis?conversation=" +
+      encodeURIComponent(conversationId);
+    try {
+      await window.navigator.clipboard.writeText(url);
+      setNotice("Tautan percakapan disalin. Akses tetap mengikuti login dan scope penerima.");
+    } catch {
+      setError({
+        title: "Tautan belum dapat disalin",
+        reason: "Browser menolak akses clipboard.",
+        nextAction: "Salin alamat halaman dari address bar.",
+        correlationId: null,
+      });
+    }
   }
 
   async function archiveConversation(item: GenesisConversation) {
@@ -508,6 +562,33 @@ export function GenesisChat({
       setNotice("Context dilepas dari percakapan. Source asli tidak dihapus.");
     } catch (failure) {
       setError(normalizeGenesisError(failure));
+    } finally {
+      setMutating(false);
+    }
+  }
+
+  async function clearConversationContext() {
+    if (!conversationId || !contexts.length || mutating) return;
+    setMutating(true);
+    setError(null);
+    try {
+      await Promise.all(
+        contexts.map((item) =>
+          apiRequest(
+            "/api/v1/genesis/conversations/" +
+              encodeURIComponent(conversationId) +
+              "/context/" +
+              encodeURIComponent(item.conversation_context_id),
+            { method: "DELETE" },
+          ),
+        ),
+      );
+      setContexts([]);
+      setContextLabels({});
+      setNotice("Semua context dilepas dari percakapan. Source asli tetap tersimpan.");
+    } catch (failure) {
+      setError(normalizeGenesisError(failure));
+      await loadConversation(conversationId, conversations, workspaceId);
     } finally {
       setMutating(false);
     }
@@ -640,6 +721,18 @@ export function GenesisChat({
       setCapabilities(result.candidate_capabilities);
       setExternalStatus(result.external_research.status);
       setPrompt("");
+      const currentConversation = conversations.find(
+        (item) => item.conversation_id === target,
+      );
+      if (currentConversation?.title === "Percakapan baru") {
+        await apiRequest<GenesisConversation>(
+          "/api/v1/genesis/conversations/" + encodeURIComponent(target),
+          {
+            method: "PATCH",
+            body: JSON.stringify({ title: content.slice(0, 80) }),
+          },
+        );
+      }
       await loadWorkspaceData(workspaceId);
     } catch (failure) {
       setError(normalizeGenesisError(failure));
@@ -739,26 +832,32 @@ export function GenesisChat({
         type="file"
       />
       <header className="genesis-workspace-header">
-        <div>
-          <p className="alos-kicker">GENESIS</p>
-          <h2>Company AI Workspace</h2>
-          <p>Analisis terotorisasi, context terverifikasi, dan Agent dengan governance.</p>
+        <div className="genesis-workspace-brand">
+          <GenesisWorkspaceIcon name="sparkles" />
+          <div>
+            <h2>GENESIS</h2>
+            <p>Your AI Business Companion</p>
+          </div>
         </div>
-        <div>
-          <select
-            aria-label="Workspace GENESIS"
-            onChange={(event) => void changeWorkspace(event.target.value)}
-            value={workspaceId}
-          >
-            {workspaces.map((workspace) => (
-              <option key={workspace.workspace_id} value={workspace.workspace_id}>
-                {workspace.name}
-              </option>
-            ))}
-          </select>
-          <button disabled={mutating || !workspaceId} onClick={() => void newConversation()} type="button">
-            {mutating ? "Membuat…" : "+ New Conversation"}
-          </button>
+        <p className="genesis-workspace-mission">
+          Understand your business. <span>Find what matters.</span> Turn insight into action.
+        </p>
+        <div className="genesis-workspace-quote">
+          <blockquote>“From data to decisions,<br />from today to a brighter tomorrow.”</blockquote>
+          <label>
+            <span>Workspace</span>
+            <select
+              aria-label="Workspace GENESIS"
+              onChange={(event) => void changeWorkspace(event.target.value)}
+              value={workspaceId}
+            >
+              {workspaces.map((workspace) => (
+                <option key={workspace.workspace_id} value={workspace.workspace_id}>
+                  {workspace.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </header>
 
@@ -784,24 +883,27 @@ export function GenesisChat({
       <div className="genesis-workspace-grid">
         <aside className={mobilePanel === "HISTORY" ? "genesis-conversation-nav mobile-open" : "genesis-conversation-nav"}>
           <div className="genesis-panel-heading">
-            <strong>Conversations</strong>
-            <button onClick={() => void newConversation()} type="button" aria-label="Percakapan baru">
-              +
+            <strong>Percakapan</strong>
+            <button disabled={mutating || !workspaceId} onClick={() => void newConversation()} type="button" aria-label="Percakapan baru">
+              <GenesisWorkspaceIcon name="plus" /> {mutating ? "Membuat…" : "Percakapan Baru"}
             </button>
           </div>
-          <input
-            aria-label="Cari percakapan"
-            onChange={(event) => setConversationSearch(event.target.value)}
-            placeholder="Search conversations…"
-            type="search"
-            value={conversationSearch}
-          />
+          <label className="genesis-sidebar-search">
+            <GenesisWorkspaceIcon name="search" />
+            <input
+              aria-label="Cari percakapan"
+              onChange={(event) => setConversationSearch(event.target.value)}
+              placeholder="Cari percakapan…"
+              type="search"
+              value={conversationSearch}
+            />
+          </label>
           <div className="genesis-conversation-groups">
             {loading ? <p className="genesis-empty">Memuat conversations dan Agent terotorisasi…</p> : null}
             {(["Today", "Yesterday", "Previous 7 Days", "Older"] as const).map((group) =>
               groupedConversations[group].length ? (
                 <section key={group}>
-                  <span>{group}</span>
+                  <span>{conversationGroupLabel(group)}</span>
                   {groupedConversations[group].map((item) => (
                     <div
                       className={
@@ -826,8 +928,11 @@ export function GenesisChat({
                       ) : (
                         <>
                           <button onClick={() => void selectConversation(item.conversation_id)} type="button">
-                            <strong>{item.title ?? "Percakapan tanpa judul"}</strong>
-                            <small>{formatTime(item.updated_at ?? item.created_at)}</small>
+                            <span>
+                              <strong>{item.title ?? "Percakapan tanpa judul"}</strong>
+                              <time>{conversationTime(item.updated_at ?? item.created_at)}</time>
+                            </span>
+                            <small>{item.last_message_preview ?? "Mulai percakapan dengan GENESIS…"}</small>
                           </button>
                           <details className="genesis-row-menu">
                             <summary aria-label={"Aksi " + (item.title ?? "percakapan")}>•••</summary>
@@ -861,30 +966,84 @@ export function GenesisChat({
 
         <article className="genesis-chat-column">
           <header className="genesis-chat-header">
-            <div>
-              <span className="alos-genesis-orb">G</span>
+            <div className="genesis-chat-title">
               <div>
                 <strong>{activeTitle}</strong>
-                <small>{conversationId ? "History tersimpan dan dapat diaudit" : "Mulai percakapan baru"}</small>
+                <small>
+                  {selectedAgent?.purpose ??
+                    (conversationId
+                      ? "Percakapan tersimpan, terotorisasi, dan dapat diaudit."
+                      : "Mulai percakapan baru dengan GENESIS.")}
+                </small>
               </div>
+              <label className="genesis-agent-selector">
+                <GenesisWorkspaceIcon name="bot" />
+                <select
+                  aria-label="Agent untuk percakapan"
+                  onChange={(event) => setSelectedAgentKey(event.target.value)}
+                  value={selectedAgentKey}
+                >
+                  <option value="">GENESIS Core</option>
+                  {activeAgents.map((agent) => (
+                    <option key={agent.agent_key} value={agent.agent_key}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <select
-              aria-label="Mode sumber GENESIS"
-              onChange={(event) => setMode(event.target.value as ContextMode)}
-              value={mode}
-            >
-              <option value="AUTO">Auto source</option>
-              <option value="INTERNAL">Internal only</option>
-              <option value="EXTERNAL">External only</option>
-              <option value="INTERNAL_AND_EXTERNAL">Internal + external</option>
-            </select>
+            <div className="genesis-chat-actions">
+              <button
+                aria-label={favoriteConversationIds.includes(conversationId) ? "Hapus dari favorit" : "Tambahkan ke favorit"}
+                className={favoriteConversationIds.includes(conversationId) ? "active" : ""}
+                disabled={!conversationId}
+                onClick={toggleFavorite}
+                title="Favorite"
+                type="button"
+              >
+                <GenesisWorkspaceIcon name="star" />
+              </button>
+              <button
+                aria-label="Bagikan tautan percakapan"
+                disabled={!conversationId}
+                onClick={() => void shareConversation()}
+                title="Copy secure link"
+                type="button"
+              >
+                <GenesisWorkspaceIcon name="share" />
+              </button>
+              <details className="genesis-header-menu">
+                <summary aria-label="Aksi percakapan"><GenesisWorkspaceIcon name="more" /></summary>
+                {activeConversation ? (
+                  <div>
+                    <button onClick={() => {
+                      setEditingConversationId(activeConversation.conversation_id);
+                      setEditingTitle(activeConversation.title ?? "");
+                      setMobilePanel("HISTORY");
+                    }} type="button">Rename</button>
+                    <button onClick={() => requestArchive(activeConversation)} type="button">Archive</button>
+                  </div>
+                ) : null}
+              </details>
+            </div>
           </header>
 
           <div className="genesis-chat-scroll" aria-live="polite">
             {messages.length === 0 ? (
               <GenesisWelcome actor={actor} onPrompt={setPrompt} />
             ) : (
-              messages.map((message) => <GenesisMessage key={message.message_id} message={message} />)
+              messages.map((message, index) => (
+                <GenesisMessage
+                  agent={
+                    message.actor_kind === "SYSTEM"
+                      ? selectedAgentFromMessage(message) ??
+                        (index === messages.length - 1 ? selectedAgent : undefined)
+                      : undefined
+                  }
+                  key={message.message_id}
+                  message={message}
+                />
+              ))
             )}
             {sending ? (
               <div className="alos-genesis-thinking">
@@ -928,8 +1087,8 @@ export function GenesisChat({
           <form className="genesis-composer" onSubmit={(event) => void submit(event)}>
             <div className="genesis-selected-chips">
               {selectedAgent ? (
-                <span>
-                  Agent: {selectedAgent.name}
+                <span className="agent-chip">
+                  <GenesisWorkspaceIcon name="bot" /> {selectedAgent.name}
                   <button aria-label="Lepas Agent" onClick={() => setSelectedAgentKey("")} type="button">
                     ×
                   </button>
@@ -937,9 +1096,14 @@ export function GenesisChat({
               ) : null}
               {contexts.slice(0, 3).map((item) => (
                 <span key={item.conversation_context_id}>
+                  <GenesisWorkspaceIcon name={contextIcon(item.entity_type)} />
                   {contextLabels[item.entity_id]?.title ?? item.entity_type}
+                  {item.source_version ? <em>v{item.source_version}</em> : null}
+                  <button aria-label={"Lepas " + (contextLabels[item.entity_id]?.title ?? item.entity_type)} disabled={mutating} onClick={() => void removeContext(item)} type="button">×</button>
                 </span>
               ))}
+              <button className="genesis-add-context-chip" disabled={!conversationId} onClick={() => void openContextPicker()} type="button"><GenesisWorkspaceIcon name="plus" /> Tambah Konteks</button>
+              {contexts.length ? <button className="genesis-clear-context" disabled={mutating} onClick={() => void clearConversationContext()} type="button">Hapus semua</button> : null}
             </div>
             <textarea
               maxLength={10000}
@@ -956,20 +1120,29 @@ export function GenesisChat({
                 title="Unggah source"
                 type="button"
               >
-                {uploading ? "…" : "📎"}
+                {uploading ? "…" : <GenesisWorkspaceIcon name="paperclip" />}
               </button>
               <button
-                aria-label="Pilih context"
-                disabled={!conversationId}
-                onClick={() => void openContextPicker()}
-                title="Pilih context ALOS"
+                aria-label="Gunakan sumber internal ALOS"
+                className={mode === "INTERNAL" ? "active" : ""}
+                onClick={() => setMode((current) => current === "INTERNAL" ? "AUTO" : "INTERNAL")}
+                title="Internal ALOS"
                 type="button"
               >
-                ＋ Context
+                <GenesisWorkspaceIcon name="database" />
+              </button>
+              <button
+                aria-label="Izinkan sumber eksternal terkonfigurasi"
+                className={["EXTERNAL", "INTERNAL_AND_EXTERNAL"].includes(mode) ? "active" : ""}
+                onClick={() => setMode((current) => current === "INTERNAL_AND_EXTERNAL" ? "AUTO" : "INTERNAL_AND_EXTERNAL")}
+                title="Internal + external"
+                type="button"
+              >
+                <GenesisWorkspaceIcon name="globe" />
               </button>
               <small>Enter kirim · Shift+Enter baris baru</small>
               <button disabled={!prompt.trim() || !workspaceId || sending} type="submit">
-                {sending ? "Mengirim…" : "Kirim"}
+                {sending ? "Mengirim…" : <><span>Kirim</span><GenesisWorkspaceIcon name="send" /></>}
               </button>
             </div>
           </form>
@@ -985,47 +1158,75 @@ export function GenesisChat({
                 onClick={() => setInspectorTab(tab)}
                 type="button"
               >
-                {tab === "CONTEXT" ? "Context" : tab === "AGENTS" ? "Agents" : "Activity"}
+                {tab === "CONTEXT" ? "Konteks" : tab === "AGENTS" ? "Agents" : "Aktivitas"}
               </button>
             ))}
           </nav>
 
           {inspectorTab === "CONTEXT" ? (
             <div className="genesis-inspector-body">
-              <div className="genesis-panel-heading">
-                <strong>Attached Context</strong>
-                <button disabled={!conversationId} onClick={() => void openContextPicker()} type="button">
-                  + Add
-                </button>
-              </div>
-              {contexts.map((item) => {
-                const option = contextLabels[item.entity_id];
-                return (
-                  <article className="genesis-context-card" key={item.conversation_context_id}>
-                    <span>{item.entity_type}</span>
-                    <strong>{option?.title ?? "Authorized " + item.entity_type}</strong>
-                    <small>
-                      {option?.status ?? "ATTACHED"}
-                      {item.source_version ? " · v" + item.source_version : ""}
-                    </small>
-                    <div>
-                      <Link href={contextHref(item.entity_type)}>View</Link>
-                      <button disabled={mutating} onClick={() => void removeContext(item)} type="button">
-                        Remove
-                      </button>
-                    </div>
+              <section className="genesis-inspector-section">
+                <div className="genesis-panel-heading">
+                  <div><strong>Konteks Percakapan</strong><small>Dokumen, task, proyek, atau data yang digunakan dalam percakapan ini.</small></div>
+                  <button disabled={!conversationId} onClick={() => void openContextPicker()} type="button">
+                    <GenesisWorkspaceIcon name="plus" /> Tambah Konteks
+                  </button>
+                </div>
+                <div className="genesis-context-list">
+                  {contexts.map((item) => {
+                    const option = contextLabels[item.entity_id];
+                    return (
+                      <article className="genesis-context-card" key={item.conversation_context_id}>
+                        <span className={"genesis-context-icon type-" + item.entity_type.toLowerCase()}><GenesisWorkspaceIcon name={contextIcon(item.entity_type)} /></span>
+                        <div>
+                          <strong>{option?.title ?? "Authorized " + item.entity_type}</strong>
+                          <small>{humanContextType(item.entity_type)}{item.source_version ? " · v" + item.source_version : ""} · {option?.scope ?? option?.status ?? "Attached"}</small>
+                        </div>
+                        <details className="genesis-row-menu">
+                          <summary aria-label="Aksi context"><GenesisWorkspaceIcon name="more" /></summary>
+                          <div><Link href={contextHref(item.entity_type)}>Lihat</Link><button disabled={mutating} onClick={() => void removeContext(item)} type="button">Lepas</button></div>
+                        </details>
+                      </article>
+                    );
+                  })}
+                  {!contexts.length ? <p className="genesis-empty">Belum ada konteks khusus yang dilampirkan.</p> : null}
+                </div>
+                <dl className="genesis-source-state">
+                  <div><dt>Mode sumber</dt><dd>{modeLabel(mode)}</dd></div>
+                  <div><dt>External</dt><dd>{humanExternalStatus(externalStatus)}</dd></div>
+                </dl>
+              </section>
+
+              <section className="genesis-inspector-section">
+                <div className="genesis-panel-heading"><strong>Agent Aktif di Workspace</strong><button onClick={() => setInspectorTab("AGENTS")} type="button">Lihat Semua ›</button></div>
+                <div className="genesis-compact-agent-list">
+                  {activeAgents.slice(0, 5).map((agent) => (
+                    <article className={selectedAgentKey === agent.agent_key ? "selected" : ""} key={agent.agent_key}>
+                      <button onClick={() => setAgentDrawerKey(agent.agent_key)} type="button"><span><GenesisWorkspaceIcon name="bot" /></span><div><strong>{agent.name}</strong><small>{agent.purpose}</small></div></button>
+                      <div><b>ACTIVE</b><small>v{agent.semantic_version}</small></div>
+                      <details className="genesis-row-menu"><summary aria-label={"Aksi " + agent.name}><GenesisWorkspaceIcon name="more" /></summary><div><button onClick={() => chooseAgent(agent)} type="button">Gunakan</button><button onClick={() => setAgentDrawerKey(agent.agent_key)} type="button">Detail</button></div></details>
+                    </article>
+                  ))}
+                  {!activeAgents.length ? <p className="genesis-empty">Belum ada Agent ACTIVE yang tersedia untuk workspace dan scope Anda.</p> : null}
+                </div>
+              </section>
+
+              <section className="genesis-inspector-section">
+                <div className="genesis-panel-heading"><strong>Direkomendasikan untuk Percakapan Ini</strong></div>
+                {suggestedActiveAgents.slice(0, 1).map((agent) => (
+                  <article className="genesis-recommended-agent" key={agent.agent_key}>
+                    <div><span><GenesisWorkspaceIcon name="bot" /></span><p><strong>{agent.name}</strong><small>Matched capabilities: {agent.capability_keys.join(", ") || "general"}</small></p><b>Aktif</b></div>
+                    <button onClick={() => chooseAgent(agent)} type="button">Gunakan Agent <GenesisWorkspaceIcon name="check" /></button>
                   </article>
-                );
-              })}
-              {!contexts.length ? (
-                <p className="genesis-empty">
-                  Belum ada context. Pilih document, project, task, evidence, finding, atau report tanpa UUID.
-                </p>
-              ) : null}
-              <dl className="genesis-source-state">
-                <div><dt>Mode</dt><dd>{modeLabel(mode)}</dd></div>
-                <div><dt>External</dt><dd>{humanExternalStatus(externalStatus)}</dd></div>
-              </dl>
+                ))}
+                {!suggestedActiveAgents.length ? (
+                  <article className="genesis-request-agent-card">
+                    <strong>Belum menemukan agent yang sesuai?</strong>
+                    <p>Minta GENESIS membuat Agent baru sesuai kebutuhan Anda.</p>
+                    <button onClick={() => setShowAgentRequest(true)} type="button"><GenesisWorkspaceIcon name="plus" /> Request New Agent</button>
+                  </article>
+                ) : null}
+              </section>
             </div>
           ) : null}
 
@@ -1043,7 +1244,7 @@ export function GenesisChat({
                 {shownAgents.map((agent) => (
                   <article className="genesis-agent-card" key={agent.agent_key}>
                     <button onClick={() => setAgentDrawerKey(agent.agent_key)} type="button">
-                      <span className="alos-genesis-orb">{agent.name.slice(0, 1)}</span>
+                      <span className="genesis-agent-icon"><GenesisWorkspaceIcon name="bot" /></span>
                       <p><strong>{agent.name}</strong><small>{agent.purpose}</small></p>
                       <span className="lifecycle-pill lifecycle-active">ACTIVE</span>
                     </button>
@@ -1296,22 +1497,40 @@ function GenesisWelcome({
   );
 }
 
-function GenesisMessage({ message }: { message: Message }) {
+function GenesisMessage({
+  agent,
+  message,
+}: {
+  agent?: AgentCandidate;
+  message: Message;
+}) {
   const isHuman = message.actor_kind === "HUMAN";
   const response = responseFromMessage(message);
   return (
     <div className={isHuman ? "alos-genesis-message human" : "alos-genesis-message assistant"}>
-      <div className="alos-genesis-message-meta"><strong>{isHuman ? "Anda" : "GENESIS"}</strong><time>{formatTime(message.created_at)}</time></div>
-      <p>{response?.answer || message.content}</p>
-      {!isHuman && response?.reliability ? <small className="alos-genesis-reliability">Reliability: {response.reliability}</small> : null}
-      {!isHuman ? <GenesisResponseSections response={response} /> : null}
-      {!isHuman && message.citations.length ? (
-        <details>
-          <summary>{message.citations.length} source</summary>
-          <ul>{message.citations.map((citation, index) => <li key={String(citation.source_id ?? citation.url ?? index)}><span>{String(citation.title ?? citation.source_id ?? citation.url ?? "Source terverifikasi")}</span><small>{String(citation.source_kind ?? "SOURCE")}</small></li>)}</ul>
-        </details>
-      ) : null}
-      {!isHuman && message.tool_activity.length ? <small className="alos-tool-activity">{message.tool_activity.length} governed tool call</small> : null}
+      <span className={isHuman ? "genesis-message-avatar human" : "genesis-message-avatar"}>
+        {isHuman ? "DU" : "G"}
+      </span>
+      <div className="genesis-message-content">
+        <div className="alos-genesis-message-meta"><strong>{isHuman ? "Direktur Utama" : "GENESIS"}</strong><time>{formatClock(message.created_at)}</time></div>
+        {agent ? (
+          <section className="genesis-used-agent">
+            <span><GenesisWorkspaceIcon name="bot" /></span>
+            <div><small>Menggunakan agent</small><strong>{agent.name}</strong><em>v{agent.semantic_version}</em></div>
+            <b>ACTIVE</b>
+          </section>
+        ) : null}
+        <p>{response?.answer || message.content}</p>
+        {!isHuman && response?.reliability ? <small className="alos-genesis-reliability"><GenesisWorkspaceIcon name="check" /> Reliability: {response.reliability}</small> : null}
+        {!isHuman ? <GenesisResponseSections response={response} /> : null}
+        {!isHuman && message.citations.length ? (
+          <details>
+            <summary><GenesisWorkspaceIcon name="database" /> Sumber Data <span>{message.citations.length}</span></summary>
+            <ul>{message.citations.map((citation, index) => <li key={String(citation.source_id ?? citation.url ?? index)}><span>{String(citation.title ?? citation.source_id ?? citation.url ?? "Source terverifikasi")}</span><small>{String(citation.source_kind ?? "SOURCE")}</small></li>)}</ul>
+          </details>
+        ) : null}
+        {!isHuman && message.tool_activity.length ? <small className="alos-tool-activity">{message.tool_activity.length} governed tool call</small> : null}
+      </div>
     </div>
   );
 }
@@ -1320,6 +1539,27 @@ function responseFromMessage(message: Message): GenesisResponse | null {
   const value = message.structured_content.response;
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as GenesisResponse;
+}
+
+function selectedAgentFromMessage(message: Message): AgentCandidate | undefined {
+  const value = message.structured_content.selected_agent;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Partial<AgentCandidate>;
+  if (
+    typeof candidate.agent_key !== "string" ||
+    typeof candidate.name !== "string" ||
+    typeof candidate.semantic_version !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    agent_key: candidate.agent_key,
+    name: candidate.name,
+    semantic_version: candidate.semantic_version,
+    purpose: candidate.purpose ?? "",
+    risk_level: candidate.risk_level ?? "UNKNOWN",
+    capability_keys: candidate.capability_keys ?? [],
+  };
 }
 
 function GenesisResponseSections({ response }: { response: GenesisResponse | null }) {
@@ -1523,4 +1763,103 @@ function humanExternalStatus(status: string): string {
   if (status === "EXTERNAL_RESEARCH_NOT_CONFIGURED") return "Belum dikonfigurasi";
   if (status === "UNAVAILABLE") return "Tidak tersedia";
   return status;
+}
+
+type GenesisWorkspaceIconName =
+  | "activity"
+  | "bot"
+  | "check"
+  | "database"
+  | "document"
+  | "globe"
+  | "paperclip"
+  | "plus"
+  | "project"
+  | "send"
+  | "search"
+  | "share"
+  | "sparkles"
+  | "star"
+  | "task"
+  | "more";
+
+function GenesisWorkspaceIcon({ name }: { name: GenesisWorkspaceIconName }) {
+  const paths: Record<GenesisWorkspaceIconName, React.ReactNode> = {
+    activity: <><path d="M4 19V9M10 19V5M16 19v-7M22 19V8" /><path d="M2 19h22" /></>,
+    bot: <><rect height="10" rx="3" width="16" x="4" y="8" /><path d="M9 12h.01M15 12h.01M9 16h6M12 4v4M10.5 4h3M2 12h2M20 12h2" /></>,
+    check: <><circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" /></>,
+    database: <><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" /></>,
+    document: <><path d="M6 2h8l4 4v16H6z" /><path d="M14 2v5h5M9 12h6M9 16h6" /></>,
+    globe: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c3 3.4 3 14.6 0 18M12 3c-3 3.4-3 14.6 0 18" /></>,
+    more: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></>,
+    paperclip: <path d="m8.7 12.8 5.8-5.8a3.2 3.2 0 0 1 4.5 4.5l-7.4 7.4a5 5 0 0 1-7.1-7.1l7.1-7.1" />,
+    plus: <path d="M12 5v14M5 12h14" />,
+    project: <><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" /></>,
+    search: <><circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4 4" /></>,
+    send: <><path d="m4 4 16 8-16 8 3-8-3-8Z" /><path d="M7 12h13" /></>,
+    share: <><circle cx="18" cy="5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="19" r="2.5" /><path d="m8.2 10.8 7.5-4.4M8.2 13.2l7.5 4.4" /></>,
+    sparkles: <><path d="M12 2c.7 5.2 2.8 7.3 8 8-5.2.7-7.3 2.8-8 8-.7-5.2-2.8-7.3-8-8 5.2-.7 7.3-2.8 8-8Z" /><path d="M19 17c.3 2 1 2.7 3 3-2 .3-2.7 1-3 3-.3-2-1-2.7-3-3 2-.3 2.7-1 3-3Z" /></>,
+    star: <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z" />,
+    task: <><rect height="18" rx="3" width="18" x="3" y="3" /><path d="m7 12 3 3 7-7" /></>,
+  };
+  return (
+    <svg
+      aria-hidden="true"
+      className="genesis-workspace-icon"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+      viewBox="0 0 24 24"
+    >
+      {paths[name]}
+    </svg>
+  );
+}
+
+function contextIcon(type: ContextEntityType): GenesisWorkspaceIconName {
+  if (type === "DOCUMENT" || type === "REPORT") return "document";
+  if (type === "PROJECT") return "project";
+  if (type === "TASK" || type === "EVIDENCE" || type === "FINDING") return "task";
+  return "database";
+}
+
+function humanContextType(type: ContextEntityType): string {
+  return {
+    DOCUMENT: "Dokumen",
+    PROJECT: "Proyek",
+    TASK: "Task",
+    EVIDENCE: "Evidence",
+    FINDING: "Temuan",
+    REPORT: "Laporan",
+  }[type];
+}
+
+function conversationGroupLabel(group: "Today" | "Yesterday" | "Previous 7 Days" | "Older"): string {
+  return {
+    Today: "Hari ini",
+    Yesterday: "Kemarin",
+    "Previous 7 Days": "7 Hari Terakhir",
+    Older: "Lebih Lama",
+  }[group];
+}
+
+function conversationTime(value: string): string {
+  const date = new Date(value);
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  return sameDay
+    ? formatClock(value)
+    : new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short" }).format(date);
+}
+
+function formatClock(value: string): string {
+  return new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
