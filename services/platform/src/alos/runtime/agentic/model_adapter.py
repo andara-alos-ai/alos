@@ -7,6 +7,7 @@ import json
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic_ai.messages import (
     ModelMessage,
@@ -102,7 +103,15 @@ class ALOSModelAdapter(Model[None]):
             data_classification=self._classification,
             max_output_tokens=self._max_output_tokens,
         )
-        response = await asyncio.to_thread(self._gateway.generate, gateway_request)
+        tracer = trace.get_tracer("alos.runtime.agentic.model")
+        with tracer.start_as_current_span("alos.model_gateway.generate") as span:
+            span.set_attribute("alos.correlation_id", str(self._correlation_id))
+            span.set_attribute("alos.model_route", self._model_name)
+            span.set_attribute("alos.classification", self._classification)
+            response = await asyncio.to_thread(self._gateway.generate, gateway_request)
+            span.set_attribute("alos.provider", response.provider)
+            span.set_attribute("alos.input_tokens", response.usage.input_tokens)
+            span.set_attribute("alos.output_tokens", response.usage.output_tokens)
         envelope = _GATEWAY_ENVELOPE_ADAPTER.validate_json(response.output_text)
         parts = _response_parts(envelope, parameters)
         return PydanticModelResponse(

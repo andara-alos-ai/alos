@@ -10,6 +10,7 @@ from time import monotonic
 from typing import Any
 from uuid import UUID
 
+from opentelemetry import trace
 from pydantic_ai import Agent, CancellationToken, StructuredDict, Tool, UsageLimits
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models import Model
@@ -37,6 +38,20 @@ class PydanticAgenticEngine:
         self._active_lock = Lock()
 
     def execute(self, request: AgenticExecutionRequest) -> AgenticExecutionResult:
+        tracer = trace.get_tracer("alos.runtime.agentic")
+        with tracer.start_as_current_span("alos.agentic.execute") as span:
+            span.set_attribute("alos.run_id", str(request.context.run_id))
+            span.set_attribute("alos.correlation_id", str(request.context.correlation_id))
+            span.set_attribute("alos.execution_mode", request.context.execution_mode.value)
+            span.set_attribute("alos.classification", request.context.classification)
+            result = self._execute_traced(request)
+            span.set_attribute("alos.status", result.status.value)
+            span.set_attribute("alos.model_calls", result.usage.total_model_calls)
+            span.set_attribute("alos.tool_calls", result.usage.total_tool_calls)
+            span.set_attribute("alos.total_tokens", result.usage.total_tokens)
+            return result
+
+    def _execute_traced(self, request: AgenticExecutionRequest) -> AgenticExecutionResult:
         started = monotonic()
         token = CancellationToken()
         with self._active_lock:

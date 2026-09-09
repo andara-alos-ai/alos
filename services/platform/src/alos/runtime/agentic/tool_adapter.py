@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from opentelemetry import trace
+
 from alos.runtime.agentic.output import ExecutionContext
 from alos.security.tokens import ActorContext
 from alos.tools.executor import (
@@ -34,13 +36,19 @@ class ALOSToolAdapter:
             arguments=arguments,
             idempotency_key=str(idempotency_key) if idempotency_key is not None else None,
         )
-        result = self._executor.execute(
-            call,
-            actor=self._actor,
-            correlation_id=context.correlation_id,
-            agent_version_id=context.agent_version_id,
-            agent_run_id=context.run_id,
-        )
+        tracer = trace.get_tracer("alos.runtime.agentic.tool")
+        with tracer.start_as_current_span("alos.tool_executor.execute") as span:
+            span.set_attribute("alos.correlation_id", str(context.correlation_id))
+            span.set_attribute("alos.tool_key", tool_key)
+            result = self._executor.execute(
+                call,
+                actor=self._actor,
+                correlation_id=context.correlation_id,
+                agent_version_id=context.agent_version_id,
+                agent_run_id=context.run_id,
+            )
+            span.set_attribute("alos.tool_status", result.status)
+            span.set_attribute("alos.tool_latency_ms", result.elapsed_milliseconds)
         return result.model_dump(mode="json")
 
     def _validate_actor_scope(self, context: ExecutionContext) -> None:
