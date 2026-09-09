@@ -6,6 +6,15 @@ from alos.genesis.factory.models import (
     ImplementationType,
     RequirementUnderstanding,
 )
+from alos.genesis.factory.persistence import (
+    FactoryRepository,
+    FactoryRequestConflictError,
+    FactoryRequestCreate,
+    FactoryRequestNotFoundError,
+    FactoryRequestPage,
+    FactoryRequestRecord,
+    FactoryStatus,
+)
 from alos.genesis.factory.pipeline import (
     AgentContractFactory,
     DependencyStatus,
@@ -25,4 +34,11 @@ __all__ = [
     "DependencyStatus",
     "FactoryDependencyResolver",
     "FactoryProposal",
+    "FactoryRepository",
+    "FactoryRequestConflictError",
+    "FactoryRequestCreate",
+    "FactoryRequestNotFoundError",
+    "FactoryRequestPage",
+    "FactoryRequestRecord",
+    "FactoryStatus",
 ]
