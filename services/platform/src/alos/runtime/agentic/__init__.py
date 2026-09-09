@@ -15,6 +15,7 @@ from alos.runtime.agentic.output import (
     StepType,
 )
 from alos.runtime.agentic.pydantic_engine import PydanticAgenticEngine
+from alos.runtime.agentic.tool_adapter import ALOSToolAdapter
 
 __all__ = [
     "AgenticExecutionEngine",
@@ -23,6 +24,7 @@ __all__ = [
     "AgenticStep",
     "AgenticToolDefinition",
     "ALOSModelAdapter",
+    "ALOSToolAdapter",
     "CumulativeUsage",
     "ExecutionContext",
     "ExecutionLimits",

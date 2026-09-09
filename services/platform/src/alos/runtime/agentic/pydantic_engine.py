@@ -24,6 +24,7 @@ from alos.runtime.agentic.output import (
     ExecutionStatus,
     StepType,
 )
+from alos.tools.executor import ToolExecutionDenied, ToolExecutionError
 
 
 class PydanticAgenticEngine:
@@ -81,6 +82,22 @@ class PydanticAgenticEngine:
                 ExecutionStatus.FAILED,
                 "MODEL_GATEWAY_FAILED",
                 "The authoritative ALOS ModelGateway failed safely.",
+                started,
+            )
+        except ToolExecutionDenied:
+            return _terminal_error(
+                request,
+                ExecutionStatus.BLOCKED,
+                "TOOL_EXECUTION_DENIED",
+                "The authoritative ALOS ToolExecutor denied the tool call.",
+                started,
+            )
+        except ToolExecutionError:
+            return _terminal_error(
+                request,
+                ExecutionStatus.FAILED,
+                "TOOL_EXECUTION_FAILED",
+                "The authoritative ALOS ToolExecutor failed safely.",
                 started,
             )
         except TimeoutError:
