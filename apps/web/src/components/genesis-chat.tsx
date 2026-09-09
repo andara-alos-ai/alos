@@ -128,6 +128,7 @@ export function GenesisChat({
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("CONTEXT");
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("NONE");
   const [conversationSearch, setConversationSearch] = useState("");
+  const [openConversationMenuId, setOpenConversationMenuId] = useState("");
   const [agentSearch, setAgentSearch] = useState("");
   const [editingConversationId, setEditingConversationId] = useState("");
   const [editingTitle, setEditingTitle] = useState("");
@@ -267,6 +268,20 @@ export function GenesisChat({
     void initialize();
   }, [actor.workspace_ids, loadConversation, loadWorkspaceData]);
 
+  useEffect(() => {
+    if (!openConversationMenuId) return;
+    function closeConversationMenu(event: PointerEvent) {
+      if (
+        !(event.target instanceof Element) ||
+        !event.target.closest("[data-conversation-menu]")
+      ) {
+        setOpenConversationMenuId("");
+      }
+    }
+    document.addEventListener("pointerdown", closeConversationMenu);
+    return () => document.removeEventListener("pointerdown", closeConversationMenu);
+  }, [openConversationMenuId]);
+
   const filteredConversations = useMemo(() => {
     const query = conversationSearch.trim().toLocaleLowerCase("id-ID");
     return query
@@ -330,6 +345,7 @@ export function GenesisChat({
 
   async function newConversation() {
     if (!workspaceId || mutating) return;
+    setOpenConversationMenuId("");
     setMutating(true);
     setError(null);
     try {
@@ -373,6 +389,7 @@ export function GenesisChat({
         ),
       );
       setEditingConversationId("");
+      setOpenConversationMenuId("");
       setNotice("Judul percakapan berhasil diperbarui.");
     } catch (failure) {
       setError(normalizeGenesisError(failure));
@@ -381,14 +398,15 @@ export function GenesisChat({
     }
   }
 
-  function requestArchive(item: GenesisConversation) {
+  function requestDeleteConversation(item: GenesisConversation) {
+    setOpenConversationMenuId("");
     setConfirmation({
-      title: "Arsipkan percakapan?",
+      title: "Hapus percakapan dari daftar?",
       impact:
         "Percakapan " +
         (item.title ?? "tanpa judul") +
-        " akan keluar dari daftar aktif. Message dan audit history tetap disimpan.",
-      confirmLabel: "Arsipkan",
+        " akan langsung hilang dari daftar aktif. Riwayat dan audit tetap disimpan untuk keamanan.",
+      confirmLabel: "Hapus",
       destructive: true,
       onConfirm: () => void archiveConversation(item),
     });
@@ -437,15 +455,31 @@ export function GenesisChat({
         (conversation) => conversation.conversation_id !== item.conversation_id,
       );
       setConversations(remaining);
+      setFavoriteConversationIds((current) => {
+        const nextFavorites = current.filter(
+          (favoriteId) => favoriteId !== item.conversation_id,
+        );
+        window.localStorage.setItem("alos-genesis-favorites", JSON.stringify(nextFavorites));
+        return nextFavorites;
+      });
       if (conversationId === item.conversation_id) {
         const next = remaining[0];
         setConversationId(next?.conversation_id ?? "");
         setMessages([]);
         setContexts([]);
-        if (next) await loadConversation(next.conversation_id, remaining, workspaceId);
+        if (next) {
+          window.history.replaceState(
+            null,
+            "",
+            "/genesis?conversation=" + encodeURIComponent(next.conversation_id),
+          );
+          await loadConversation(next.conversation_id, remaining, workspaceId);
+        } else {
+          window.history.replaceState(null, "", "/genesis");
+        }
       }
       setConfirmation(null);
-      setNotice("Percakapan diarsipkan. Riwayat dan audit tidak dihapus.");
+      setNotice("Percakapan berhasil dihapus dari daftar aktif.");
     } catch (failure) {
       setError(normalizeGenesisError(failure));
     } finally {
@@ -870,30 +904,54 @@ export function GenesisChat({
                         </form>
                       ) : (
                         <>
-                          <button onClick={() => void selectConversation(item.conversation_id)} type="button">
+                          <button
+                            onClick={() => {
+                              setOpenConversationMenuId("");
+                              void selectConversation(item.conversation_id);
+                            }}
+                            type="button"
+                          >
                             <span>
                               <strong>{item.title ?? "Percakapan tanpa judul"}</strong>
                               <time>{conversationTime(item.updated_at ?? item.created_at)}</time>
                             </span>
                             <small>{item.last_message_preview ?? "Mulai percakapan dengan GENESIS…"}</small>
                           </button>
-                          <details className="genesis-row-menu">
-                            <summary aria-label={"Aksi " + (item.title ?? "percakapan")}>•••</summary>
-                            <div>
+                          <div className="genesis-row-menu" data-conversation-menu>
+                            <button
+                              aria-expanded={openConversationMenuId === item.conversation_id}
+                              aria-haspopup="menu"
+                              aria-label={"Aksi " + (item.title ?? "percakapan")}
+                              className="genesis-row-menu-trigger"
+                              onClick={() => setOpenConversationMenuId((current) =>
+                                current === item.conversation_id ? "" : item.conversation_id
+                              )}
+                              type="button"
+                            >
+                              •••
+                            </button>
+                            {openConversationMenuId === item.conversation_id ? <div role="menu">
                               <button
                                 onClick={() => {
+                                  setOpenConversationMenuId("");
                                   setEditingConversationId(item.conversation_id);
                                   setEditingTitle(item.title ?? "");
                                 }}
+                                role="menuitem"
                                 type="button"
                               >
-                                Rename
+                                Ubah nama
                               </button>
-                              <button onClick={() => requestArchive(item)} type="button">
-                                Archive
+                              <button
+                                className="genesis-row-menu-danger"
+                                onClick={() => requestDeleteConversation(item)}
+                                role="menuitem"
+                                type="button"
+                              >
+                                Hapus
                               </button>
-                            </div>
-                          </details>
+                            </div> : null}
+                          </div>
                         </>
                       )}
                     </div>
@@ -963,8 +1021,8 @@ export function GenesisChat({
                       setEditingConversationId(activeConversation.conversation_id);
                       setEditingTitle(activeConversation.title ?? "");
                       setMobilePanel("HISTORY");
-                    }} type="button">Rename</button>
-                    <button onClick={() => requestArchive(activeConversation)} type="button">Archive</button>
+                    }} type="button">Ubah nama</button>
+                    <button onClick={() => requestDeleteConversation(activeConversation)} type="button">Hapus</button>
                   </div>
                 ) : null}
               </details>
