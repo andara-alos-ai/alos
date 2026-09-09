@@ -38,6 +38,7 @@ from alos.entrypoints.documents_api import router as documents_intelligence_rout
 from alos.entrypoints.genesis_agents_api import create_genesis_agent_designer
 from alos.entrypoints.genesis_agents_api import router as genesis_agents_router
 from alos.entrypoints.genesis_chat_api import router as genesis_chat_router
+from alos.entrypoints.genesis_factory_api import router as genesis_factory_router
 from alos.entrypoints.integrations_api import router as integrations_router
 from alos.entrypoints.jobs_api import router as jobs_router
 from alos.entrypoints.operational_api import router as operational_router
@@ -195,6 +196,7 @@ app.include_router(operational_router)
 app.include_router(documents_intelligence_router)
 app.include_router(genesis_agents_router)
 app.include_router(genesis_chat_router)
+app.include_router(genesis_factory_router)
 app.include_router(jobs_router)
 app.include_router(integrations_router)
 app.include_router(projects_router)

@@ -92,6 +92,7 @@ class FactoryRequestRecord(BaseModel):
     blockers: list[dict[str, Any]]
     agent_contract_id: UUID | None
     agent_version_id: UUID | None
+    release_change_request_id: UUID | None
     requested_by_user_id: UUID
     owner_user_id: UUID | None
     reviewer_user_id: UUID | None
@@ -119,6 +120,7 @@ class FactoryRepository:
         tenant_id, requirement, source_type, source_research_id, status,
         requirement_understanding, implementation_decision, dependency_resolution,
         factory_proposal, blockers, agent_contract_id, agent_version_id,
+        release_change_request_id,
         requested_by_user_id, owner_user_id, reviewer_user_id, idempotency_key,
         correlation_id, last_error_code, created_at, analyzed_at, updated_at
     """
@@ -360,6 +362,73 @@ class FactoryRepository:
             )
             return self._record(connection, row)
 
+    def link_governance(
+        self,
+        request_id: UUID,
+        actor: ActorContext,
+        *,
+        agent_contract_id: UUID,
+        agent_version_id: UUID,
+        release_change_request_id: UUID,
+        correlation_id: UUID,
+    ) -> FactoryRequestRecord:
+        with self._transaction() as connection:
+            current = self._load_visible(connection, request_id, actor, for_update=True)
+            if current["status"] != FactoryStatus.DRAFT.value:
+                raise FactoryRequestConflictError(
+                    "only a ready DRAFT can link to release governance"
+                )
+            if current["agent_contract_id"] is not None:
+                if (
+                    current["agent_contract_id"] == agent_contract_id
+                    and current["agent_version_id"] == agent_version_id
+                    and current["release_change_request_id"] == release_change_request_id
+                ):
+                    return self._record(connection, current)
+                raise FactoryRequestConflictError(
+                    "Factory request is already linked to different governance records"
+                )
+            row = connection.execute(
+                f"""
+                UPDATE genesis.factory_requests
+                SET agent_contract_id = %s, agent_version_id = %s,
+                    release_change_request_id = %s, correlation_id = %s, updated_at = now()
+                WHERE factory_request_id = %s
+                RETURNING {self._COLUMNS}
+                """,
+                (
+                    agent_contract_id,
+                    agent_version_id,
+                    release_change_request_id,
+                    correlation_id,
+                    request_id,
+                ),
+            ).fetchone()
+            if row is None:
+                raise FactoryPersistenceError("Factory governance linkage could not be persisted")
+            connection.execute(
+                """
+                UPDATE genesis.factory_generated_tests
+                SET agent_version_id = %s
+                WHERE factory_request_id = %s
+                """,
+                (agent_version_id, request_id),
+            )
+            self._audit(
+                connection,
+                actor=actor,
+                action="GENESIS_FACTORY_GOVERNANCE_LINKED",
+                entity_id=request_id,
+                correlation_id=correlation_id,
+                reason="Factory DRAFT was linked to the authoritative release lifecycle",
+                metadata={
+                    "agent_contract_id": str(agent_contract_id),
+                    "agent_version_id": str(agent_version_id),
+                    "release_change_request_id": str(release_change_request_id),
+                },
+            )
+            return self._record(connection, row)
+
     def fail_analysis(
         self,
         request_id: UUID,
@@ -377,8 +446,11 @@ class FactoryRepository:
         }
         with self._transaction() as connection:
             current = self._load_visible(connection, request_id, actor, for_update=True)
-            if current["status"] != FactoryStatus.ANALYZING.value:
-                raise FactoryRequestConflictError("Factory request is not being analyzed")
+            if current["status"] not in {
+                FactoryStatus.ANALYZING.value,
+                FactoryStatus.DRAFT.value,
+            }:
+                raise FactoryRequestConflictError("Factory request cannot be blocked now")
             row = connection.execute(
                 f"""
                 UPDATE genesis.factory_requests
