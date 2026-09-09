@@ -38,4 +38,5 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "029_scoped_semantic_memory.sql",
         "030_governed_skill_persistence.sql",
         "031_persistent_delegation_lineage.sql",
+        "032_generic_research_persistence.sql",
     ]
