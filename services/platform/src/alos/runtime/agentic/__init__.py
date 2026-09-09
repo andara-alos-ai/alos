@@ -13,6 +13,7 @@ from alos.runtime.agentic.output import (
     ExecutionStatus,
     StepType,
 )
+from alos.runtime.agentic.pydantic_engine import PydanticAgenticEngine
 
 __all__ = [
     "AgenticExecutionEngine",
@@ -25,5 +26,6 @@ __all__ = [
     "ExecutionLimits",
     "ExecutionMode",
     "ExecutionStatus",
+    "PydanticAgenticEngine",
     "StepType",
 ]
