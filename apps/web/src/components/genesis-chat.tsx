@@ -47,7 +47,6 @@ import {
 import {
   type Run,
   type SessionActor,
-  type Workspace,
 } from "@/lib/governance";
 
 type ContextMode = GenesisConversation["context_mode"];
@@ -112,7 +111,6 @@ export function GenesisChat({
   actor: SessionActor;
   initialQuery?: string;
 }) {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState(actor.workspace_ids[0] ?? "");
   const [conversations, setConversations] = useState<GenesisConversation[]>([]);
   const [conversationId, setConversationId] = useState("");
@@ -245,12 +243,7 @@ export function GenesisChat({
       setLoading(true);
       setError(null);
       try {
-        const available = await apiRequest<Workspace[]>("/api/v1/workspaces");
-        const allowed = available.filter((workspace) =>
-          actor.workspace_ids.includes(workspace.workspace_id),
-        );
-        setWorkspaces(allowed);
-        const first = actor.workspace_ids[0] ?? allowed[0]?.workspace_id ?? "";
+        const first = actor.workspace_ids[0] ?? "";
         setWorkspaceId(first);
         if (first) {
           const items = await loadWorkspaceData(first);
@@ -318,26 +311,6 @@ export function GenesisChat({
     if (selectConversation) {
       const exists = items.some((item) => item.conversation_id === selectConversation);
       if (exists) await loadConversation(selectConversation, items, workspaceId);
-    }
-  }
-
-  async function changeWorkspace(nextWorkspaceId: string) {
-    setWorkspaceId(nextWorkspaceId);
-    setConversationId("");
-    setMessages([]);
-    setContexts([]);
-    setError(null);
-    setLoading(true);
-    try {
-      const items = await loadWorkspaceData(nextWorkspaceId);
-      if (items[0]) {
-        setConversationId(items[0].conversation_id);
-        await loadConversation(items[0].conversation_id, items, nextWorkspaceId);
-      }
-    } catch (failure) {
-      setError(normalizeGenesisError(failure));
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -831,36 +804,6 @@ export function GenesisChat({
         tabIndex={-1}
         type="file"
       />
-      <header className="genesis-workspace-header">
-        <div className="genesis-workspace-brand">
-          <GenesisWorkspaceIcon name="sparkles" />
-          <div>
-            <h2>GENESIS</h2>
-            <p>Your AI Business Companion</p>
-          </div>
-        </div>
-        <p className="genesis-workspace-mission">
-          Understand your business. <span>Find what matters.</span> Turn insight into action.
-        </p>
-        <div className="genesis-workspace-quote">
-          <blockquote>“From data to decisions,<br />from today to a brighter tomorrow.”</blockquote>
-          <label>
-            <span>Workspace</span>
-            <select
-              aria-label="Workspace GENESIS"
-              onChange={(event) => void changeWorkspace(event.target.value)}
-              value={workspaceId}
-            >
-              {workspaces.map((workspace) => (
-                <option key={workspace.workspace_id} value={workspace.workspace_id}>
-                  {workspace.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </header>
-
       <GenesisFeedback error={error} notice={notice} onDismiss={() => setError(null)} />
 
       <nav className="genesis-mobile-controls" aria-label="Panel GENESIS">
