@@ -170,6 +170,8 @@ DELETE FROM runtime.tool_calls
 WHERE agent_run_id IN (SELECT agent_run_id FROM reset_agent_runs);
 DELETE FROM runtime.budget_reservations
 WHERE agent_run_id IN (SELECT agent_run_id FROM reset_agent_runs);
+DELETE FROM observability.usage_ledger
+WHERE agent_run_id IN (SELECT agent_run_id FROM reset_agent_runs);
 DELETE FROM runtime.agent_runs
 WHERE agent_run_id IN (SELECT agent_run_id FROM reset_agent_runs);
 
