@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ExecutiveHomeDashboard } from "./executive-dashboard";
+import {
+  ExecutiveHomeDashboard,
+  formatJakartaDate,
+  formatJakartaTime,
+} from "./executive-dashboard";
 import type { ExecutiveDashboardSnapshot } from "../lib/executive-dashboard";
 
 const snapshot: ExecutiveDashboardSnapshot = {
@@ -103,5 +107,12 @@ describe("ExecutiveHomeDashboard", () => {
     expect(html).toContain("Ringkasan Per Divisi");
     expect(html).toContain("Sumber proyek belum terhubung");
     expect(html).not.toContain(">12<");
+  });
+
+  it("formats the topbar clock explicitly in Western Indonesian Time", () => {
+    const instant = new Date("2026-09-09T03:04:00Z");
+
+    expect(formatJakartaDate(instant)).toBe("Rabu, 09 September 2026");
+    expect(formatJakartaTime(instant)).toBe("10.04 WIB");
   });
 });

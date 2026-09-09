@@ -18,7 +18,7 @@ import {
 } from "@/lib/dashboard-access";
 import { DocumentCenter } from "@/components/document-center";
 import { GenesisChat } from "@/components/genesis-chat";
-import { GlobalCommand } from "@/components/global-command";
+import { NotificationCenter } from "@/components/global-command";
 import { OperationalModuleDashboard } from "@/components/operational-modules";
 import {
   DivisionsOverviewDashboard,
@@ -39,7 +39,7 @@ type ExecutiveDashboardProps = {
   module?: DashboardModuleKey;
 };
 
-type IconName = "home" | "divisions" | "projects" | "tasks" | "approvals" | "documents" | "reports" | "findings" | "genesis" | "settings" | "governance" | "logout" | "search" | "bell" | "chevron" | DashboardMetric["icon"];
+type IconName = "home" | "divisions" | "projects" | "tasks" | "approvals" | "documents" | "reports" | "findings" | "genesis" | "settings" | "governance" | "logout" | "bell" | "chevron" | DashboardMetric["icon"];
 
 const navItems: Array<{ href: string; key: DashboardModuleKey; label: string; icon: IconName }> = [
   { href: "/divisions", key: "divisions", label: "Divisi", icon: "divisions" },
@@ -98,7 +98,6 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
   const displayRoleLabel = profile?.roleLabel ?? roleLabel;
   const pageTitle = page?.title ?? profile?.homeTitle ?? "Selamat datang di ALOS";
   const pageDescription = page?.description ?? profile?.homeDescription ?? "Satu ruang kerja untuk melihat kondisi perusahaan, keputusan, dan aksi yang telah terdaftar.";
-  const searchPlaceholder = page?.searchPlaceholder ?? "Cari proyek, dokumen, divisi, atau tanya GENESIS…";
   const isFocusedWorkspace = module === "documents" || module === "genesis";
   const isDirectorHome = !module && profile?.persona === "director";
   const profileName = executiveData?.profile.display_name ?? profile?.homeLabel ?? "ALOS User";
@@ -154,12 +153,14 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
 
       <section className="alos-main">
         <header className="alos-topbar">
-          <GlobalCommand placeholder={searchPlaceholder} />
-          <div className="alos-profile">
-            <div className="alos-date"><strong>{formatCurrentDate()}</strong><span>{formatCurrentTime()}</span></div>
-            <div className="alos-avatar" aria-hidden="true">{roleInitial(displayRoleLabel)}</div>
-            <div className="alos-profile-copy"><strong>{profileName}</strong><span>{executiveData?.profile.role_label ?? displayRoleLabel}</span></div>
-            <AppIcon name="chevron" />
+          <div className="alos-topbar-actions">
+            <LiveJakartaClock />
+            <NotificationCenter />
+            <div className="alos-profile">
+              <div className="alos-avatar" aria-hidden="true">{roleInitial(displayRoleLabel)}</div>
+              <div className="alos-profile-copy"><strong>{profileName}</strong><span>{executiveData?.profile.role_label ?? displayRoleLabel}</span></div>
+              <AppIcon name="chevron" />
+            </div>
           </div>
         </header>
 
@@ -527,7 +528,6 @@ function AppIcon({ name }: { name: IconName }) {
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06-2.1 2.1-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V20.5h-3v-.11A1.8 1.8 0 0 0 10.45 18.7a1.8 1.8 0 0 0-2 .36l-.06.06-2.1-2.1.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H5v-3h.11A1.8 1.8 0 0 0 6.8 9.75a1.8 1.8 0 0 0-.36-2l-.06-.06 2.1-2.1.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V4.25h3v.11a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06 2.1 2.1-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1h.11v3h-.11A1.8 1.8 0 0 0 19.4 15Z" /></>,
     governance: <><path d="M12 3 4 6v5c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V6Z" /><path d="m8.5 12 2.2 2.2 4.8-4.8" /></>,
     logout: <><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10" /></>,
-    search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></>,
     bell: <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 22h4" /></>,
     chevron: <path d="m9 18 6-6-6-6" />,
     folder: <><path d="M3 7h7l2 2h9v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></>,
@@ -544,12 +544,41 @@ function AppIcon({ name }: { name: IconName }) {
   return <svg aria-hidden="true" className="alos-icon" fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="20">{paths[name]}</svg>;
 }
 
-function formatCurrentDate() {
-  return new Intl.DateTimeFormat("id-ID", { dateStyle: "full" }).format(new Date());
+function LiveJakartaClock() {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    const update = () => setNow(new Date());
+    update();
+    const interval = window.setInterval(update, 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  return (
+    <time className="alos-date" dateTime={now?.toISOString()}>
+      <strong>{now ? formatJakartaDate(now) : "Waktu Indonesia Barat"}</strong>
+      <span>{now ? formatJakartaTime(now) : "--.-- WIB"}</span>
+    </time>
+  );
 }
 
-function formatCurrentTime() {
-  return new Intl.DateTimeFormat("id-ID", { hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(new Date());
+export function formatJakartaDate(value: Date) {
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "long",
+    timeZone: "Asia/Jakarta",
+    weekday: "long",
+    year: "numeric",
+  }).format(value);
+}
+
+export function formatJakartaTime(value: Date) {
+  const clock = new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    timeZone: "Asia/Jakarta",
+  }).format(value);
+  return `${clock.replace(":", ".")} WIB`;
 }
 
 function roleInitial(roleLabel: string) {
