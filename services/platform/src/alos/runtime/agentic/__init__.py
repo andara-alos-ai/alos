@@ -2,6 +2,7 @@
 
 from alos.runtime.agentic.engine import AgenticExecutionEngine
 from alos.runtime.agentic.limits import ExecutionLimits
+from alos.runtime.agentic.model_adapter import ALOSModelAdapter
 from alos.runtime.agentic.output import (
     AgenticExecutionRequest,
     AgenticExecutionResult,
@@ -21,6 +22,7 @@ __all__ = [
     "AgenticExecutionResult",
     "AgenticStep",
     "AgenticToolDefinition",
+    "ALOSModelAdapter",
     "CumulativeUsage",
     "ExecutionContext",
     "ExecutionLimits",

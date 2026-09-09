@@ -14,6 +14,7 @@ from pydantic_ai import Agent, CancellationToken, StructuredDict, Tool, UsageLim
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models import Model
 
+from alos.model_gateway import ModelGatewayBudgetError, ModelGatewayError, ModelGatewayPolicyError
 from alos.runtime.agentic.dependencies import AgenticToolInvoker
 from alos.runtime.agentic.output import (
     AgenticExecutionRequest,
@@ -56,6 +57,30 @@ class PydanticAgenticEngine:
                 ExecutionStatus.BLOCKED,
                 "RUNTIME_LIMIT_EXCEEDED",
                 "PydanticAI stopped before an ALOS execution limit was exceeded.",
+                started,
+            )
+        except ModelGatewayBudgetError:
+            return _terminal_error(
+                request,
+                ExecutionStatus.BLOCKED,
+                "MODEL_BUDGET_EXCEEDED",
+                "The authoritative ALOS ModelGateway refused the cumulative budget.",
+                started,
+            )
+        except ModelGatewayPolicyError:
+            return _terminal_error(
+                request,
+                ExecutionStatus.BLOCKED,
+                "MODEL_GATEWAY_BLOCKED",
+                "The authoritative ALOS ModelGateway refused the request policy.",
+                started,
+            )
+        except ModelGatewayError:
+            return _terminal_error(
+                request,
+                ExecutionStatus.FAILED,
+                "MODEL_GATEWAY_FAILED",
+                "The authoritative ALOS ModelGateway failed safely.",
                 started,
             )
         except TimeoutError:
