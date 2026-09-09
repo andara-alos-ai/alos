@@ -1,5 +1,7 @@
 """Deterministic implementation-type resolution from structured semantics."""
 
+from typing import Literal
+
 from alos.genesis.factory.models import (
     ImplementationDecision,
     ImplementationType,
@@ -59,7 +61,9 @@ class ImplementationTypeResolver:
         return tuple(dict.fromkeys(selected))
 
     @staticmethod
-    def _risk(requirement: RequirementUnderstanding) -> str:
+    def _risk(
+        requirement: RequirementUnderstanding,
+    ) -> Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]:
         if requirement.requires_human_judgment and requirement.material_actions:
             return "HIGH"
         if requirement.material_actions:

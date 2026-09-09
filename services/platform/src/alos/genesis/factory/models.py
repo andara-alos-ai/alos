@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -60,7 +61,7 @@ class ImplementationDecision(BaseModel):
     required_capabilities: tuple[str, ...]
     required_tools: tuple[str, ...] = ()
     required_data: tuple[str, ...]
-    risk: str = Field(pattern="^(LOW|MEDIUM|HIGH|CRITICAL)$")
+    risk: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
     human_gate_required: bool
     missing_dependencies: tuple[str, ...] = ()
 

@@ -40,6 +40,16 @@
     "kpis": {"type": "array", "items": {"type": "object"}},
     "approval_required": {"type": "boolean"},
     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
-    "prompt_template": {"type": "string", "minLength": 1, "maxLength": 20000}
+    "prompt_template": {"type": "string", "minLength": 1, "maxLength": 20000},
+    "capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "human_gate_policy": {"type": "object"},
+    "evidence_policy": {"type": "object"},
+    "source_policy": {"type": "object"},
+    "memory_policy": {"type": "object"},
+    "skill_policy": {"type": "object"},
+    "schedule_policy": {"type": "object"},
+    "limits": {"type": "object"},
+    "test_policy": {"type": "object"},
+    "rollback_policy": {"type": "object"}
   }
 }

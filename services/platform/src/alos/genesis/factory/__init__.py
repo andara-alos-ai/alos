@@ -6,6 +6,12 @@ from alos.genesis.factory.models import (
     ImplementationType,
     RequirementUnderstanding,
 )
+from alos.genesis.factory.pipeline import (
+    AgentContractFactory,
+    DependencyStatus,
+    FactoryDependencyResolver,
+    FactoryProposal,
+)
 from alos.genesis.factory.resolver import ImplementationTypeResolver
 
 __all__ = [
@@ -15,4 +21,8 @@ __all__ = [
     "RequirementAnalysisError",
     "RequirementAnalyzer",
     "RequirementUnderstanding",
+    "AgentContractFactory",
+    "DependencyStatus",
+    "FactoryDependencyResolver",
+    "FactoryProposal",
 ]

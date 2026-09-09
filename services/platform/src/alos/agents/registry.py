@@ -112,6 +112,16 @@ class AgentContract(BaseModel):
     approval_required: bool
     timeout_seconds: int = Field(ge=1, le=3_600)
     prompt_template: str = Field(min_length=1, max_length=20_000)
+    capabilities: list[str] = Field(default_factory=list)
+    human_gate_policy: dict[str, Any] = Field(default_factory=dict)
+    evidence_policy: dict[str, Any] = Field(default_factory=dict)
+    source_policy: dict[str, Any] = Field(default_factory=dict)
+    memory_policy: dict[str, Any] = Field(default_factory=dict)
+    skill_policy: dict[str, Any] = Field(default_factory=dict)
+    schedule_policy: dict[str, Any] = Field(default_factory=dict)
+    limits: dict[str, Any] = Field(default_factory=dict)
+    test_policy: dict[str, Any] = Field(default_factory=dict)
+    rollback_policy: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_human_controls(self) -> AgentContract:
