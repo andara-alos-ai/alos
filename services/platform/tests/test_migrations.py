@@ -36,4 +36,5 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "027_genesis_factory_persistence.sql",
         "028_genesis_factory_governance_linkage.sql",
         "029_scoped_semantic_memory.sql",
+        "030_governed_skill_persistence.sql",
     ]
