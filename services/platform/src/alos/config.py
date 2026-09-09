@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     llm_daily_output_token_limit: int = Field(default=500_000, ge=1_000)
     llm_daily_cost_cap_usd: Decimal = Field(default=Decimal("5.00"), ge=0)
     llm_max_retries: int = Field(default=1, ge=0, le=3)
+    agentic_max_model_steps: int = Field(default=8, ge=1, le=100)
+    agentic_max_tool_calls: int = Field(default=20, ge=0, le=1_000)
+    agentic_max_delegation_depth: int = Field(default=0, ge=0, le=16)
+    agentic_max_subagents: int = Field(default=0, ge=0, le=100)
+    agentic_max_concurrency: int = Field(default=1, ge=1, le=100)
+    agentic_max_cost_per_run: Decimal = Field(default=Decimal("1.00"), ge=0)
     genesis_semantic_analysis_enabled: bool = False
     genesis_semantic_max_output_tokens: int = Field(default=1_200, ge=256, le=8_000)
     genesis_conversation_follow_up_enabled: bool = False

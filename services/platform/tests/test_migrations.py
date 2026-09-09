@@ -31,4 +31,5 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "022_genesis_chat_and_governance_linkage.sql",
         "023_approved_action_execution.sql",
         "024_h5_final_readiness_controls.sql",
+        "025_genesis_agentic_runtime.sql",
     ]

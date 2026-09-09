@@ -308,8 +308,10 @@ def get_agent_runtime() -> AgentRuntime:
         RetryingModelGateway(delegate, settings.llm_max_retries),
         settings,
         UsageBudget(
-            request_limit=1,
-            output_token_limit=settings.llm_max_output_tokens,
+            request_limit=settings.agentic_max_model_steps,
+            output_token_limit=(
+                settings.llm_max_output_tokens * settings.agentic_max_model_steps
+            ),
         ),
     )
     return AgentRuntime(
@@ -1880,6 +1882,7 @@ def run_h5_validation_fixture(
             ),
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
+            actor=actor,
         )
     except AgentRuntimeError as error:
         raise runtime_http_error(error) from error

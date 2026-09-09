@@ -21,12 +21,26 @@ from pydantic import BaseModel, ConfigDict, Field
 from alos.agents.registry import AgentContract
 from alos.config import Settings
 from alos.model_gateway import (
+    DataClassification,
+    GatewayProvider,
     ModelGateway,
     ModelGatewayBudgetError,
     ModelGatewayError,
     ModelResponse,
+    ModelUsage,
 )
 from alos.persistence.database import psycopg_url
+from alos.runtime.agentic import (
+    AgenticExecutionRequest,
+    AgenticToolDefinition,
+    ALOSModelAdapter,
+    ALOSToolAdapter,
+    ExecutionContext,
+    ExecutionLimits,
+    ExecutionMode,
+    ExecutionStatus,
+    PydanticAgenticEngine,
+)
 from alos.security.tokens import ActorContext
 from alos.sources.registry import SourceRegistryRepository
 from alos.tools.executor import (
@@ -67,6 +81,9 @@ class AgentRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: UUID
+    division_id: UUID | None = None
+    project_id: UUID | None = None
+    tenant_id: UUID | None = None
     input: dict[str, Any] = Field(default_factory=dict)
     requested_tool_keys: list[str] = Field(default_factory=list)
     tool_calls: list[StructuredToolCall] = Field(default_factory=list, max_length=20)
@@ -109,6 +126,9 @@ class AgentRunResult(BaseModel):
     output_tokens: int | None = None
     latency_milliseconds: int | None = None
     estimated_cost_usd: Decimal | None = None
+    total_model_calls: int = Field(default=1, ge=0)
+    total_tool_calls: int = Field(default=0, ge=0)
+    total_tokens: int = Field(default=0, ge=0)
     tool_decisions: list[ToolDecision] = Field(default_factory=list)
     error_code: str | None = None
 
@@ -162,6 +182,11 @@ class _PreparedRun:
     input_hash: str
     tool_decisions: tuple[ToolDecision, ...]
     fixture_context: tuple[dict[str, Any], ...]
+    division_id: UUID | None = None
+    project_id: UUID | None = None
+    tenant_id: UUID | None = None
+    execution_mode: Literal["TEST", "LIVE"] = "TEST"
+    classification: DataClassification = "INTERNAL"
 
 
 class AgentRuntime:
@@ -259,6 +284,8 @@ class AgentRuntime:
                         "elapsed_milliseconds": tool_result.elapsed_milliseconds,
                     },
                 )
+            if _uses_agentic_engine(prepared.execution.contract):
+                return self._execute_agentic(prepared, request, runtime_context, actor)
             self._record_step(prepared, "MODEL", {"model_step": 1})
             model_request = self._model_request(
                 prepared.execution.contract, request, tuple(runtime_context)
@@ -323,8 +350,145 @@ class AgentRuntime:
             output_tokens=response.usage.output_tokens,
             latency_milliseconds=response.latency_milliseconds,
             estimated_cost_usd=response.estimated_cost_usd,
+            total_tokens=response.usage.input_tokens + response.usage.output_tokens,
             tool_decisions=list(prepared.tool_decisions),
         )
+
+    def _execute_agentic(
+        self,
+        prepared: _PreparedRun,
+        request: AgentRunRequest,
+        runtime_context: list[dict[str, Any]],
+        actor: ActorContext | None,
+    ) -> AgentRunResult:
+        if actor is None:
+            self._repository.complete_blocked(
+                prepared,
+                reason="agentic execution requires an authenticated actor context",
+                tool_key="ACTOR_CONTEXT",
+            )
+            return _blocked_result(
+                prepared,
+                error_code="ACTOR_CONTEXT_REQUIRED",
+                tool_key="ACTOR_CONTEXT",
+                reason="agentic execution requires an authenticated actor context",
+            )
+        model, output_limit = _resolve_model_policy(
+            prepared.execution.contract, self._settings, self._max_output_tokens
+        )
+        limits = _resolve_agentic_limits(
+            prepared.execution.contract,
+            self._settings,
+            output_limit=output_limit,
+        )
+        tool_definitions = self._agentic_tool_definitions(prepared.execution)
+        tool_adapter = None
+        if tool_definitions:
+            if self._tool_executor is None:
+                self._tool_executor = ToolExecutor(self._repository.database_url)
+            tool_adapter = ALOSToolAdapter(self._tool_executor, actor)
+        model_adapter = ALOSModelAdapter(
+            self._gateway,
+            model_name=model,
+            classification=prepared.classification,
+            correlation_id=prepared.correlation_id,
+            max_output_tokens=output_limit,
+        )
+        engine = PydanticAgenticEngine(model_adapter, tool_adapter)
+        result = engine.execute(
+            AgenticExecutionRequest(
+                context=ExecutionContext(
+                    organization_id=prepared.organization_id,
+                    workspace_id=prepared.workspace_id,
+                    division_id=prepared.division_id,
+                    project_id=prepared.project_id,
+                    tenant_id=prepared.tenant_id,
+                    actor_user_id=prepared.actor_user_id,
+                    actor_role=actor.roles[0].value,
+                    agent_id=prepared.execution.agent_contract_id,
+                    agent_version_id=prepared.execution.agent_version_id,
+                    run_id=prepared.agent_run_id,
+                    correlation_id=prepared.correlation_id,
+                    execution_mode=ExecutionMode(prepared.execution_mode),
+                    classification=prepared.classification,
+                ),
+                instructions=_model_instructions(prepared.execution.contract),
+                input_text=_model_input_text(request, runtime_context),
+                output_schema=prepared.execution.contract.output_schema,
+                tools=tuple(tool_definitions),
+                limits=limits,
+            )
+        )
+        for step in result.steps:
+            self._record_step(
+                prepared,
+                f"AGENTIC_{step.step_type.value}",
+                step.model_dump(mode="json", exclude_none=True),
+            )
+        if result.status != ExecutionStatus.SUCCEEDED:
+            reason = result.reason or "agentic execution stopped safely"
+            if result.status == ExecutionStatus.BLOCKED:
+                self._repository.complete_blocked(
+                    prepared,
+                    reason=reason,
+                    tool_key=result.error_code or "AGENTIC_POLICY",
+                )
+                return _blocked_result(
+                    prepared,
+                    error_code=result.error_code or "AGENTIC_POLICY_BLOCKED",
+                    tool_key=result.error_code or "AGENTIC_POLICY",
+                    reason=reason,
+                )
+            self._repository.complete_failure(prepared, result.error_code or reason)
+            return _failure_result(prepared, result.error_code or "AGENTIC_EXECUTION_FAILED")
+
+        output = result.output or {}
+        _validate_output_citations(output, tuple(runtime_context))
+        final_step = result.steps[-1]
+        response = ModelResponse(
+            provider=cast(GatewayProvider, final_step.provider or "fake"),
+            model=final_step.model or model,
+            output_text=json.dumps(output, ensure_ascii=False),
+            usage=ModelUsage(
+                input_tokens=result.usage.total_input_tokens,
+                output_tokens=result.usage.total_output_tokens,
+            ),
+            latency_milliseconds=result.usage.total_latency_milliseconds,
+            estimated_cost_usd=result.usage.total_cost,
+        )
+        self._repository.complete_success(
+            prepared,
+            response,
+            output,
+            model_calls=result.usage.total_model_calls,
+            tool_calls=result.usage.total_tool_calls,
+        )
+        return AgentRunResult(
+            agent_run_id=prepared.agent_run_id,
+            agent_key=prepared.execution.agent_key,
+            semantic_version=prepared.execution.semantic_version,
+            status="SUCCEEDED",
+            correlation_id=prepared.correlation_id,
+            output=output,
+            provider=response.provider,
+            model=response.model,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            latency_milliseconds=response.latency_milliseconds,
+            estimated_cost_usd=response.estimated_cost_usd,
+            total_model_calls=result.usage.total_model_calls,
+            total_tool_calls=result.usage.total_tool_calls,
+            total_tokens=result.usage.total_tokens,
+            tool_decisions=list(prepared.tool_decisions),
+        )
+
+    def _agentic_tool_definitions(
+        self, execution: _ExecutionVersion
+    ) -> list[AgenticToolDefinition]:
+        loader = getattr(self._repository, "load_agentic_tools", None)
+        if not callable(loader):
+            return []
+        return cast(list[AgenticToolDefinition], loader(execution))
 
     @property
     def _max_output_tokens(self) -> int:
@@ -388,6 +552,7 @@ class AgentRuntimeRepository:
             self._require_actor_workspace(
                 connection, organization_id, actor_user_id, request.workspace_id
             )
+            scope_error = self._validate_execution_scope(connection, organization_id, request)
             execution = self._load_execution(
                 connection,
                 organization_id,
@@ -396,8 +561,21 @@ class AgentRuntimeRepository:
                 allow_draft=allow_draft,
                 target_agent_version_id=target_agent_version_id,
             )
-            execution_mode = "TEST" if request.testing else execution.lifecycle_status
+            execution_mode: Literal["TEST", "LIVE"] = "TEST" if request.testing else "LIVE"
             input_hash = _digest(request.input)
+            if scope_error is not None:
+                return self._block_run(
+                    connection,
+                    execution,
+                    organization_id,
+                    request.workspace_id,
+                    actor_user_id,
+                    correlation_id,
+                    input_hash,
+                    execution_mode=execution_mode,
+                    tool_key="EXECUTION_SCOPE",
+                    reason=scope_error,
+                )
             permission_error = self._evaluate_permissions(connection, execution)
             if permission_error is not None:
                 return self._block_run(
@@ -478,6 +656,11 @@ class AgentRuntimeRepository:
                 input_tokens=_conservative_input_token_bound(
                     _model_instructions(execution.contract),
                     model_input,
+                )
+                * (
+                    self._settings.agentic_max_model_steps
+                    if _uses_agentic_engine(execution.contract)
+                    else 1
                 ),
                 output_tokens=output_limit,
             )
@@ -493,6 +676,7 @@ class AgentRuntimeRepository:
                     output_limit,
                     reserved_cost_usd,
                     execution_mode,
+                    request,
                 )
             except AgentRuntimeBlocked as error:
                 return self._block_run(
@@ -540,7 +724,43 @@ class AgentRuntimeRepository:
                 input_hash=input_hash,
                 tool_decisions=tuple(decisions),
                 fixture_context=tuple(fixture_context),
+                division_id=request.division_id,
+                project_id=request.project_id,
+                tenant_id=request.tenant_id,
+                execution_mode=execution_mode,
+                classification=_contract_classification(execution.contract),
             )
+
+    def load_agentic_tools(
+        self, execution: _ExecutionVersion
+    ) -> list[AgenticToolDefinition]:
+        dotted_keys = [key for key in execution.contract.tool_keys if "." in key]
+        if not dotted_keys:
+            return []
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT tool_key, description, input_schema
+                FROM capabilities.tools
+                WHERE tool_key = ANY(%s) AND lifecycle_status = 'APPROVED'
+                ORDER BY tool_key
+                """,
+                (dotted_keys,),
+            ).fetchall()
+        found = {row["tool_key"] for row in rows}
+        missing = sorted(set(dotted_keys) - found)
+        if missing:
+            raise AgentRuntimeBlocked(
+                "agentic tool is not approved or registered: " + ", ".join(missing)
+            )
+        return [
+            AgenticToolDefinition(
+                tool_key=row["tool_key"],
+                description=row["description"],
+                input_schema=row["input_schema"],
+            )
+            for row in rows
+        ]
 
     def get_budget_limit(
         self,
@@ -736,10 +956,22 @@ class AgentRuntimeRepository:
         return WorkspaceUsageSummary(workspace_id=workspace_id, **dict(row))
 
     def complete_success(
-        self, prepared: _PreparedRun, response: ModelResponse, output: dict[str, Any]
+        self,
+        prepared: _PreparedRun,
+        response: ModelResponse,
+        output: dict[str, Any],
+        *,
+        model_calls: int = 1,
+        tool_calls: int = 0,
     ) -> None:
         with self._transaction() as connection:
-            self._complete_usage(connection, prepared.agent_run_id, response)
+            self._complete_usage(
+                connection,
+                prepared.agent_run_id,
+                response,
+                model_calls=model_calls,
+                tool_calls=tool_calls,
+            )
             connection.execute(
                 """
                 UPDATE runtime.agent_runs
@@ -1052,7 +1284,8 @@ class AgentRuntimeRepository:
         input_hash: str,
         max_output_tokens: int,
         reserved_cost_usd: Decimal,
-        execution_mode: str,
+        execution_mode: Literal["TEST", "LIVE"],
+        request: AgentRunRequest,
     ) -> UUID:
         connection.execute(
             "SELECT pg_advisory_xact_lock(hashtext(%s))",
@@ -1159,8 +1392,9 @@ class AgentRuntimeRepository:
             """
             INSERT INTO runtime.agent_runs (
                 organization_id, workspace_id, agent_version_id, requested_by_user_id,
-                correlation_id, status, input_reference
-            ) VALUES (%s, %s, %s, %s, %s, 'RUNNING', %s)
+                correlation_id, status, input_reference, division_id, project_id,
+                tenant_id, execution_mode, classification
+            ) VALUES (%s, %s, %s, %s, %s, 'RUNNING', %s, %s, %s, %s, %s, %s)
             RETURNING agent_run_id
             """,
             (
@@ -1170,6 +1404,11 @@ class AgentRuntimeRepository:
                 actor_user_id,
                 correlation_id,
                 Jsonb({"sha256": input_hash, "execution_mode": execution_mode}),
+                request.division_id,
+                request.project_id,
+                request.tenant_id,
+                execution_mode,
+                _contract_classification(execution.contract),
             ),
         ).fetchone()
         if run is None:
@@ -1294,7 +1533,13 @@ class AgentRuntimeRepository:
         )
 
     def _complete_usage(
-        self, connection: psycopg.Connection[Any], agent_run_id: UUID, response: ModelResponse
+        self,
+        connection: psycopg.Connection[Any],
+        agent_run_id: UUID,
+        response: ModelResponse,
+        *,
+        model_calls: int = 1,
+        tool_calls: int = 0,
     ) -> None:
         connection.execute(
             "DELETE FROM runtime.budget_reservations WHERE agent_run_id = %s", (agent_run_id,)
@@ -1303,8 +1548,8 @@ class AgentRuntimeRepository:
             """
             INSERT INTO observability.usage_ledger (
                 agent_run_id, provider, model, input_tokens, output_tokens, latency_ms,
-                estimated_cost_usd
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                estimated_cost_usd, model_calls, tool_calls
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 agent_run_id,
@@ -1314,8 +1559,47 @@ class AgentRuntimeRepository:
                 response.usage.output_tokens,
                 response.latency_milliseconds,
                 response.estimated_cost_usd,
+                model_calls,
+                tool_calls,
             ),
         )
+
+    @staticmethod
+    def _validate_execution_scope(
+        connection: psycopg.Connection[Any],
+        organization_id: UUID,
+        request: AgentRunRequest,
+    ) -> str | None:
+        if request.tenant_id is not None:
+            return "tenant isolation is not configured for the current ALOS storage model"
+        if request.division_id is not None:
+            division = connection.execute(
+                """
+                SELECT 1 FROM identity.divisions
+                WHERE division_id = %s AND organization_id = %s
+                """,
+                (request.division_id, organization_id),
+            ).fetchone()
+            if division is None:
+                return "division is outside the execution organization scope"
+        if request.project_id is not None:
+            project = connection.execute(
+                """
+                SELECT 1 FROM portfolio.projects
+                WHERE project_id = %s AND organization_id = %s AND workspace_id = %s
+                  AND (%s::uuid IS NULL OR division_id = %s::uuid)
+                """,
+                (
+                    request.project_id,
+                    organization_id,
+                    request.workspace_id,
+                    request.division_id,
+                    request.division_id,
+                ),
+            ).fetchone()
+            if project is None:
+                return "project is outside the execution workspace or division scope"
+        return None
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg.Connection[Any]]:
@@ -1406,6 +1690,78 @@ def _resolve_model_policy(
         raise AgentRuntimeBlocked("contract model route is invalid")
     route = cast(Literal["light", "standard", "critical"], model_route)
     return settings.model_for_route(route), output_limit
+
+
+def _uses_agentic_engine(contract: AgentContract) -> bool:
+    return contract.model_policy.get("execution_engine") == "PYDANTICAI"
+
+
+def _contract_classification(contract: AgentContract) -> DataClassification:
+    value = contract.model_policy.get("data_classification", "INTERNAL")
+    if value not in {"PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"}:
+        raise AgentRuntimeBlocked("contract data classification is invalid")
+    return cast(DataClassification, value)
+
+
+def _resolve_agentic_limits(
+    contract: AgentContract,
+    settings: Settings,
+    *,
+    output_limit: int,
+) -> ExecutionLimits:
+    policy = contract.model_policy
+    maximum_input = max(1, settings.llm_max_context_tokens - output_limit)
+    max_cost = min(
+        Decimal(str(policy.get("max_cost_per_run", settings.agentic_max_cost_per_run))),
+        settings.agentic_max_cost_per_run,
+        settings.llm_daily_cost_cap_usd,
+    )
+    return ExecutionLimits(
+        max_model_steps=min(
+            _policy_int(policy, "max_model_steps", settings.agentic_max_model_steps),
+            settings.agentic_max_model_steps,
+        ),
+        max_tool_calls=min(
+            _policy_int(policy, "max_tool_calls", settings.agentic_max_tool_calls),
+            settings.agentic_max_tool_calls,
+        ),
+        max_elapsed_seconds=min(
+            float(policy.get("max_elapsed_seconds", contract.timeout_seconds)),
+            float(contract.timeout_seconds),
+        ),
+        max_retries=min(
+            _policy_int(policy, "max_retries", settings.llm_max_retries),
+            settings.llm_max_retries,
+        ),
+        max_delegation_depth=min(
+            _policy_int(
+                policy,
+                "max_delegation_depth",
+                settings.agentic_max_delegation_depth,
+            ),
+            settings.agentic_max_delegation_depth,
+        ),
+        max_subagents=min(
+            _policy_int(policy, "max_subagents", settings.agentic_max_subagents),
+            settings.agentic_max_subagents,
+        ),
+        max_concurrency=min(
+            _policy_int(policy, "max_concurrency", settings.agentic_max_concurrency),
+            settings.agentic_max_concurrency,
+        ),
+        max_input_tokens=maximum_input,
+        max_output_tokens=output_limit,
+        max_total_tokens=settings.llm_max_context_tokens,
+        max_cost_per_run=max_cost,
+        daily_agent_cost_limit=settings.llm_daily_cost_cap_usd,
+    )
+
+
+def _policy_int(policy: dict[str, Any], key: str, default: int) -> int:
+    value = policy.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise AgentRuntimeBlocked(f"contract {key} policy is invalid")
+    return value
 
 
 def _model_instructions(contract: AgentContract) -> str:
