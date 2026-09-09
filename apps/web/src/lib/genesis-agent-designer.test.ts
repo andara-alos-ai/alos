@@ -11,7 +11,7 @@ describe("GENESIS Agent Designer API contract", () => {
       missing_dependencies: [],
       activation_readiness: "READY_FOR_TESTING",
       draft: { agent_key: "PROPERTY_OVERDUE_MONITOR", semantic_version: "0.1.0", lifecycle_status: "DRAFT", correlation_id: "00000000-0000-0000-0000-000000000001" },
-      release_request: { change_request_id: "00000000-0000-0000-0000-000000000002", status: "DRAFT" },
+      release_request: { change_request_id: "00000000-0000-0000-0000-000000000002", state: "DRAFT" },
       generated_tests: [{ test_key: "PROPERTY_OVERDUE_MONITOR_POSITIVE", category: "POSITIVE" }],
     };
 

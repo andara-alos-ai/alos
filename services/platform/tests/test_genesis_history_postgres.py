@@ -10,7 +10,9 @@ from alos.agents.registry import AgentRegistryRepository, LocalBootstrapRequest
 from alos.audit.reader import AuditReader
 from alos.config import get_settings
 from alos.genesis.history import (
+    GenesisConversationContextRequest,
     GenesisConversationRequest,
+    GenesisConversationUpdateRequest,
     GenesisHistoryRepository,
     GenesisMessageRequest,
 )
@@ -75,6 +77,41 @@ def test_genesis_history_preserves_human_requirement_and_system_artifacts() -> N
             actor_user_id=context.user_id,
             correlation_id=uuid4(),
         )
+        renamed = history.rename_conversation(
+            conversation.conversation_id,
+            GenesisConversationUpdateRequest(title="Property daily brief"),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        attached = history.attach_context(
+            conversation.conversation_id,
+            GenesisConversationContextRequest(
+                entity_type="TASK",
+                entity_id=uuid4(),
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        assert renamed.title == "Property daily brief"
+        assert history.list_context(
+            conversation.conversation_id,
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        ) == [attached]
+        history.remove_context(
+            conversation.conversation_id,
+            attached.conversation_context_id,
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        assert history.list_context(
+            conversation.conversation_id,
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        ) == []
         assert message.actor_kind == "HUMAN"
         assert requirement.status == "DRAFT"
         assert blueprint.version == contract.version == 1
@@ -98,8 +135,29 @@ def test_genesis_history_preserves_human_requirement_and_system_artifacts() -> N
                 "GENESIS_MESSAGE_RECORDED",
                 "GENESIS_REQUIREMENT_RECORDED",
                 "GENESIS_ARTIFACT_RECORDED",
+                "GENESIS_CONVERSATION_RENAMED",
+                "GENESIS_CONTEXT_ATTACHED",
+                "GENESIS_CONTEXT_REMOVED",
             }
         )
+        archived = history.archive_conversation(
+            conversation.conversation_id,
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        assert archived.status == "CLOSED"
+        assert history.list_conversations(
+            context.workspace_id,
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        ) == []
+        assert history.list_conversations(
+            context.workspace_id,
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            include_archived=True,
+        ) == [archived]
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:
             connection.execute(

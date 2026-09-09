@@ -80,6 +80,9 @@ class GenesisTurnRequest(BaseModel):
     attachments: list[GenesisConversationContextRequest] = Field(
         default_factory=list, max_length=20
     )
+    preferred_agent_key: str | None = Field(
+        default=None, pattern=r"^[A-Z][A-Z0-9_]{2,79}$"
+    )
 
 
 class ExternalResearchItem(BaseModel):
@@ -276,6 +279,18 @@ class GenesisChatService:
             request.content,
             capability_keys=capability_keys,
         )
+        if request.preferred_agent_key:
+            preferred = self._router.active_candidate(
+                actor, conversation.workspace_id, request.preferred_agent_key
+            )
+            if preferred is None:
+                raise GenesisChatError(
+                    "selected Agent is no longer ACTIVE or is outside the actor scope"
+                )
+            candidates = [
+                preferred,
+                *[item for item in candidates if item.agent_key != preferred.agent_key],
+            ]
         observations: list[dict[str, Any]] = []
         tool_results: list[ToolExecutionResult] = []
         if mode in {"AUTO", "INTERNAL", "INTERNAL_AND_EXTERNAL"}:

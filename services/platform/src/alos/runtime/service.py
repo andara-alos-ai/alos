@@ -396,6 +396,7 @@ class AgentRuntimeRepository:
                 allow_draft=allow_draft,
                 target_agent_version_id=target_agent_version_id,
             )
+            execution_mode = "TEST" if request.testing else execution.lifecycle_status
             input_hash = _digest(request.input)
             permission_error = self._evaluate_permissions(connection, execution)
             if permission_error is not None:
@@ -407,6 +408,7 @@ class AgentRuntimeRepository:
                     actor_user_id,
                     correlation_id,
                     input_hash,
+                    execution_mode=execution_mode,
                     tool_key="PERMISSION_POLICY",
                     reason=permission_error,
                 )
@@ -421,6 +423,7 @@ class AgentRuntimeRepository:
                     actor_user_id,
                     correlation_id,
                     input_hash,
+                    execution_mode=execution_mode,
                     tool_key="INPUT_SCHEMA",
                     reason=str(error),
                 )
@@ -441,6 +444,7 @@ class AgentRuntimeRepository:
                     actor_user_id,
                     correlation_id,
                     input_hash,
+                    execution_mode=execution_mode,
                     tool_key=tool_evaluation.tool_key,
                     reason=tool_evaluation.reason,
                 )
@@ -458,6 +462,7 @@ class AgentRuntimeRepository:
                     actor_user_id,
                     correlation_id,
                     input_hash,
+                    execution_mode=execution_mode,
                     tool_key="BUDGET_POLICY",
                     reason=(
                         "model context token cap exceeded: "
@@ -487,6 +492,7 @@ class AgentRuntimeRepository:
                     input_hash,
                     output_limit,
                     reserved_cost_usd,
+                    execution_mode,
                 )
             except AgentRuntimeBlocked as error:
                 return self._block_run(
@@ -497,6 +503,7 @@ class AgentRuntimeRepository:
                     actor_user_id,
                     correlation_id,
                     input_hash,
+                    execution_mode=execution_mode,
                     tool_key="BUDGET_POLICY",
                     reason=str(error),
                 )
@@ -520,7 +527,7 @@ class AgentRuntimeRepository:
                 metadata={
                     "agent_key": execution.agent_key,
                     "version": execution.semantic_version,
-                    "execution_mode": execution.lifecycle_status,
+                    "execution_mode": execution_mode,
                 },
             )
             return _PreparedRun(
@@ -1045,6 +1052,7 @@ class AgentRuntimeRepository:
         input_hash: str,
         max_output_tokens: int,
         reserved_cost_usd: Decimal,
+        execution_mode: str,
     ) -> UUID:
         connection.execute(
             "SELECT pg_advisory_xact_lock(hashtext(%s))",
@@ -1161,7 +1169,7 @@ class AgentRuntimeRepository:
                 execution.agent_version_id,
                 actor_user_id,
                 correlation_id,
-                Jsonb({"sha256": input_hash}),
+                Jsonb({"sha256": input_hash, "execution_mode": execution_mode}),
             ),
         ).fetchone()
         if run is None:
@@ -1229,6 +1237,7 @@ class AgentRuntimeRepository:
         correlation_id: UUID,
         input_hash: str,
         *,
+        execution_mode: str,
         tool_key: str,
         reason: str,
     ) -> AgentRunResult:
@@ -1246,7 +1255,7 @@ class AgentRuntimeRepository:
                 execution.agent_version_id,
                 actor_user_id,
                 correlation_id,
-                Jsonb({"sha256": input_hash}),
+                Jsonb({"sha256": input_hash, "execution_mode": execution_mode}),
                 Jsonb({"reason": reason}),
             ),
         ).fetchone()
@@ -1268,7 +1277,11 @@ class AgentRuntimeRepository:
             entity_id=run["agent_run_id"],
             correlation_id=correlation_id,
             reason=reason,
-            metadata={"agent_key": execution.agent_key, "tool_key": tool_key},
+            metadata={
+                "agent_key": execution.agent_key,
+                "tool_key": tool_key,
+                "execution_mode": execution_mode,
+            },
         )
         return AgentRunResult(
             agent_run_id=run["agent_run_id"],

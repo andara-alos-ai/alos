@@ -1,7 +1,13 @@
 export type GenesisAgentDesignResponse = {
-  proposed_design: { agent_key: string; name: string; objective: string };
+  proposed_design: {
+    agent_key: string;
+    name: string;
+    objective: string;
+    capability_keys?: string[];
+  };
   normalized_risk_level: string;
   bound_tool_keys: string[];
+  proposed_permission_keys?: string[];
   missing_dependencies: string[];
   activation_readiness: "READY_FOR_TESTING" | "NEEDS_CONFIGURATION";
   draft: {
@@ -10,7 +16,7 @@ export type GenesisAgentDesignResponse = {
     lifecycle_status: "DRAFT" | "RETIRED";
     correlation_id: string;
   };
-  release_request: { change_request_id: string; status: string };
+  release_request: { change_request_id: string; state: string };
   generated_tests: Array<{ test_key: string; category: string }>;
 };
 

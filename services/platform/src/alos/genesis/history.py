@@ -35,6 +35,12 @@ class GenesisConversationRequest(BaseModel):
     context_mode: ContextMode = "AUTO"
 
 
+class GenesisConversationUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=200)
+
+
 class GenesisMessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -81,6 +87,15 @@ class GenesisConversationContextRecord(GenesisConversationContextRequest):
     conversation_id: UUID
     attached_by_user_id: UUID
     created_at: datetime
+
+
+class GenesisContextOption(BaseModel):
+    entity_type: ContextEntityType
+    entity_id: UUID
+    title: str
+    source_version: str | None = None
+    status: str
+    scope: str
 
 
 class GenesisArtifactRecord(BaseModel):
@@ -159,6 +174,7 @@ class GenesisHistoryRepository:
         organization_id: UUID,
         actor_user_id: UUID,
         limit: int = 50,
+        include_archived: bool = False,
     ) -> list[GenesisConversationRecord]:
         with self._connection() as connection:
             self._require_workspace_actor(
@@ -171,12 +187,88 @@ class GenesisHistoryRepository:
                 FROM genesis.conversations
                 WHERE organization_id = %s AND workspace_id = %s
                   AND created_by_user_id = %s
+                  AND (%s OR status = 'OPEN')
                 ORDER BY updated_at DESC, conversation_id DESC
                 LIMIT %s
                 """,
-                (organization_id, workspace_id, actor_user_id, limit),
+                (organization_id, workspace_id, actor_user_id, include_archived, limit),
             ).fetchall()
         return [GenesisConversationRecord(**row) for row in rows]
+
+    def rename_conversation(
+        self,
+        conversation_id: UUID,
+        request: GenesisConversationUpdateRequest,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> GenesisConversationRecord:
+        with self._transaction() as connection:
+            self._conversation_for_actor(
+                connection, conversation_id, organization_id, actor_user_id
+            )
+            row = connection.execute(
+                """
+                UPDATE genesis.conversations
+                SET title = %s, updated_at = now()
+                WHERE conversation_id = %s
+                RETURNING conversation_id, organization_id, workspace_id, created_by_user_id,
+                          status, title, context_mode, created_at, updated_at
+                """,
+                (request.title.strip(), conversation_id),
+            ).fetchone()
+            if row is None:
+                raise GenesisHistoryError("Genesis conversation could not be renamed")
+            self._audit_human(
+                connection,
+                organization_id,
+                actor_user_id,
+                "GENESIS_CONVERSATION_RENAMED",
+                "GENESIS_CONVERSATION",
+                conversation_id,
+                correlation_id,
+                "Human renamed a Genesis conversation",
+                {},
+            )
+            return GenesisConversationRecord(**row)
+
+    def archive_conversation(
+        self,
+        conversation_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> GenesisConversationRecord:
+        with self._transaction() as connection:
+            self._conversation_for_actor(
+                connection, conversation_id, organization_id, actor_user_id
+            )
+            row = connection.execute(
+                """
+                UPDATE genesis.conversations
+                SET status = 'CLOSED', updated_at = now()
+                WHERE conversation_id = %s
+                RETURNING conversation_id, organization_id, workspace_id, created_by_user_id,
+                          status, title, context_mode, created_at, updated_at
+                """,
+                (conversation_id,),
+            ).fetchone()
+            if row is None:
+                raise GenesisHistoryError("Genesis conversation could not be archived")
+            self._audit_human(
+                connection,
+                organization_id,
+                actor_user_id,
+                "GENESIS_CONVERSATION_ARCHIVED",
+                "GENESIS_CONVERSATION",
+                conversation_id,
+                correlation_id,
+                "Human archived a Genesis conversation without deleting its history",
+                {},
+            )
+            return GenesisConversationRecord(**row)
 
     def add_human_message(
         self,
@@ -400,6 +492,153 @@ class GenesisHistoryRepository:
                 (conversation_id,),
             ).fetchall()
         return [GenesisConversationContextRecord(**row) for row in rows]
+
+    def remove_context(
+        self,
+        conversation_id: UUID,
+        conversation_context_id: UUID,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        correlation_id: UUID,
+    ) -> None:
+        """Remove only the conversation association; the governed source remains untouched."""
+        with self._transaction() as connection:
+            self._conversation_for_actor(
+                connection, conversation_id, organization_id, actor_user_id
+            )
+            removed = connection.execute(
+                """
+                DELETE FROM genesis.conversation_context
+                WHERE conversation_context_id = %s AND conversation_id = %s
+                RETURNING entity_type, entity_id
+                """,
+                (conversation_context_id, conversation_id),
+            ).fetchone()
+            if removed is None:
+                raise GenesisHistoryError("Genesis conversation context was not found")
+            self._audit_human(
+                connection,
+                organization_id,
+                actor_user_id,
+                "GENESIS_CONTEXT_REMOVED",
+                removed["entity_type"],
+                removed["entity_id"],
+                correlation_id,
+                "Human removed a context association without deleting the source entity",
+                {"conversation_id": str(conversation_id)},
+            )
+
+    def list_context_options(
+        self,
+        workspace_id: UUID,
+        entity_type: ContextEntityType,
+        *,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        division_codes: list[str],
+        company_scope: bool,
+        search: str = "",
+        limit: int = 25,
+    ) -> list[GenesisContextOption]:
+        """List safe, scoped entity metadata for the non-technical context picker."""
+        queries = {
+            "DOCUMENT": """
+                SELECT 'DOCUMENT' AS entity_type, document.document_id AS entity_id,
+                       document.title, latest.version_number::text AS source_version,
+                       document.status, coalesce(division.code, 'COMPANY') AS scope
+                FROM documents.records AS document
+                LEFT JOIN identity.divisions AS division
+                  ON division.division_id = document.division_id
+                LEFT JOIN LATERAL (
+                    SELECT version_number FROM documents.versions
+                    WHERE document_id = document.document_id
+                    ORDER BY version_number DESC LIMIT 1
+                ) AS latest ON true
+                WHERE document.organization_id = %s AND document.workspace_id = %s
+                  AND (%s OR document.division_id IS NULL OR division.code = ANY(%s))
+                  AND document.status <> 'ARCHIVED' AND document.title ILIKE %s
+                ORDER BY document.updated_at DESC LIMIT %s
+            """,
+            "PROJECT": """
+                SELECT 'PROJECT' AS entity_type, project.project_id AS entity_id,
+                       project.name AS title, NULL::text AS source_version,
+                       project.status, division.code AS scope
+                FROM portfolio.projects AS project
+                JOIN identity.divisions AS division ON division.division_id = project.division_id
+                WHERE project.organization_id = %s AND project.workspace_id = %s
+                  AND (%s OR division.code = ANY(%s))
+                  AND project.status <> 'ARCHIVED' AND project.name ILIKE %s
+                ORDER BY project.updated_at DESC LIMIT %s
+            """,
+            "TASK": """
+                SELECT 'TASK' AS entity_type, task.task_id AS entity_id,
+                       task.title, NULL::text AS source_version,
+                       task.status, division.code AS scope
+                FROM operational.tasks AS task
+                JOIN identity.divisions AS division ON division.division_id = task.division_id
+                WHERE task.organization_id = %s AND task.workspace_id = %s
+                  AND (%s OR division.code = ANY(%s)) AND task.title ILIKE %s
+                ORDER BY task.updated_at DESC LIMIT %s
+            """,
+            "EVIDENCE": """
+                SELECT 'EVIDENCE' AS entity_type, evidence.evidence_id AS entity_id,
+                       coalesce(evidence.metadata ->> 'title',
+                           'Evidence ' || left(evidence.evidence_id::text, 8)) AS title,
+                       evidence.version::text AS source_version,
+                       evidence.validation_status AS status, division.code AS scope
+                FROM operational.evidence AS evidence
+                JOIN identity.divisions AS division
+                  ON division.division_id = evidence.division_id
+                WHERE evidence.organization_id = %s AND evidence.workspace_id = %s
+                  AND (%s OR division.code = ANY(%s))
+                  AND coalesce(evidence.metadata ->> 'title', evidence.evidence_id::text)
+                      ILIKE %s
+                ORDER BY evidence.created_at DESC LIMIT %s
+            """,
+            "FINDING": """
+                SELECT 'FINDING' AS entity_type, finding.finding_id AS entity_id,
+                       finding.title, NULL::text AS source_version,
+                       finding.status, coalesce(division.code, 'COMPANY') AS scope
+                FROM operational.findings AS finding
+                LEFT JOIN identity.divisions AS division
+                  ON division.division_id = finding.division_id
+                WHERE finding.organization_id = %s AND finding.workspace_id = %s
+                  AND (%s OR finding.division_id IS NULL OR division.code = ANY(%s))
+                  AND finding.title ILIKE %s
+                ORDER BY finding.updated_at DESC LIMIT %s
+            """,
+            "REPORT": """
+                SELECT 'REPORT' AS entity_type, report.report_id AS entity_id,
+                       definition.name AS title, NULL::text AS source_version,
+                       report.status, coalesce(division.code, 'COMPANY') AS scope
+                FROM reporting.reports AS report
+                JOIN reporting.definitions AS definition
+                  ON definition.report_definition_id = report.report_definition_id
+                LEFT JOIN identity.divisions AS division
+                  ON division.division_id = definition.division_id
+                WHERE report.organization_id = %s AND report.workspace_id = %s
+                  AND (%s OR definition.division_id IS NULL OR division.code = ANY(%s))
+                  AND definition.name ILIKE %s
+                ORDER BY report.updated_at DESC LIMIT %s
+            """,
+        }
+        with self._connection() as connection:
+            self._require_workspace_actor(
+                connection, organization_id, actor_user_id, workspace_id
+            )
+            rows = connection.execute(
+                queries[entity_type],
+                (
+                    organization_id,
+                    workspace_id,
+                    company_scope,
+                    division_codes,
+                    f"%{search.strip()}%",
+                    min(max(limit, 1), 100),
+                ),
+            ).fetchall()
+        return [GenesisContextOption(**row) for row in rows]
 
     def record_requirement(
         self,

@@ -72,6 +72,7 @@ export function AgentRegistry() {
       api<Run[]>(`/api/v1/workspaces/${encodeURIComponent(selectedWorkspaceId)}/runs?limit=100`),
     ]);
     setData({ ...foundation, agents, runs, audit: audit.filter((event) => event.action.startsWith("AGENT_") || event.action.includes("RELEASE") || event.action.includes("TEST_")) });
+    return agents;
   }, []);
 
   useEffect(() => {
@@ -88,7 +89,28 @@ export function AgentRegistry() {
         }
         const firstWorkspaceId = foundation.workspaces[0].workspace_id;
         setWorkspaceId(firstWorkspaceId);
-        await loadWorkspace(firstWorkspaceId, foundation);
+        const agents = await loadWorkspace(firstWorkspaceId, foundation);
+        const parameters = new URLSearchParams(window.location.search);
+        const requested = agents.find((agent) => agent.agent_key === parameters.get("agent"));
+        if (requested) {
+          setSelectedAgentKey(requested.agent_key);
+          const action = parameters.get("action");
+          if (action === "new-version") {
+            setEditingAgentKey(requested.agent_key);
+            setForm(formFromAgent(requested));
+            setNotice(
+              "Versi " +
+                (latestVersion(requested)?.semantic_version ?? "aktif") +
+                " tetap immutable. Perubahan akan disimpan sebagai versi DRAFT baru.",
+            );
+          } else if (
+            action === "edit" &&
+            latestVersion(requested)?.lifecycle_status === "DRAFT"
+          ) {
+            setEditingAgentKey(requested.agent_key);
+            setForm(formFromAgent(requested));
+          }
+        }
       } catch (loadError: unknown) {
         if (loadError instanceof ApiError && loadError.status === 401) {
           router.replace("/login");
