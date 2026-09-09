@@ -11,6 +11,14 @@ readonly COMPOSE_FILE="${3:-infra/compose/compose.staging.yaml}"
 readonly ORGANIZATION_CODE="${4:-ALOS}"
 readonly BACKUP_DIR="${ALOS_RESET_BACKUP_DIR:-/opt/alos/backups}"
 
+read_numeric_setting() {
+  local key="$1"
+  local fallback="$2"
+  local value
+  value="$(sed -n "s/^${key}=//p" "${ENV_FILE}" | tail -n 1 | tr -d '\r[:space:]')"
+  printf '%s' "${value:-${fallback}}"
+}
+
 if [[ "${CONFIRMATION}" != "--confirm-reset-governance-agent-control" ]]; then
   echo "Refusing destructive reset."
   echo "Usage: sudo bash scripts/database/reset-governance-agent-control.sh --confirm-reset-governance-agent-control [env-file] [compose-file] [organization-code]"
@@ -30,6 +38,17 @@ fi
 if [[ ! -r "${ENV_FILE}" || ! -r "${COMPOSE_FILE}" ]]; then
   echo "Environment file or Compose file cannot be read. Reset cancelled."
   exit 66
+fi
+
+budget_request_limit="$(read_numeric_setting ALOS_LLM_DAILY_REQUEST_LIMIT 500)"
+budget_output_token_limit="$(read_numeric_setting ALOS_LLM_DAILY_OUTPUT_TOKEN_LIMIT 500000)"
+budget_cost_cap_usd="$(read_numeric_setting ALOS_LLM_DAILY_COST_CAP_USD 5.00)"
+
+if [[ ! "${budget_request_limit}" =~ ^[1-9][0-9]*$ ]] \
+  || [[ ! "${budget_output_token_limit}" =~ ^[1-9][0-9]*$ ]] \
+  || [[ ! "${budget_cost_cap_usd}" =~ ^[0-9]+([.][0-9]{1,4})?$ ]]; then
+  echo "Invalid ALOS LLM budget setting in ${ENV_FILE}. Reset cancelled."
+  exit 65
 fi
 
 compose=(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}")
@@ -194,8 +213,34 @@ DELETE FROM governance.permission_policies
 WHERE agent_version_id IN (SELECT agent_version_id FROM reset_agent_versions);
 DELETE FROM governance.agent_change_requests
 WHERE change_request_id IN (SELECT change_request_id FROM reset_change_requests);
-DELETE FROM governance.cost_limits
-WHERE organization_id IN (SELECT organization_id FROM reset_organizations);
+
+-- Budget is workspace configuration, not disposable Agent evidence. Preserve
+-- an existing human-configured limit and repair a missing one so the reset
+-- cannot make Governance or Runtime unusable.
+INSERT INTO governance.cost_limits (
+  organization_id,
+  workspace_id,
+  daily_request_limit,
+  daily_output_token_limit,
+  daily_cost_cap_usd,
+  active
+)
+SELECT workspace.organization_id,
+       workspace.workspace_id,
+       ${budget_request_limit},
+       ${budget_output_token_limit},
+       ${budget_cost_cap_usd},
+       true
+FROM workspace.workspaces AS workspace
+JOIN reset_organizations AS organization USING (organization_id)
+WHERE workspace.status = 'ACTIVE'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM governance.cost_limits AS limits
+    WHERE limits.organization_id = workspace.organization_id
+      AND limits.workspace_id = workspace.workspace_id
+      AND limits.active
+  );
 
 DELETE FROM agents.registry
 WHERE agent_contract_id IN (SELECT agent_contract_id FROM reset_agent_contracts);
@@ -211,7 +256,7 @@ WHERE change_request_id IN (SELECT change_request_id FROM reset_change_requests)
 COMMIT;
 SQL
 
-echo "Verifying Governance/Agent Control is empty and accounts are intact…"
+echo "Verifying Governance/Agent Control is empty and accounts/budget are intact…"
 "${compose[@]}" exec -T postgres psql -U alos -d alos -v ON_ERROR_STOP=1 -c "
     SELECT
       (SELECT count(*) FROM identity.users AS users
@@ -222,7 +267,8 @@ echo "Verifying Governance/Agent Control is empty and accounts are intact…"
        WHERE organization.code = '${ORGANIZATION_CODE}') AS agents_remaining,
       (SELECT count(*) FROM governance.cost_limits AS limits
        JOIN identity.organizations AS organization USING (organization_id)
-       WHERE organization.code = '${ORGANIZATION_CODE}') AS cost_limits_remaining,
+       WHERE organization.code = '${ORGANIZATION_CODE}'
+         AND limits.active) AS active_cost_limits,
       (SELECT count(*) FROM governance.kill_switches AS switches
        JOIN identity.organizations AS organization USING (organization_id)
        WHERE organization.code = '${ORGANIZATION_CODE}') AS kill_switches_remaining;

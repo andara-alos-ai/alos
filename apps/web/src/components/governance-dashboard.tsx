@@ -172,7 +172,10 @@ export function GovernanceDashboard() {
     return (
       <main className="loading-shell">
         <GovernanceFeedback error={error} notice="" />
-        <Link className="text-link" href="/login">Ke halaman login</Link>
+        <div className="builder-actions">
+          <button className="secondary-button" onClick={() => window.location.reload()} type="button">Coba lagi</button>
+          <Link className="text-link" href="/">Kembali ke ALOS</Link>
+        </div>
       </main>
     );
   }
