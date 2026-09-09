@@ -1,1 +1,2 @@
-"""HTTP and worker entrypoints."""
+"""FastAPI transport adapters for the ALOS modular monolith."""
+

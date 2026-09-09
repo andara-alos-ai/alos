@@ -1,252 +1,140 @@
 "use client";
 
+import { FormEvent, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useEffect, useRef, useState } from "react";
-
-import { Icon } from "@/components/icons";
-import { useSession } from "@/components/session-provider";
-import {
-  ApiError,
-  apiBaseUrl,
-  exchangeOidcCode,
-  getOidcStatus,
-  getPilotProfiles,
-  loginPilotProfile,
-  oidcLoginUrl,
-} from "@/lib/api";
-import { divisionLabels, type DivisionCode } from "@/lib/identity";
-import { roleLabels } from "@/lib/navigation";
-import { claimOidcCallback } from "@/lib/oidc-callback";
-import type { PilotProfile } from "@/lib/types";
-
-const pilotLoginEnabled =
-  process.env.NODE_ENV !== "production" ||
-  process.env.NEXT_PUBLIC_ALOS_PILOT_LOGIN_ENABLED === "true";
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  return "Akses belum dapat diverifikasi. Silakan periksa data dan coba lagi.";
-}
+import { ApiError, apiRequest } from "@/lib/api-client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const session = useSession();
-  const authenticate = session.authenticate;
-  const oidcCallbackHandled = useRef(false);
-  const [mode, setMode] = useState<"pilot" | "token">(pilotLoginEnabled ? "pilot" : "token");
-  const [pilotProfiles, setPilotProfiles] = useState<PilotProfile[]>([]);
-  const [profilesLoading, setProfilesLoading] = useState(pilotLoginEnabled);
-  const [profileError, setProfileError] = useState<string | null>(null);
-  const [accessToken, setAccessToken] = useState("");
-  const [oidcEnabled, setOidcEnabled] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    getOidcStatus()
-      .then((result) => {
-        if (active) setOidcEnabled(result.enabled && result.provider === "google");
-      })
-      .catch(() => {
-        if (active) setOidcEnabled(false);
-      });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    if (!pilotLoginEnabled) return;
-    let active = true;
-    getPilotProfiles()
-      .then((profiles) => {
-        if (!active) return;
-        setPilotProfiles(profiles);
-        setProfileError(
-          profiles.length ? null : "Akun pilot belum diprovisikan pada proyek sintetis aktif.",
-        );
-      })
-      .catch((profilesError: unknown) => {
-        if (active) setProfileError(errorMessage(profilesError));
-      })
-      .finally(() => {
-        if (active) setProfilesLoading(false);
-      });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    const callback = claimOidcCallback(window.location.hash, oidcCallbackHandled);
-    if (!callback) return;
-    window.history.replaceState(null, "", window.location.pathname);
-    if (callback.error) {
-      window.queueMicrotask(() => {
-        setError(
-          callback.error === "access_denied"
-            ? "Login Google dibatalkan."
-            : "Login Google tidak dapat diverifikasi. Silakan coba lagi.",
-        );
-      });
-      return;
-    }
-    if (!callback.code) return;
-    exchangeOidcCode(callback.code)
-      .then(async (token) => {
-        await authenticate(token.access_token);
-        router.replace("/");
-      })
-      .catch((loginError: unknown) => {
-        setError(errorMessage(loginError));
-      });
-  }, [authenticate, router]);
-
-  async function completeAuthentication(token: string) {
-    await authenticate(token);
-    router.replace("/");
-  }
-
-  async function submitPilot(userId: string) {
-    setError(null);
-    setSubmitting(true);
-    try {
-      const token = await loginPilotProfile(userId);
-      await completeAuthentication(token.access_token);
-    } catch (loginError) {
-      setError(errorMessage(loginError));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function submitToken(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
-    if (!accessToken.trim()) {
-      setError("Masukkan token akses yang diterbitkan oleh sistem identitas ALOS.");
-      return;
-    }
+    setError("");
     setSubmitting(true);
     try {
-      await completeAuthentication(accessToken.trim());
-    } catch (loginError) {
-      setError(errorMessage(loginError));
+      await apiRequest<{ access_token?: string }>("/api/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      router.replace("/");
+      router.refresh();
+    } catch (failure) {
+      setError(failure instanceof ApiError && failure.status === 401
+        ? "Email atau password tidak valid."
+        : "Tidak dapat terhubung ke ALOS. Coba lagi.");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <main className="loginPage">
-      <section className="loginIntro">
-        <div className="loginBrand"><span className="brandMark">A</span><strong>ALOS</strong></div>
-        <div>
-          <p className="eyebrow light">Andara Leverage Operating System</p>
-          <h1>Satu pusat kerja untuk operasi internal yang dapat diaudit.</h1>
-          <p>Kelola pekerjaan, deadline, bukti, persetujuan, risiko, dan 18 Core Agent dalam satu platform perusahaan.</p>
+    <main className="login-shell">
+      <aside className="login-hero" aria-label="ALOS Integrated Business Platform">
+        <header className="hero-header">
+          <Brand lockup="light" />
+          <p className="hero-promise"><span />Building better living<br />for a brighter tomorrow</p>
+        </header>
+        <div className="hero-copy">
+          <h1>Satu platform untuk kemajuan bersama.</h1>
+          <p>Transparan. Terintegrasi. Lebih baik. Didukung oleh AI untuk keputusan yang lebih tepat dan masa depan yang lebih baik.</p>
+          <ul className="hero-features">
+            <Feature icon="◫" title="Terintegrasi" text="Seluruh divisi dalam satu ekosistem." />
+            <Feature icon="✦" title="Didukung AI" text="Insight cerdas untuk aksi yang lebih cepat." />
+            <Feature icon="⌾" title="Aman & terpercaya" text="Data perusahaan terlindungi." />
+            <Feature icon="⌘" title="Kolaboratif" text="Membangun bersama, mencapai lebih." />
+          </ul>
         </div>
-        <ul className="loginAssurances">
-          <li><Icon name="check" /> Keputusan material tetap melalui manusia berwenang</li>
-          <li><Icon name="check" /> Permission dan workflow divalidasi secara deterministik</li>
-          <li><Icon name="check" /> Aktivitas penting tercatat pada audit trail</li>
-        </ul>
-      </section>
+        <footer className="hero-footer">
+          <p>“Teknologi hari ini,<br />untuk kehidupan yang lebih baik esok.”</p>
+        </footer>
+      </aside>
 
-      <section className="loginPanel" aria-labelledby="login-title">
-        <div className="loginCard">
-          <p className="eyebrow">Akses terbatas</p>
-          <h2 id="login-title">Masuk ke ALOS</h2>
-          <p className="muted">Gunakan akun perusahaan yang telah diprovisikan untuk mengakses ALOS.</p>
-
-          {oidcEnabled ? (
-            <div className="oidcLogin">
-              <button
-                className="button primary full"
-                disabled={submitting}
-                onClick={() => window.location.assign(oidcLoginUrl)}
-                type="button"
-              >
-                {submitting ? "Memverifikasi…" : "Masuk dengan Google"}
-              </button>
-              <span>atau gunakan akses pengembangan</span>
+      <section className="login-pane" aria-labelledby="login-title">
+        <div className="language-chip" aria-label="Bahasa antarmuka">◉&nbsp; Bahasa Indonesia</div>
+        <div className="login-card">
+          <Brand lockup="dark" />
+          <div className="login-intro">
+            <h1 id="login-title">Selamat datang</h1>
+            <p>Masuk ke akun Anda untuk mengakses ALOS.</p>
+          </div>
+          <form className="login-form" onSubmit={submit}>
+            <label htmlFor="email">Email</label>
+            <div className="login-input-wrap">
+              <span aria-hidden="true" className="input-icon"><MailIcon /></span>
+              <input
+                autoComplete="username"
+                id="email"
+                name="email"
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="nama@perusahaan.com"
+                required
+                type="email"
+                value={email}
+              />
             </div>
-          ) : null}
-
-          <div className="segmentedControl" aria-label="Metode masuk">
-            {pilotLoginEnabled ? (
+            <label htmlFor="password">Password</label>
+            <div className="login-input-wrap">
+              <span aria-hidden="true" className="input-icon"><LockIcon /></span>
+              <input
+                autoComplete="current-password"
+                id="password"
+                minLength={16}
+                name="password"
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Masukkan password"
+                required
+                type={showPassword ? "text" : "password"}
+                value={password}
+              />
               <button
-                aria-pressed={mode === "pilot"}
-                className={mode === "pilot" ? "active" : ""}
-                onClick={() => { setMode("pilot"); setError(null); }}
+                aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+                className="password-toggle"
+                onClick={() => setShowPassword(!showPassword)}
                 type="button"
               >
-                Profil pilot
+                {showPassword ? "Sembunyikan" : "Tampilkan"}
               </button>
-            ) : null}
-            <button
-              aria-pressed={mode === "token"}
-              className={mode === "token" ? "active" : ""}
-              onClick={() => { setMode("token"); setError(null); }}
-              type="button"
-            >
-              Token akses
+            </div>
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
+            <button className="login-submit" disabled={submitting} type="submit">
+              {submitting ? "Memverifikasi…" : "Masuk"}<span aria-hidden="true">→</span>
             </button>
-          </div>
-
-          {mode === "pilot" && pilotLoginEnabled ? (
-            <div className="pilotProfileSection">
-              <div className="pilotProfileHeader">
-                <strong>Pilih akun pengujian</strong>
-                <span>Role dan akses diambil langsung dari database.</span>
-              </div>
-              {profilesLoading ? <p className="muted">Memuat akun pilot…</p> : null}
-              {profileError ? <div className="formError" role="alert">{profileError}</div> : null}
-              <div className="pilotProfileList">
-                {pilotProfiles.map((profile) => {
-                  const roleLabel = profile.roles.map((item) => roleLabels[item]).join(" · ");
-                  const divisionLabel = profile.division_codes.length
-                    ? profile.division_codes
-                        .map((item) => divisionLabels[item as DivisionCode] || item)
-                        .join(" · ")
-                    : "Lintas divisi";
-                  const accessLabel = roleLabel === divisionLabel
-                    ? roleLabel
-                    : `${roleLabel} · ${divisionLabel}`;
-                  return (
-                    <button
-                      className="pilotProfileButton"
-                      disabled={submitting}
-                      key={profile.user_id}
-                      onClick={() => void submitPilot(profile.user_id)}
-                      type="button"
-                    >
-                      <span className="profileInitial">{profile.display_name.charAt(0)}</span>
-                      <span className="profileIdentity">
-                        <strong>{profile.display_name}</strong>
-                        <small>{accessLabel}</small>
-                        <em>{profile.email}</em>
-                      </span>
-                      <Icon name="chevron" />
-                    </button>
-                  );
-                })}
-              </div>
-              {error ? <div className="formError" role="alert">{error}</div> : null}
-            </div>
-          ) : (
-            <form className="formStack" onSubmit={submitToken}>
-              <label>Token akses<input autoComplete="off" onChange={(event) => setAccessToken(event.target.value)} type="password" value={accessToken} /></label>
-              {error ? <div className="formError" role="alert">{error}</div> : null}
-              <button className="button primary full" disabled={submitting} type="submit">
-                {submitting ? "Memverifikasi…" : "Verifikasi dan masuk"}
-              </button>
-            </form>
-          )}
-
-          <div className="pilotNotice">
-            <Icon name="risk" />
-            <p><strong>Mode pilot internal</strong><span>Tidak menerima kata sandi. Token hanya disimpan selama tab browser aktif. API: {apiBaseUrl}</span></p>
-          </div>
+          </form>
+          <div className="access-note"><span aria-hidden="true" className="access-note-icon"><InfoIcon /></span><p><strong>Belum memiliki akses?</strong>Hubungi administrator ALOS pada divisi IT perusahaan.</p></div>
         </div>
+        <footer className="login-footer">Kebijakan Privasi <span /> Syarat & Ketentuan <span /> Bantuan<br /><small>© 2026 PT. Andara Rejo Makmur. All rights reserved.</small></footer>
       </section>
     </main>
   );
+}
+
+function Brand({ lockup }: { lockup: "dark" | "light" }) {
+  return (
+    <div className={`brand-lockup brand-${lockup}`}>
+      <Image alt="ALOS" className="brand-logo" height={128} priority src="/alos-logo-mark.png" width={128} />
+      <span className="brand-copy"><strong>ALOS</strong><small>Andara Leverage Operating Sistem</small><small>PT. Andara Rejo Makmur</small></span>
+    </div>
+  );
+}
+
+function Feature({ icon, text, title }: { icon: string; text: string; title: string }) {
+  return <li><span aria-hidden="true" className="feature-icon">{icon}</span><p><strong>{title}</strong><small>{text}</small></p></li>;
+}
+
+function MailIcon() {
+  return <svg fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="20"><rect height="15" rx="2" width="20" x="2" y="4" /><path d="m3 6 9 7 9-7" /></svg>;
+}
+
+function LockIcon() {
+  return <svg fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="20"><rect height="11" rx="2" width="15" x="4.5" y="10" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></svg>;
+}
+
+function InfoIcon() {
+  return <svg fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="20"><circle cx="12" cy="12" r="9" /><path d="M12 10v5M12 7h.01" /></svg>;
 }

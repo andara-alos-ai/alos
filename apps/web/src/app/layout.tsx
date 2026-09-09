@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
 
-import { AppShell } from "@/components/app-shell";
-import { SessionProvider } from "@/components/session-provider";
 import "./globals.css";
+import "./portfolio.css";
+import "./genesis.css";
 
 export const metadata: Metadata = {
-  title: "ALOS",
-  description: "Platform operasi perusahaan PT Andara Rejo Makmur",
+  title: "ALOS | Andara Leverage Operating System",
+  description: "ALOS operating dashboard for PT Andara Rejo Makmur",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="id">
-      <body><SessionProvider><AppShell>{children}</AppShell></SessionProvider></body>
+      <body>{children}</body>
     </html>
   );
 }

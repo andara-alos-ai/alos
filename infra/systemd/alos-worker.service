@@ -1,0 +1,25 @@
+[Unit]
+Description=ALOS Durable Job Worker
+After=network-online.target alos-platform.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=alos
+Group=alos
+WorkingDirectory=/opt/alos/services/platform
+EnvironmentFile=/etc/alos/alos.production.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/alos/.venv/bin/python -m alos.jobs.worker
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/alos/data
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

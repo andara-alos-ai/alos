@@ -1,0 +1,16 @@
+{
+	email {$ALOS_TLS_EMAIL}
+	admin off
+}
+
+{$ALOS_PUBLIC_HOST} {
+	encode zstd gzip
+
+	header {
+		-Server
+	}
+
+	@platform path /api/* /health /health/*
+	reverse_proxy @platform platform:8000
+	reverse_proxy web:3000
+}

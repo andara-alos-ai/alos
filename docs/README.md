@@ -1,41 +1,47 @@
 # Dokumentasi ALOS
 
-Dokumentasi ini menjadi dasar implementasi ALOS Agent Pilot v0.1 dan pengembangan ALOS. Status seluruh dokumen saat ini adalah rancangan pilot, kecuali keputusan yang secara eksplisit dinyatakan diterima atau terkunci.
+Dokumentasi ini membedakan **arah produk ALOS**, **bukti MVP1**, dan catatan
+historis. ALOS bukan bernama "MVP"; MVP1 adalah batas pembuktian pertama yang
+terukur untuk produk ALOS.
 
-## Urutan Baca
+## Urutan baca kanonik
 
-1. [Rencana Implementasi](implementation/ALOS_IMPLEMENTATION_PLAN.md)
-2. [Sumber Kebenaran dan Tata Kelola Konfigurasi](architecture/SOURCE_OF_TRUTH_AND_CONFIGURATION.md)
-3. [Matriks Sinkronisasi Master dan Lampiran A–N](implementation/ALOS_MASTER_A_N_SYNCHRONIZATION_MATRIX.md)
-4. [Register Keputusan Terbuka A–N](governance/ALOS_MASTER_A_N_OPEN_DECISIONS.md)
-5. [Arsitektur ALOS v1](architecture/ALOS_V1_ARCHITECTURE.md)
-6. [Model Domain dan Database](domain-model/ALOS_DOMAIN_AND_DATABASE_MODEL.md)
-7. [Spesifikasi Agent Contract](agent-contracts/AGENT_CONTRACT_SPECIFICATION.md)
-8. [Registry 18 Core Agent](agent-contracts/18_CORE_AGENT_REGISTRY.md)
-9. [Tool Registry dan Capability Invocation](agent-contracts/TOOL_REGISTRY_AND_CAPABILITY_INVOCATION.md)
-10. [Capability Runtime dan LLM Gateway](architecture/CAPABILITY_RUNTIME_AND_LLM_GATEWAY.md)
-11. [Pipeline Design-Time Genesis](architecture/GENESIS_DESIGN_TIME_INTERFACE.md)
-12. [Spesifikasi Enam Alur Kerja](workflows/ALOS_V1_WORKFLOW_SPECIFICATION.md)
-13. [Dasar Keamanan dan Kebijakan Data AI](security/SECURITY_AND_AI_DATA_POLICY.md)
-14. [Strategi Pengujian dan Definisi Selesai](testing/TEST_STRATEGY_AND_DEFINITION_OF_DONE.md)
-15. [API Genesis dan Agent Runtime](api/GENESIS_AND_AGENT_RUNTIME_API.md)
-16. [Register Keputusan Arsitektur](adr/ARCHITECTURE_DECISION_REGISTER.md)
-17. [Runbook Pengembangan Lokal](runbooks/LOCAL_DEVELOPMENT.md)
-18. [Konfigurasi Login Google OIDC](runbooks/GOOGLE_OIDC_CONFIGURATION.md)
-19. [Worker, Outbox, dan Integrasi n8n](runbooks/WORKER_AND_N8N.md)
-20. [Runbook Deployment](deployment/DEPLOYMENT_RUNBOOK.md)
-21. [Kesiapan Pilot dan Recovery](runbooks/PILOT_READINESS_AND_RECOVERY.md)
-22. [UAT Pilot Sintetis](uat/SYNTHETIC_PILOT_UAT.md)
-23. [Handover Genesis dan Runtime](handover/GENESIS_FOUNDATION_HANDOVER.md)
-24. [Hasil UAT Sintetis 30 Agustus 2026](uat/results/2026-08-30_SYNTHETIC_UAT_REPORT.md)
-25. [Verifikasi Teknis Tahap 5–6, 31 Agustus 2026](uat/results/2026-08-31_STAGE_5_6_TECHNICAL_UAT_REPORT.md)
+1. [Operating model](product/ALOS_OPERATING_MODEL.md) — tujuan bisnis,
+   struktur organisasi, dan batas mandat Genesis.
+2. [Target repository](architecture/ALOS_TARGET_REPOSITORY.md) — folder,
+   modul, serta kepemilikan file.
+3. [Domain dan lifecycle](architecture/ALOS_DOMAIN_AND_LIFECYCLE.md) — entitas
+   universal, state machine, dan hubungan antar-domain.
+4. Architecture Decision Records — keputusan arsitektur yang diterima dan
+   alasan konsekuensinya:
+   [ADR-001](architecture/ADR-001-modular-monolith.md),
+   [ADR-002](architecture/ADR-002-agent-contract-and-human-lifecycle.md),
+   [ADR-003](architecture/ADR-003-deterministic-controls-and-model-gateway.md),
+   dan [ADR-004](architecture/ADR-004-local-validation-boundary.md).
+5. [Security dan human approval](governance/ALOS_SECURITY_AND_HUMAN_APPROVAL.md)
+   — batas deterministik dan keputusan yang selalu dipegang manusia.
+6. [Delivery plan](implementation/ALOS_MVP1_DELIVERY_PLAN.md) — lima hari
+   pembuktian dan vertical slice pertama.
+7. [Checklist traceability](implementation/ALOS_MVP1_CHECKLIST_TRACEABILITY.md)
+   — checklist penerimaan MVP1 beserta bukti yang harus dihasilkan.
+8. [H5 backend stability report](implementation/H5_BACKEND_STABILITY_REPORT.md)
+   — status backend lokal, evidence quality gate, dan limitation yang masih HOLD.
+9. [OpenAI staging gateway](implementation/OPENAI_STAGING_GATEWAY.md) —
+   konfigurasi provider, routing model, dan urutan validasi VPS staging.
+10. [Document Center workflow](product/DOCUMENT_CENTER_WORKFLOW.md) — satu
+    repositori dokumen untuk DRAFT Genesis/manual, checklist, dan approval.
 
-## Aturan Penggunaan
+## Status dokumen yang sudah ada
 
-- Struktur organisasi yang terkunci tidak boleh didesain ulang.
-- Nilai `TBD` memerlukan validasi pemilik bisnis atau manajemen dan tidak boleh diisi melalui asumsi teknis.
-- Dokumentasi menjelaskan keputusan; konfigurasi yang dijalankan nantinya berada di `definitions/` dan harus melalui validasi, pengujian, review, staging, dan rilis.
-- Data perusahaan asli tidak disimpan di repository. Pilot menggunakan data sintetis atau data yang telah disanitasi.
-- Perubahan material wajib memperbarui dokumen terkait, definisi, pengujian, dan register keputusan bila relevan.
+- `implementation/DAY_1_FOUNDATION_REPORT.md` adalah evidence foundation yang
+  sudah dilakukan; bukan spesifikasi target terbaru.
+- `implementation/GENESIS_MVP1_EXECUTION_PLAN.md` tetap referensi H0/Hari 1
+  dan quality gate awal. Ia dibaca bersama delivery plan kanonik di atas.
+- `architecture/GENESIS_MVP1_ARCHITECTURE.md` dan
+  `architecture/GENESIS_MVP1_DOMAIN_MODEL.md` adalah baseline ringkas yang
+  dilampaui dokumen domain baru, tanpa menghapus bukti keputusan awal.
 
-Runbook deployment dan UAT menjelaskan gate menuju pilot. Nilai vendor, formula bisnis, RTO/RPO, identitas production, serta data asli tetap harus disahkan oleh pemiliknya dan tidak diisi melalui asumsi teknis.
+Dokumen Dirut, Renstra, SOP, portofolio, KPI, approval, dan evidence adalah
+**source business baseline**. Dokumen tersebut tidak dapat mengubah security
+boundary ALOS, tidak dapat menjadi approval otomatis, dan tidak mengalahkan
+keputusan pengguna/Dirut yang lebih baru.

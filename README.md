@@ -1,45 +1,45 @@
-# ALOS
+# ALOS — Andara Leaverage Operating Sistem
 
-ALOS (Andara Leverage Operating System) adalah platform operasi perusahaan PT Andara Rejo Makmur. Repository ini memuat satu aplikasi web, satu backend modular, satu shared Agent Runtime untuk 18 Core Agent logis, enam workflow awal, dan kontrol tata kelola yang dapat diaudit.
+ALOS adalah satu aplikasi internal dengan satu **Genesis** sebagai AI Executive
+Operating Layer dan satu shared Agent Runtime. Genesis membuat serta mengelola
+logical agent melalui Agent Contract dan Agent Registry yang sama; agent tidak
+menjadi aplikasi, database, atau microservice tersendiri.
 
-## Status
+## Ruang lingkup aktif
 
-Tahap saat ini adalah **Controlled Pilot Technical Candidate**. Enam workflow telah tersedia melalui backend dan layar transaksi, disertai IAM, project lifecycle, readiness dan go-live gate, UAT berbasis evidence dan delapan sign-off manusia, penyimpanan dokumen berversi, work queue, worker/outbox, observability, recovery drill, shared runtime untuk 18 Core Agent, LLM Gateway provider-neutral, dan pipeline design-time Genesis. UI memisahkan Operasi, Workspace Divisi, Kendali & Tata Kelola, serta Platform & Genesis; halaman Blueprint & Keputusan membaca Master/Lampiran A–N langsung dari registry backend. Seluruh contoh data wajib sintetis atau telah disanitasi. Mekanisme teknis tahap 7–8 sudah tersedia, tetapi UAT perusahaan tetap menunggu pengguna sebenarnya, recovery evidence, hasil uji business owner, dan keputusan manajemen; integrasi serta data production belum diaktifkan.
+ALOS menyediakan identitas dan data scope, capability/tool terkontrol, Agent
+Contract/release/runtime, GENESIS, dokumen kanonis, task, temuan, approval,
+laporan, proyek, audit append-only, dan antrean job tahan restart. GENESIS
+membuat proposal aksi terikat digest untuk persetujuan manusia; ia tidak
+melakukan aksi material secara otomatis.
 
-## Struktur Utama
+Enam konteks divisi adalah `FINANCE`, `SALES_MARKETING`, `PROPERTY`, `HR`,
+`LEGAL`, dan `IT`. Genesis adalah system actor lintas divisi, bukan divisi
+atau role manusia.
 
-```text
-apps/web/                 aplikasi web ALOS
-services/platform/        API, workflow, governance, dan shared Agent Runtime
-definitions/              kontrak agent, workflow, serta kebijakan berversi
-packages/                 kontrak dan komponen lintas aplikasi
-infra/                    deployment lokal dan konfigurasi infrastruktur
-data/                     skema, template, serta data sintetis
-tests/                    pengujian lintas komponen
-docs/                     dokumentasi arsitektur dan implementasi
-```
+## Local bootstrap
 
-## Menjalankan Secara Lokal
+1. Salin `.env.example` menjadi `.env` dan isi password lokal yang sama pada
+   `ALOS_POSTGRES_PASSWORD` serta `ALOS_DATABASE_URL`.
+2. Jalankan `docker compose -f infra/compose/compose.yaml up -d postgres`.
+3. Aktifkan virtual environment lalu jalankan
+   `python -m alos.persistence.migrations` dari `services/platform`.
+4. Jalankan API dengan `python -m uvicorn alos.main:app --app-dir src --port 8000`.
+5. Dari root repository jalankan web dengan `pnpm --filter @andara/alos-web dev`.
 
-Prasyarat: Node.js 22+, pnpm 11+, Python 3.12+, dan Docker Desktop dengan Compose.
+Migrasi bersifat append-only. Tambahkan versi baru di `infra/database/`; jangan
+mengubah migrasi yang telah diterapkan.
 
-1. Salin `.env.example` menjadi `.env`.
-2. Jalankan `pnpm install` pada root repository.
-3. Buat virtual environment Python dan instal backend dengan `pip install -e "services/platform[dev]"`.
-4. Jalankan layanan pendukung dengan `docker compose -f infra/compose/compose.yaml up -d`.
-5. Jalankan API dengan `pnpm dev:api` dan web dengan `pnpm dev:web`.
-6. Jalankan worker dengan `pnpm worker`; gunakan `pnpm worker:once` untuk satu siklus manual.
+## Quality dan deployment
 
-API tersedia pada `http://localhost:8000`, dokumentasi API pada `/docs`, dan web pada `http://localhost:3000`. Login Google OIDC bersifat opsional dan dikonfigurasi sesuai [runbook Google OIDC](docs/runbooks/GOOGLE_OIDC_CONFIGURATION.md); Client Secret tidak pernah ditempatkan pada frontend atau Git.
+Jalankan lint, typecheck, test frontend/backend, dan build sebelum merge. CI
+menjalankan semua pemeriksaan itu, fresh PostgreSQL migration, serta dependency
+audit pada pull request dan `main`.
 
-Untuk deployment seluruh stack yang dapat diulang, gunakan `infra/compose/compose.application.yaml` sesuai runbook deployment. File tersebut menjalankan migrasi, API, worker, web, dan PostgreSQL sebagai layanan terpisah tanpa memecah 18 agent menjadi microservice.
+Staging/production memakai PostgreSQL terkelola, S3-compatible object storage,
+systemd, dan Caddy native pada VPS. Kredensial, domain, signing secret, dan
+provider LLM adalah input eksternal dan tidak disimpan di Git. Gunakan
+[runbook VPS native](docs/operations/VPS_NATIVE_DEPLOYMENT.md) dan
+[backup/restore](docs/operations/BACKUP_RESTORE.md).
 
-## Quality Gate
-
-```powershell
-pnpm lint
-pnpm typecheck
-pnpm test
-```
-
-Keputusan arsitektur, kontrak agent, workflow, keamanan, serta Definition of Done berada di [docs/README.md](docs/README.md).
+Mulai dari [peta dokumentasi ALOS](docs/README.md).

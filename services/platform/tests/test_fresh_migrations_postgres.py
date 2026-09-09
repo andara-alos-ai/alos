@@ -7,58 +7,130 @@ import pytest
 from psycopg import sql
 
 from alos.config import get_settings
-from alos.persistence.migrations import apply_migrations, psycopg_url
+from alos.persistence.database import psycopg_url
+from alos.persistence.migrations import apply_migrations
 
 pytestmark = [
     pytest.mark.postgres,
     pytest.mark.skipif(
         os.getenv("ALOS_RUN_POSTGRES_TESTS") != "1",
-        reason="set ALOS_RUN_POSTGRES_TESTS=1 to run PostgreSQL smoke tests",
+        reason="set ALOS_RUN_POSTGRES_TESTS=1 to run PostgreSQL quality tests",
     ),
 ]
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
-
-def test_all_migrations_apply_to_a_fresh_database() -> None:
+def test_clean_baseline_applies_to_a_fresh_database() -> None:
     base_url = psycopg_url(get_settings().database_url)
-    database_name = f"alos_release_gate_{uuid4().hex}"
+    database_name = f"alos_genesis_gate_{uuid4().hex}"
     maintenance_url = base_url.rsplit("/", 1)[0] + "/postgres"
     temporary_url = base_url.rsplit("/", 1)[0] + f"/{database_name}"
-
     with psycopg.connect(maintenance_url, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+        connection.execute(sql.SQL("CREATE DATABASE {} ").format(sql.Identifier(database_name)))
     try:
-        applied = apply_migrations(temporary_url, REPOSITORY_ROOT / "infra" / "database")
-        assert len(applied) == 29
+        repository_root = Path(__file__).resolve().parents[3]
+        assert apply_migrations(temporary_url, repository_root / "infra" / "database") == (
+            "001_genesis_mvp1_baseline.sql",
+            "002_h1_policy_and_test_registry.sql",
+            "003_h2_agent_registry.sql",
+            "004_h3_runtime_budget.sql",
+            "005_h4_release_governance.sql",
+            "006_h5_source_evidence.sql",
+            "007_h5_tool_permission_approvals.sql",
+            "008_h6_staging_authentication.sql",
+            "009_h5_source_vault_policy.sql",
+            "010_document_center.sql",
+            "011_genesis_document_workflows.sql",
+            "012_genesis_document_uploads.sql",
+            "013_genesis_upload_document_drafts.sql",
+            "014_genesis_upload_withdrawal.sql",
+            "015_genesis_semantic_analysis_runs.sql",
+            "016_genesis_conversation_follow_ups.sql",
+            "017_portfolio_dashboards.sql",
+            "018_identity_capability_and_operational_core.sql",
+            "019_division_capability_packs.sql",
+            "020_capability_and_tool_catalog.sql",
+            "021_integrations_and_software_change_governance.sql",
+            "022_genesis_chat_and_governance_linkage.sql",
+            "023_approved_action_execution.sql",
+            "024_h5_final_readiness_controls.sql",
+        )
         with psycopg.connect(temporary_url) as connection:
-            assert (
-                connection.execute("SELECT count(*) FROM platform.schema_migrations").fetchone()[0]
-                    == 29
-            )
-            constraint_exists = connection.execute(
-                """
-                SELECT 1 FROM pg_constraint
-                WHERE conname = 'documents_division_organization_fk'
-                """
-            ).fetchone()
-            assert constraint_exists is not None
-            reservation_evidence_column = connection.execute(
-                """
-                SELECT 1 FROM information_schema.columns
-                WHERE table_schema = 'sales' AND table_name = 'reservations'
-                  AND column_name = 'evidence_document_version_id'
-                """
-            ).fetchone()
-            assert reservation_evidence_column is not None
+            assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
+            assert connection.execute("SELECT count(*) FROM audit.events").fetchone() == (0,)
             assert connection.execute(
-                "SELECT 1 FROM information_schema.tables "
-                "WHERE table_schema = 'uat' AND table_name = 'signoffs'"
-            ).fetchone() is not None
+                "SELECT to_regclass('agents.tool_definitions')"
+            ).fetchone() == ("agents.tool_definitions",)
+            assert connection.execute(
+                "SELECT to_regclass('governance.permission_policies')"
+            ).fetchone() == ("governance.permission_policies",)
+            assert connection.execute("SELECT to_regclass('governance.test_cases')").fetchone() == (
+                "governance.test_cases",
+            )
+            assert connection.execute("SELECT to_regclass('governance.test_runs')").fetchone() == (
+                "governance.test_runs",
+            )
+            assert connection.execute(
+                "SELECT tgname FROM pg_trigger WHERE tgname = 'agents_contract_parent_guard'"
+            ).fetchone() == ("agents_contract_parent_guard",)
+            assert connection.execute(
+                "SELECT to_regclass('runtime.budget_reservations')"
+            ).fetchone() == ("runtime.budget_reservations",)
+            assert connection.execute(
+                "SELECT to_regclass('governance.agent_change_requests')"
+            ).fetchone() == ("governance.agent_change_requests",)
+            assert connection.execute(
+                "SELECT to_regclass('sources.content_chunks')"
+            ).fetchone() == ("sources.content_chunks",)
+            assert connection.execute(
+                "SELECT to_regclass('sources.vault_policies')"
+            ).fetchone() == ("sources.vault_policies",)
+            assert connection.execute(
+                "SELECT to_regclass('genesis.document_workflows')"
+            ).fetchone() == ("genesis.document_workflows",)
+            assert connection.execute(
+                "SELECT to_regclass('genesis.document_uploads')"
+            ).fetchone() == ("genesis.document_uploads",)
+            assert connection.execute(
+                "SELECT to_regclass('genesis.semantic_analysis_runs')"
+            ).fetchone() == ("genesis.semantic_analysis_runs",)
+            assert connection.execute(
+                "SELECT to_regclass('genesis.follow_up_runs')"
+            ).fetchone() == ("genesis.follow_up_runs",)
+            assert connection.execute(
+                "SELECT to_regclass('portfolio.projects')"
+            ).fetchone() == ("portfolio.projects",)
+            assert connection.execute(
+                "SELECT to_regclass('portfolio.division_issues')"
+            ).fetchone() == ("portfolio.division_issues",)
+            assert connection.execute(
+                "SELECT to_regclass('capabilities.definitions')"
+            ).fetchone() == ("capabilities.definitions",)
+            assert connection.execute(
+                "SELECT to_regclass('operational.tasks')"
+            ).fetchone() == ("operational.tasks",)
+            assert connection.execute(
+                "SELECT to_regclass('reporting.reports')"
+            ).fetchone() == ("reporting.reports",)
+            assert connection.execute(
+                "SELECT to_regclass('jobs.queue')"
+            ).fetchone() == ("jobs.queue",)
+            assert connection.execute(
+                "SELECT to_regclass('business.records')"
+            ).fetchone() == ("business.records",)
+            assert connection.execute(
+                """
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema = 'governance' AND table_name = 'permission_policies'
+                  AND column_name = 'approved_by_user_id'
+                """
+            ).fetchone() == ("approved_by_user_id",)
+            assert connection.execute(
+                "SELECT to_regclass('compliance.release_decisions')"
+            ).fetchone() == ("compliance.release_decisions",)
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:
             connection.execute(
                 "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s",
                 (database_name,),
             )
-            connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database_name)))
+            connection.execute(sql.SQL("DROP DATABASE {} ").format(sql.Identifier(database_name)))

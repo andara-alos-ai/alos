@@ -1,22 +1,15 @@
-"""Versioned tool contracts used by the shared Agent Runtime."""
+"""Human-governed Tool Registry for the shared Runtime."""
 
-from alos.tools.models import (
-    ToolContract,
-    ToolCredentialMode,
-    ToolEffect,
-    ToolKind,
-    ToolReference,
-    ToolStatus,
+from alos.tools.registry import (
+    ToolDefinitionRecord,
+    ToolDefinitionRequest,
+    ToolRegistryError,
+    ToolRegistryRepository,
 )
-from alos.tools.registry import ToolRegistry, ToolRegistryError
 
 __all__ = [
-    "ToolContract",
-    "ToolCredentialMode",
-    "ToolEffect",
-    "ToolKind",
-    "ToolReference",
-    "ToolRegistry",
+    "ToolDefinitionRecord",
+    "ToolDefinitionRequest",
     "ToolRegistryError",
-    "ToolStatus",
+    "ToolRegistryRepository",
 ]

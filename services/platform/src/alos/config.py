@@ -1,225 +1,220 @@
-import re
+from decimal import ROUND_UP, Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+Environment = Literal["local", "test", "staging", "production"]
+LlmProvider = Literal["disabled", "openai", "anthropic", "gemini", "local"]
+ModelRoute = Literal["light", "standard", "critical"]
 
-def default_repository_root() -> Path:
+
+# Text-token rates per one million tokens. They are deliberately kept on the
+# server so a browser cannot select a cheaper route or alter cost accounting.
+# Refresh this registry together with the deployment when OpenAI changes a
+# model's published pricing.
+_OPENAI_TEXT_PRICING_PER_MILLION: dict[str, tuple[Decimal, Decimal]] = {
+    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20")),
+    "gpt-5.6-terra": (Decimal("2.00"), Decimal("12.00")),
+    "gpt-5.6-sol": (Decimal("4.00"), Decimal("20.00")),
+}
+_COST_PRECISION = Decimal("0.000001")
+
+
+def repository_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_prefix="ALOS_",
-        extra="ignore",
-    )
+    """Configuration deliberately limited to the ALOS staging boundary."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="ALOS_", extra="ignore")
 
     application_name: str = "ALOS"
-    environment: Literal["local", "test", "staging", "production"] = "local"
+    environment: Environment = "local"
     log_level: str = "INFO"
-    api_prefix: str = "/api/v1"
+    api_host: str = "0.0.0.0"
+    api_port: int = Field(default=8000, ge=1, le=65535)
+    api_max_request_bytes: int = Field(default=30 * 1024 * 1024, ge=1024)
+    api_rate_limit_per_minute: int = Field(default=300, ge=10, le=100_000)
     web_origin: str = "http://localhost:3000"
-    database_url: str = "postgresql+psycopg://alos:change-me@localhost:5433/alos"
-    llm_provider: Literal["disabled", "openai", "anthropic"] = "disabled"
+    database_url: str = "postgresql+psycopg://alos:change-me@127.0.0.1:5433/alos"
+
+    auth_issuer: str = "alos-local"
+    auth_audience: str = "alos-platform"
+    auth_signing_secret: SecretStr = SecretStr("local-development-only-change-me")
+    auth_token_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
+
+    object_storage_provider: Literal["filesystem", "s3"] = "filesystem"
+    allow_staging_filesystem_object_storage: bool = False
+    object_storage_bucket: str = "alos-documents"
+    object_storage_path: Path = Path("./data/objects")
+    object_storage_max_upload_bytes: int = Field(default=25 * 1024 * 1024, ge=1024)
+    object_storage_endpoint_url: str | None = None
+    object_storage_region: str = "auto"
+    object_storage_access_key_id: SecretStr | None = None
+    object_storage_secret_access_key: SecretStr | None = None
+    object_storage_force_path_style: bool = False
+    object_storage_server_side_encryption: str | None = "AES256"
+
+    llm_provider: LlmProvider = "disabled"
     llm_api_key: SecretStr | None = None
-    llm_model: str = Field(default="", max_length=120)
+    llm_model: str = ""
+    llm_model_light: str = ""
+    llm_model_standard: str = ""
+    llm_model_critical: str = ""
     llm_base_url: str | None = None
+    llm_fallback_provider: Literal["disabled", "anthropic"] = "disabled"
+    llm_fallback_api_key: SecretStr | None = None
+    llm_fallback_model: str = ""
+    llm_fallback_base_url: str | None = None
     llm_timeout_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
+    llm_store_responses: bool = False
+    llm_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "medium"
+    llm_max_output_tokens: int = Field(default=3_000, ge=256, le=128_000)
+    llm_max_context_tokens: int = Field(default=12_000, ge=256, le=1_000_000)
     llm_max_data_classification: Literal[
         "PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"
     ] = "INTERNAL"
-    llm_daily_request_limit: int = Field(default=500, ge=1, le=100_000)
-    llm_daily_output_token_limit: int = Field(default=500_000, ge=1_000, le=100_000_000)
-    auth_issuer: str = "alos-local"
-    auth_audience: str = "alos-platform"
-    auth_signing_secret: SecretStr = Field(
-        default=SecretStr("local-development-only-change-me"), min_length=32
-    )
-    auth_token_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
-    oidc_provider: Literal["disabled", "google"] = "disabled"
-    oidc_client_id: str | None = None
-    oidc_client_secret: SecretStr | None = None
-    oidc_redirect_uri: str = "http://localhost:8000/api/v1/auth/oidc/callback/google"
-    oidc_allowed_domain: str | None = None
-    oidc_timeout_seconds: float = Field(default=10.0, ge=2.0, le=30.0)
-    oidc_transaction_ttl_seconds: int = Field(default=600, ge=120, le=900)
-    oidc_login_code_ttl_seconds: int = Field(default=60, ge=30, le=120)
-    object_storage_provider: Literal["filesystem", "s3"] = "filesystem"
-    object_storage_bucket: str = Field(
-        default="alos-documents", pattern=r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
-    )
-    object_storage_path: Path = Path("./data/objects")
-    object_storage_endpoint_url: str | None = None
-    object_storage_region: str = Field(default="us-east-1", min_length=3, max_length=40)
-    object_storage_access_key: SecretStr | None = None
-    object_storage_secret_key: SecretStr | None = None
-    object_storage_max_upload_bytes: int = Field(
-        default=25 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024
-    )
-    document_scan_mode: Literal["disabled", "external"] = "disabled"
-    worker_poll_seconds: int = Field(default=5, ge=1, le=300)
-    worker_batch_size: int = Field(default=50, ge=1, le=500)
-    worker_lease_seconds: int = Field(default=120, ge=30, le=3600)
-    worker_max_attempts: int = Field(default=5, ge=1, le=20)
-    deadline_horizon_minutes: int = Field(default=1440, ge=1, le=10080)
-    escalation_interval_minutes: int = Field(default=60, ge=15, le=1440)
-    n8n_enabled: bool = False
-    n8n_webhook_url: str | None = None
-    n8n_webhook_secret: SecretStr | None = None
-    n8n_timeout_seconds: float = Field(default=10.0, ge=1.0, le=30.0)
-    repository_root: Path = Field(default_factory=default_repository_root)
+    llm_daily_request_limit: int = Field(default=500, ge=1)
+    llm_daily_output_token_limit: int = Field(default=500_000, ge=1_000)
+    llm_daily_cost_cap_usd: Decimal = Field(default=Decimal("5.00"), ge=0)
+    llm_max_retries: int = Field(default=1, ge=0, le=3)
+    genesis_semantic_analysis_enabled: bool = False
+    genesis_semantic_max_output_tokens: int = Field(default=1_200, ge=256, le=8_000)
+    genesis_conversation_follow_up_enabled: bool = False
+    genesis_follow_up_max_output_tokens: int = Field(default=1_200, ge=256, le=8_000)
+    source_chunk_max_chars: int = Field(default=1_500, ge=256, le=10_000)
+    source_retrieval_max_chars: int = Field(default=10_000, ge=800, le=100_000)
+    budget_timezone: str = "Asia/Jakarta"
+
+    repository_root: Path = Field(default_factory=repository_root)
+    migrations_path: Path | None = None
 
     @model_validator(mode="after")
-    def reject_insecure_production_configuration(self) -> "Settings":
-        if self.environment in {"staging", "production"}:
-            secret = self.auth_signing_secret.get_secret_value()
-            if secret == "local-development-only-change-me" or len(set(secret)) < 12:  # noqa: S105
-                raise ValueError(
-                    "ALOS_AUTH_SIGNING_SECRET wajib unik dan kuat pada staging/production"
-                )
-        if self.environment == "production" and self.object_storage_provider == "filesystem":
-            raise ValueError("Production wajib menggunakan object storage provider s3")
-        if self.environment == "production" and self.document_scan_mode == "disabled":
-            raise ValueError("Production wajib mengaktifkan pemeriksaan malware dokumen")
-        if (
-            self.environment == "production"
-            and self.object_storage_endpoint is not None
-            and not self.object_storage_endpoint.startswith("https://")
+    def validate_security_boundary(self) -> "Settings":
+        secret = self.auth_signing_secret.get_secret_value()
+        if self.environment in {"staging", "production"} and (
+            secret == "local-development-only-change-me" or len(secret) < 32
         ):
-            raise ValueError("Endpoint object storage production wajib menggunakan HTTPS")
-        access_key = self.object_storage_access_key_value
-        secret_key = self.object_storage_secret_key_value
+            raise ValueError("staging/production requires a unique signing secret")
+        if self.allow_staging_filesystem_object_storage and self.environment != "staging":
+            raise ValueError("filesystem object storage override is limited to staging")
+        requires_remote_object_storage = self.environment == "production" or (
+            self.environment == "staging" and not self.allow_staging_filesystem_object_storage
+        )
+        if requires_remote_object_storage and self.object_storage_provider != "s3":
+            raise ValueError(
+                "staging/production requires object storage outside the local filesystem"
+            )
+        access_key = (
+            self.object_storage_access_key_id.get_secret_value().strip()
+            if self.object_storage_access_key_id
+            else ""
+        )
+        secret_key = (
+            self.object_storage_secret_access_key.get_secret_value().strip()
+            if self.object_storage_secret_access_key
+            else ""
+        )
         if bool(access_key) != bool(secret_key):
-            raise ValueError("Access key dan secret key object storage harus diberikan bersama")
-        self._validate_n8n_configuration()
-        self._validate_llm_configuration()
-        self._validate_oidc_configuration()
+            raise ValueError("S3 access key and secret key must be configured together")
+        if self.object_storage_provider == "s3" and not self.object_storage_bucket.strip():
+            raise ValueError("S3 object storage requires a bucket")
+        if (
+            self.object_storage_provider == "s3"
+            and self.object_storage_endpoint_url
+            and not access_key
+        ):
+            raise ValueError("S3-compatible endpoint requires environment credentials")
+        if self.llm_provider == "local" and self.environment not in {"local", "test"}:
+            raise ValueError("local LLM is limited to local/test")
+        if self.llm_provider == "gemini" and self.environment not in {"local", "test"}:
+            raise ValueError("Gemini is limited to local/test")
+        if self.environment == "production" and self.llm_provider not in {"disabled", "openai"}:
+            raise ValueError("OpenAI is the only permitted primary production provider")
+        if self.llm_provider != "disabled" and (
+            self.llm_api_key is None or not self.llm_api_key.get_secret_value().strip()
+        ):
+            raise ValueError("an enabled LLM provider requires an environment secret")
+        if self.llm_provider != "disabled" and not self.llm_model.strip():
+            raise ValueError("an enabled LLM provider requires a model policy")
+        if self.llm_provider == "openai" and self.environment in {"staging", "production"}:
+            configured_models = {
+                model.strip()
+                for model in (
+                    self.llm_model,
+                    self.llm_model_light,
+                    self.llm_model_standard,
+                    self.llm_model_critical,
+                )
+                if model.strip()
+            }
+            unknown_models = configured_models.difference(_OPENAI_TEXT_PRICING_PER_MILLION)
+            if unknown_models:
+                raise ValueError(
+                    "OpenAI model pricing is not configured for the selected model route"
+                )
+        if self.environment in {"staging", "production"} and self.llm_store_responses:
+            raise ValueError("staging/production must keep provider response storage disabled")
+        if (
+            self.genesis_semantic_analysis_enabled
+            or self.genesis_conversation_follow_up_enabled
+        ) and self.llm_provider != "openai":
+            raise ValueError("model-backed Genesis features require the OpenAI Model Gateway")
+        if (
+            self.genesis_semantic_analysis_enabled
+            and self.genesis_semantic_max_output_tokens > self.llm_max_output_tokens
+        ):
+            raise ValueError(
+                "Genesis semantic output limit cannot exceed the Model Gateway output limit"
+            )
+        if (
+            self.genesis_conversation_follow_up_enabled
+            and self.genesis_follow_up_max_output_tokens > self.llm_max_output_tokens
+        ):
+            raise ValueError(
+                "Genesis follow-up output limit cannot exceed the Model Gateway output limit"
+            )
         return self
 
-    def _validate_oidc_configuration(self) -> None:
-        if self.oidc_provider == "disabled":
-            return
-        client_id = (self.oidc_client_id or "").strip()
-        client_secret = self.oidc_client_secret_value
-        if not client_id or not client_secret:
-            raise ValueError("OIDC aktif memerlukan Client ID dan Client Secret")
-        if len(client_id) > 512 or len(client_secret) > 512:
-            raise ValueError("Credential OIDC melebihi batas yang diizinkan")
-        allowed_domain = (self.oidc_allowed_domain or "").strip().casefold()
-        domain_pattern = (
-            r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
-            r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
-        )
-        if allowed_domain and re.fullmatch(domain_pattern, allowed_domain) is None:
-            raise ValueError("Domain OIDC yang diizinkan tidak valid")
-        redirect = urlsplit(self.oidc_redirect_uri)
-        if redirect.scheme not in {"http", "https"} or not redirect.hostname:
-            raise ValueError("Redirect URI OIDC bukan URL HTTP(S) yang valid")
-        if redirect.username or redirect.password or redirect.query or redirect.fragment:
-            raise ValueError(
-                "Redirect URI OIDC tidak boleh memuat credential, query, atau fragment"
-            )
-        web_origin = urlsplit(self.web_origin)
-        if web_origin.scheme not in {"http", "https"} or not web_origin.hostname:
-            raise ValueError("Web origin ALOS bukan URL HTTP(S) yang valid")
-        if (
-            web_origin.username
-            or web_origin.password
-            or web_origin.query
-            or web_origin.fragment
-            or web_origin.path not in {"", "/"}
-        ):
-            raise ValueError("Web origin ALOS wajib berupa origin tanpa path atau credential")
-        if (
-            self.environment in {"staging", "production"}
-            and (redirect.scheme != "https" or web_origin.scheme != "https")
-        ):
-            raise ValueError("OIDC staging/production wajib menggunakan HTTPS")
+    def model_for_route(self, route: ModelRoute) -> str:
+        """Resolve a Contract model route only from server-side configuration.
 
-    def _validate_llm_configuration(self) -> None:
-        if self.llm_provider == "disabled":
-            return
-        if self.llm_api_key is None or not self.llm_api_key.get_secret_value().strip():
-            raise ValueError("LLM provider aktif memerlukan ALOS_LLM_API_KEY")
-        if not self.llm_model.strip():
-            raise ValueError("LLM provider aktif memerlukan ALOS_LLM_MODEL")
-        if self.llm_base_url:
-            parsed = urlsplit(self.llm_base_url)
-            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-                raise ValueError("ALOS_LLM_BASE_URL bukan URL HTTP(S) yang valid")
-            if parsed.username or parsed.password or parsed.fragment:
-                raise ValueError("ALOS_LLM_BASE_URL tidak boleh memuat credential atau fragment")
-            if self.environment in {"staging", "production"} and parsed.scheme != "https":
-                raise ValueError("Endpoint LLM staging/production wajib HTTPS")
+        A contract selects a bounded route, never a raw provider model name.
+        Empty route overrides intentionally fall back to the configured primary
+        model, which preserves the single-model Gemini local setup.
+        """
+        configured = {
+            "light": self.llm_model_light,
+            "standard": self.llm_model_standard,
+            "critical": self.llm_model_critical,
+        }[route]
+        return configured.strip() or self.llm_model.strip()
 
-    def _validate_n8n_configuration(self) -> None:
-        url = (self.n8n_webhook_url or "").strip()
-        secret = self.n8n_webhook_secret_value
-        if not self.n8n_enabled:
-            return
-        if not url or not secret:
-            raise ValueError("n8n aktif memerlukan webhook URL dan signing secret")
-        if len(secret) < 32:
-            raise ValueError("Signing secret n8n wajib minimal 32 karakter")
-        parsed = urlsplit(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("Webhook n8n wajib menggunakan URL HTTP(S) yang valid")
-        if parsed.username or parsed.password or parsed.fragment:
-            raise ValueError("Webhook n8n tidak boleh memuat credential atau fragment pada URL")
-        if self.environment in {"staging", "production"} and parsed.scheme != "https":
-            raise ValueError("Webhook n8n staging/production wajib menggunakan HTTPS")
+    def estimate_llm_cost_usd(
+        self, *, model: str, input_tokens: int, output_tokens: int
+    ) -> Decimal:
+        """Return a conservative text-token estimate rounded up for budget safety.
 
-    @property
-    def definitions_root(self) -> Path:
-        return self.repository_root / "definitions"
-
-    @property
-    def resolved_object_storage_path(self) -> Path:
-        if self.object_storage_path.is_absolute():
-            return self.object_storage_path.resolve()
-        return (self.repository_root / self.object_storage_path).resolve()
-
-    @property
-    def object_storage_endpoint(self) -> str | None:
-        value = (self.object_storage_endpoint_url or "").strip()
-        return value or None
-
-    @property
-    def object_storage_access_key_value(self) -> str | None:
-        if self.object_storage_access_key is None:
-            return None
-        value = self.object_storage_access_key.get_secret_value().strip()
-        return value or None
-
-    @property
-    def object_storage_secret_key_value(self) -> str | None:
-        if self.object_storage_secret_key is None:
-            return None
-        value = self.object_storage_secret_key.get_secret_value().strip()
-        return value or None
-
-    @property
-    def n8n_webhook_secret_value(self) -> str | None:
-        if self.n8n_webhook_secret is None:
-            return None
-        value = self.n8n_webhook_secret.get_secret_value().strip()
-        return value or None
-
-    @property
-    def oidc_client_secret_value(self) -> str | None:
-        if self.oidc_client_secret is None:
-            return None
-        value = self.oidc_client_secret.get_secret_value().strip()
-        return value or None
-
-    @property
-    def max_request_body_bytes(self) -> int:
-        return self.object_storage_max_upload_bytes + 1024 * 1024
+        Non-OpenAI test/local providers do not have a staging USD price table,
+        so they remain zero-cost fixtures. OpenAI routes are validated during
+        Settings construction and therefore cannot silently bypass this guard.
+        """
+        if input_tokens < 0 or output_tokens < 0:
+            raise ValueError("token counts cannot be negative")
+        if self.llm_provider != "openai":
+            return Decimal("0")
+        pricing = _OPENAI_TEXT_PRICING_PER_MILLION.get(model)
+        if pricing is None:
+            raise ValueError("OpenAI model pricing is not configured")
+        input_price, output_price = pricing
+        estimated = (
+            Decimal(input_tokens) * input_price + Decimal(output_tokens) * output_price
+        ) / Decimal(1_000_000)
+        return estimated.quantize(_COST_PRECISION, rounding=ROUND_UP)
 
 
 @lru_cache

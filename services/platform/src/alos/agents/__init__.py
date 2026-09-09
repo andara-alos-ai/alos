@@ -1,1 +1,1 @@
-"""Shared Agent Runtime and registry."""
+"""Versioned Agent Contract and Registry services for the shared ALOS runtime."""

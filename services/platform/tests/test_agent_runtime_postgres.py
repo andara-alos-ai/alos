@@ -1,110 +1,394 @@
 import os
+from decimal import Decimal
+from pathlib import Path
 from uuid import uuid4
 
 import psycopg
 import pytest
-from fastapi.testclient import TestClient
+from psycopg import sql
+from psycopg.types.json import Jsonb
 
-from alos.config import get_settings
-from alos.main import app
-from alos.persistence.migrations import psycopg_url
+from alos.agents.registry import AgentContract, AgentRegistryRepository, LocalBootstrapRequest
+from alos.config import Settings, get_settings
+from alos.model_gateway import (
+    FakeModelGateway,
+    GuardedModelGateway,
+    ModelResponse,
+    ModelUsage,
+    RetryingModelGateway,
+    UsageBudget,
+)
+from alos.persistence.database import psycopg_url
+from alos.persistence.migrations import apply_migrations
+from alos.runtime.service import (
+    AgentRunRequest,
+    AgentRuntime,
+    AgentRuntimeRepository,
+    WorkspaceBudgetRequest,
+)
 
 pytestmark = [
     pytest.mark.postgres,
     pytest.mark.skipif(
         os.getenv("ALOS_RUN_POSTGRES_TESTS") != "1",
-        reason="set ALOS_RUN_POSTGRES_TESTS=1 to run PostgreSQL smoke tests",
+        reason="set ALOS_RUN_POSTGRES_TESTS=1 to run PostgreSQL quality tests",
     ),
 ]
 
 
-def test_tia_and_marketing_agent_execute_via_same_audited_runtime() -> None:
-    database_url = psycopg_url(get_settings().database_url)
-    with psycopg.connect(database_url) as connection:
-        organization_id = connection.execute(
-            "SELECT organization_id FROM identity.organizations WHERE code = 'ARM'"
-        ).fetchone()[0]
-    client = TestClient(app)
-    finance_headers = _headers(client, organization_id, "FINANCE", "FINANCE")
-    sales_headers = _headers(client, organization_id, "SALES", "SALES_MARKETING")
-    run_ids: list[str] = []
-    try:
-        invoice = client.post(
-            "/api/v1/agent-runtime/execute",
-            headers={**finance_headers, "Idempotency-Key": f"tia-{uuid4().hex}"},
-            json={
-                "agent_id": "TIA",
-                "capability": "validate_invoice_rules",
-                "input_references": ["invoice:synthetic-001"],
-                "requested_tools": ["deterministic.calculator"],
-                "input_payload": {"invoice_number": "SYNTHETIC-001"},
-                "data_classification": "INTERNAL",
-            },
-        )
-        assert invoice.status_code == 201, invoice.text
-        run_ids.append(invoice.json()["run_id"])
-        assert invoice.json()["handler_id"] == "finance.tax-rules.v1"
-        assert invoice.json()["production_effect"] is False
-
-        marketing = client.post(
-            "/api/v1/agent-runtime/execute",
-            headers={**sales_headers, "Idempotency-Key": f"mkt-{uuid4().hex}"},
-            json={
-                "agent_id": "MCA_MKT",
-                "capability": "draft_marketing_content",
-                "input_references": ["content-brief:synthetic-001"],
-                "requested_tools": ["ai.language.generate"],
-                "input_payload": {"brief": "Konten sintetis untuk pengujian"},
-                "data_classification": "INTERNAL",
-            },
-        )
-        assert marketing.status_code == 201, marketing.text
-        run_ids.append(marketing.json()["run_id"])
-        assert marketing.json()["handler_id"] == "ai.structured.v1"
-        assert marketing.json()["status"] == "NEEDS_REVIEW"
-        assert marketing.json()["verification_status"] == "UNVERIFIED"
-        assert marketing.json()["warnings"]
-
-        with psycopg.connect(database_url) as connection:
-            rows = connection.execute(
-                """
-                SELECT organization_id, workflow_run_id, handler_id, provider_metadata,
-                       capability_version, capability_contract_digest
-                FROM agents.agent_runs WHERE agent_run_id = ANY(%s::uuid[])
-                """,
-                (run_ids,),
-            ).fetchall()
-        assert len(rows) == 2
-        assert all(row[0] == organization_id and row[1] is None for row in rows)
-        assert any(row[3].get("llm_status") == "DISABLED" for row in rows)
-        assert all(row[4] == "1.0.0" and len(row[5]) == 64 for row in rows)
-    finally:
-        with psycopg.connect(database_url) as connection:
-            if run_ids:
-                connection.execute(
-                    "DELETE FROM audit.entries WHERE entity_id = ANY(%s::text[])", (run_ids,)
-                )
-                connection.execute(
-                    "DELETE FROM agents.agent_runs WHERE agent_run_id = ANY(%s::uuid[])",
-                    (run_ids,),
-                )
-
-
-def _headers(
-    client: TestClient,
-    organization_id: object,
-    role: str,
-    division: str,
-) -> dict[str, str]:
-    response = client.post(
-        "/api/v1/auth/local-token",
-        json={
-            "user_id": str(uuid4()),
-            "organization_id": str(organization_id),
-            "roles": [role],
-            "division_codes": [division],
-            "project_ids": [],
-        },
+def _settings(
+    database_url: str, *, environment: str = "test", max_context_tokens: int = 12_000
+) -> Settings:
+    return Settings(
+        _env_file=None,
+        environment=environment,
+        database_url=database_url,
+        auth_signing_secret="a" * 32,
+        llm_provider="openai",
+        llm_api_key="test-only-key",
+        llm_model="gpt-5.6-luna",
+        llm_model_light="gpt-5.6-luna",
+        llm_model_standard="gpt-5.6-terra",
+        llm_model_critical="gpt-5.6-sol",
+        llm_max_output_tokens=300,
+        llm_daily_request_limit=1,
+        llm_daily_output_token_limit=1_000,
+        llm_daily_cost_cap_usd=Decimal("1.00"),
+        llm_max_context_tokens=max_context_tokens,
     )
-    assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+def _contract(workspace_id: object, owner_user_id: object) -> AgentContract:
+    return AgentContract(
+        agent_key="FIXTURE_RUNTIME",
+        name="Fixture Runtime",
+        workspace_id=workspace_id,
+        purpose="Return a cited synthetic fixture result without changing any data.",
+        risk_level="LOW",
+        owner_user_id=owner_user_id,
+        input_schema={
+            "type": "object",
+            "required": ["query"],
+            "properties": {"query": {"type": "string"}},
+        },
+        output_schema={
+            "type": "object",
+            "required": ["summary", "citations"],
+            "properties": {
+                "summary": {"type": "string"},
+                "citations": {"type": "array"},
+            },
+        },
+        model_policy={"provider": "openai", "max_output_tokens": 300},
+        tool_keys=["FIXTURE_SOURCE_READ"],
+        permission_keys=[],
+        evidence_requirements=["fixture reference"],
+        forbidden_actions=["No write, external action, or production change."],
+        kpis=[{"name": "fixture_response", "target": 1}],
+        approval_required=True,
+        timeout_seconds=120,
+        prompt_template="Return a short cited response using only the read-only fixture context.",
+    )
+
+
+def _response() -> ModelResponse:
+    return ModelResponse(
+        provider="openai",
+        model="gpt-5.6-luna",
+        output_text='{"summary":"Fixture result","citations":["FIXTURE-PROPERTY-001"]}',
+        usage=ModelUsage(input_tokens=12, output_tokens=20),
+        latency_milliseconds=10,
+        estimated_cost_usd=Decimal("0.000027"),
+    )
+
+
+def test_runtime_persists_usage_and_blocks_tools_and_budget() -> None:
+    base_url = psycopg_url(get_settings().database_url)
+    database_name = f"alos_h3_runtime_{uuid4().hex}"
+    maintenance_url = base_url.rsplit("/", 1)[0] + "/postgres"
+    temporary_url = base_url.rsplit("/", 1)[0] + f"/{database_name}"
+    with psycopg.connect(maintenance_url, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+    try:
+        repository_root = Path(__file__).resolve().parents[3]
+        apply_migrations(temporary_url, repository_root / "infra" / "database")
+        settings = _settings(temporary_url, environment="staging")
+        registry = AgentRegistryRepository(temporary_url)
+        context = registry.bootstrap_local_context(LocalBootstrapRequest(), uuid4())
+        with psycopg.connect(temporary_url) as connection:
+            connection.execute(
+                """
+                INSERT INTO agents.tool_definitions (
+                    organization_id, tool_key, name, risk_level, manifest, lifecycle_status
+                ) VALUES (
+                    %s, 'FIXTURE_SOURCE_READ', 'Read-only fixture source', 'LOW', %s, 'APPROVED'
+                )
+                """,
+                (
+                    context.organization_id,
+                    Jsonb(
+                        {
+                            "access_mode": "READ_ONLY",
+                            "runtime_handler": "FIXTURE_SOURCE_READ",
+                        }
+                    ),
+                ),
+            )
+            connection.commit()
+        registry.create_draft(
+            _contract(context.workspace_id, context.user_id),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+            reason="H3 Runtime fixture",
+        )
+        fake = FakeModelGateway([_response(), _response()])
+        runtime = AgentRuntime(
+            AgentRuntimeRepository(temporary_url, settings),
+            GuardedModelGateway(
+                RetryingModelGateway(fake, max_retries=1),
+                settings,
+                UsageBudget(request_limit=1, output_token_limit=300),
+            ),
+            settings,
+        )
+
+        missing_limit = runtime.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "property opportunity"},
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+        assert missing_limit.status == "BLOCKED"
+        assert missing_limit.tool_decisions[0].tool_key == "BUDGET_POLICY"
+
+        fixture_budget = AgentRuntimeRepository(temporary_url, settings).set_budget_limit(
+            context.workspace_id,
+            WorkspaceBudgetRequest(
+                daily_request_limit=1,
+                daily_output_token_limit=1_000,
+                daily_cost_cap_usd=Decimal("1.00"),
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        assert fixture_budget.daily_cost_cap_usd == Decimal("1.00")
+
+        result = runtime.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "property opportunity"},
+                requested_tool_keys=["FIXTURE_SOURCE_READ"],
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+        assert result.status == "SUCCEEDED"
+        assert result.output == {
+            "summary": "Fixture result",
+            "citations": ["FIXTURE-PROPERTY-001"],
+        }
+        assert result.tool_decisions[0].decision == "ALLOWED"
+
+        blocked = runtime.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "property opportunity"},
+                requested_tool_keys=["UNAPPROVED_TOOL"],
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+        assert blocked.status == "BLOCKED"
+        assert blocked.tool_decisions[0].decision == "BLOCKED"
+
+        request_budget_blocked = runtime.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "property opportunity"},
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+        assert request_budget_blocked.status == "BLOCKED"
+        assert request_budget_blocked.tool_decisions[0].tool_key == "BUDGET_POLICY"
+
+        updated_budget = AgentRuntimeRepository(temporary_url, settings).set_budget_limit(
+            context.workspace_id,
+            WorkspaceBudgetRequest(
+                daily_request_limit=2,
+                daily_output_token_limit=1_000,
+                daily_cost_cap_usd=Decimal("1.00"),
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        assert updated_budget.daily_request_limit == 2
+        runtime_after_budget = AgentRuntime(
+            AgentRuntimeRepository(temporary_url, settings),
+            GuardedModelGateway(
+                RetryingModelGateway(fake, max_retries=1),
+                settings,
+                UsageBudget(request_limit=1, output_token_limit=300),
+            ),
+            settings,
+        )
+        assert (
+            runtime_after_budget.execute(
+                "FIXTURE_RUNTIME",
+                AgentRunRequest(
+                    workspace_id=context.workspace_id,
+                    input={"query": "property opportunity"},
+                ),
+                organization_id=context.organization_id,
+                actor_user_id=context.user_id,
+            ).status
+            == "SUCCEEDED"
+        )
+
+        AgentRuntimeRepository(temporary_url, settings).set_budget_limit(
+            context.workspace_id,
+            WorkspaceBudgetRequest(
+                daily_request_limit=3,
+                daily_output_token_limit=1_000,
+                daily_cost_cap_usd=Decimal("1.00"),
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        in_memory_budget_blocked = runtime_after_budget.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "property opportunity"},
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+        assert in_memory_budget_blocked.status == "BLOCKED"
+        assert in_memory_budget_blocked.error_code == "REQUEST_LIMIT"
+        assert in_memory_budget_blocked.tool_decisions[-1].tool_key == "BUDGET_POLICY"
+        assert in_memory_budget_blocked.tool_decisions[-1].decision == "BLOCKED"
+
+        AgentRuntimeRepository(temporary_url, settings).set_budget_limit(
+            context.workspace_id,
+            WorkspaceBudgetRequest(
+                daily_request_limit=4,
+                daily_output_token_limit=1_000,
+                daily_cost_cap_usd=Decimal("0"),
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+        )
+        cost_blocked = runtime_after_budget.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "property opportunity"},
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+        assert cost_blocked.status == "BLOCKED"
+        assert cost_blocked.tool_decisions[0].tool_key == "BUDGET_POLICY"
+
+        with psycopg.connect(temporary_url) as connection:
+            ledger_count = connection.execute(
+                "SELECT count(*) FROM observability.usage_ledger"
+            ).fetchone()
+            assert ledger_count == (2,)
+            assert connection.execute(
+                "SELECT decision FROM runtime.tool_calls WHERE decision = 'BLOCKED'"
+            ).fetchone() == ("BLOCKED",)
+            assert connection.execute(
+                "SELECT action FROM audit.events WHERE action = 'AGENT_RUN_BLOCKED'"
+            ).fetchone() == ("AGENT_RUN_BLOCKED",)
+            assert connection.execute(
+                "SELECT action FROM audit.events WHERE action = 'COST_LIMIT_UPDATED'"
+            ).fetchone() == ("COST_LIMIT_UPDATED",)
+            assert connection.execute(
+                "SELECT decision FROM runtime.tool_calls WHERE tool_key = 'BUDGET_POLICY'"
+            ).fetchone() == ("BLOCKED",)
+    finally:
+        with psycopg.connect(maintenance_url, autocommit=True) as connection:
+            connection.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s",
+                (database_name,),
+            )
+            connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database_name)))
+
+
+def test_runtime_context_cap_is_persisted_as_budget_policy_blocked() -> None:
+    base_url = psycopg_url(get_settings().database_url)
+    database_name = f"alos_context_cap_{uuid4().hex}"
+    maintenance_url = base_url.rsplit("/", 1)[0] + "/postgres"
+    temporary_url = base_url.rsplit("/", 1)[0] + f"/{database_name}"
+    with psycopg.connect(maintenance_url, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE DATABASE {} ").format(sql.Identifier(database_name)))
+    try:
+        repository_root = Path(__file__).resolve().parents[3]
+        apply_migrations(temporary_url, repository_root / "infra" / "database")
+        settings = _settings(temporary_url, max_context_tokens=256)
+        registry = AgentRegistryRepository(temporary_url)
+        context = registry.bootstrap_local_context(LocalBootstrapRequest(), uuid4())
+        registry.create_draft(
+            _contract(context.workspace_id, context.user_id),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+            correlation_id=uuid4(),
+            reason="Context cap integration fixture",
+        )
+        delegate = FakeModelGateway()
+        runtime = AgentRuntime(
+            AgentRuntimeRepository(temporary_url, settings),
+            GuardedModelGateway(
+                RetryingModelGateway(delegate, max_retries=0),
+                settings,
+                UsageBudget(request_limit=1, output_token_limit=300),
+            ),
+            settings,
+        )
+
+        result = runtime.execute(
+            "FIXTURE_RUNTIME",
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                input={"query": "x" * 1_000},
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.user_id,
+        )
+
+        assert result.status == "BLOCKED"
+        assert result.tool_decisions[0].tool_key == "BUDGET_POLICY"
+        assert "context token cap exceeded" in result.tool_decisions[0].reason
+        assert delegate.requests == []
+        with psycopg.connect(temporary_url) as connection:
+            assert connection.execute(
+                """
+                SELECT status, output_reference ->> 'reason'
+                FROM runtime.agent_runs
+                WHERE agent_run_id = %s
+                """,
+                (result.agent_run_id,),
+            ).fetchone() == (
+                "BLOCKED",
+                result.tool_decisions[0].reason,
+            )
+    finally:
+        with psycopg.connect(maintenance_url, autocommit=True) as connection:
+            connection.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s",
+                (database_name,),
+            )
+            connection.execute(sql.SQL("DROP DATABASE {} ").format(sql.Identifier(database_name)))

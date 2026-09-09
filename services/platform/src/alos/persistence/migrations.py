@@ -5,6 +5,7 @@ from pathlib import Path
 import psycopg
 
 from alos.config import get_settings
+from alos.persistence.database import psycopg_url
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,30 +17,28 @@ class Migration:
 
 
 def discover_migrations(directory: Path) -> tuple[Migration, ...]:
-    migrations: list[Migration] = []
-    for path in sorted(directory.glob("[0-9][0-9][0-9]_*.sql")):
-        migrations.append(
-            Migration(
-                version=path.name.split("_", 1)[0],
-                name=path.name,
-                path=path,
-                checksum=hashlib.sha256(path.read_bytes()).hexdigest(),
-            )
+    migrations = tuple(
+        Migration(
+            version=path.name.split("_", 1)[0],
+            name=path.name,
+            path=path,
+            checksum=hashlib.sha256(path.read_bytes()).hexdigest(),
         )
+        for path in sorted(directory.glob("[0-9][0-9][0-9]_*.sql"))
+        if path.is_file()
+    )
     versions = [migration.version for migration in migrations]
+    if not migrations:
+        raise ValueError("at least one ALOS migration is required")
     if len(versions) != len(set(versions)):
-        raise ValueError("Versi migrasi database harus unik")
-    return tuple(migrations)
-
-
-def psycopg_url(sqlalchemy_url: str) -> str:
-    return sqlalchemy_url.replace("postgresql+psycopg://", "postgresql://", 1)
+        raise ValueError("migration versions must be unique")
+    return migrations
 
 
 def apply_migrations(database_url: str, directory: Path) -> tuple[str, ...]:
     applied_now: list[str] = []
     with psycopg.connect(psycopg_url(database_url), autocommit=False) as connection:
-        connection.execute("SELECT pg_advisory_lock(hashtext('alos-schema-migrations'))")
+        connection.execute("SELECT pg_advisory_lock(hashtext('alos-migrations'))")
         try:
             connection.execute("CREATE SCHEMA IF NOT EXISTS platform")
             connection.execute(
@@ -54,15 +53,13 @@ def apply_migrations(database_url: str, directory: Path) -> tuple[str, ...]:
             )
             connection.commit()
             for migration in discover_migrations(directory):
-                row = connection.execute(
+                existing = connection.execute(
                     "SELECT checksum FROM platform.schema_migrations WHERE version = %s",
                     (migration.version,),
                 ).fetchone()
-                if row is not None:
-                    if row[0] != migration.checksum:
-                        raise RuntimeError(
-                            f"Checksum migrasi {migration.name} berubah setelah diterapkan"
-                        )
+                if existing is not None:
+                    if existing[0] != migration.checksum:
+                        raise RuntimeError(f"applied migration changed: {migration.name}")
                     continue
                 connection.execute(migration.path.read_text(encoding="utf-8"))
                 connection.execute(
@@ -78,19 +75,18 @@ def apply_migrations(database_url: str, directory: Path) -> tuple[str, ...]:
             connection.rollback()
             raise
         finally:
-            connection.execute("SELECT pg_advisory_unlock(hashtext('alos-schema-migrations'))")
+            connection.execute("SELECT pg_advisory_unlock(hashtext('alos-migrations'))")
             connection.commit()
     return tuple(applied_now)
 
 
 def main() -> None:
     settings = get_settings()
-    directory = settings.repository_root / "infra" / "database"
-    applied = apply_migrations(settings.database_url, directory)
-    if applied:
-        print(f"Migrasi diterapkan: {', '.join(applied)}")
-    else:
-        print("Database sudah menggunakan migrasi terbaru")
+    migration_directory = settings.migrations_path or (
+        settings.repository_root / "infra" / "database"
+    )
+    applied = apply_migrations(settings.database_url, migration_directory)
+    print("Database is current" if not applied else f"Applied: {', '.join(applied)}")
 
 
 if __name__ == "__main__":
