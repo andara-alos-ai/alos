@@ -438,6 +438,9 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
         assert detail.state == "ACTIVE"
         assert len(detail.test_cases) == 5
         assert len(detail.test_runs) == 5
+        assert all(run.evidence_id is not None for run in detail.test_runs)
+        assert {run.evaluator for run in detail.test_runs} == {"EqualsExpected"}
+        assert {run.score for run in detail.test_runs} == {1.0}
         assert {review.reviewer_user_id for review in detail.reviews} == {
             business_reviewer_id,
             technical_reviewer_id,
@@ -587,6 +590,32 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
             assert connection.execute(
                 "SELECT action FROM audit.events WHERE action = 'LOCAL_RELEASE_TEAM_BOOTSTRAPPED'"
             ).fetchone() == ("LOCAL_RELEASE_TEAM_BOOTSTRAPPED",)
+            evidence = connection.execute(
+                """
+                SELECT evidence_id, agent_run_id, evaluator, status
+                FROM governance.agent_eval_evidence
+                WHERE agent_version_id = (
+                    SELECT agent_version_id FROM governance.agent_change_requests
+                    WHERE change_request_id = %s
+                )
+                """,
+                (version_two_request,),
+            ).fetchall()
+            assert len(evidence) == 5
+            assert all(row[1] is not None for row in evidence)
+            assert {(row[2], row[3]) for row in evidence} == {
+                ("EqualsExpected", "PASSED")
+            }
+        with psycopg.connect(temporary_url) as connection:
+            evidence_id = connection.execute(
+                "SELECT evidence_id FROM governance.agent_eval_evidence LIMIT 1"
+            ).fetchone()
+            assert evidence_id is not None
+            with pytest.raises(psycopg.DatabaseError, match="append-only"):
+                connection.execute(
+                    "UPDATE governance.agent_eval_evidence SET score = 0 WHERE evidence_id = %s",
+                    (evidence_id[0],),
+                )
         assert version_one_request != version_two_request
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:

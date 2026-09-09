@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -13,6 +15,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
+from alos.evals.runner import AgentEvalInput, AgentEvalOutcome, AgentStatusEvaluator
 from alos.identity import DivisionCode, HumanRole
 from alos.persistence.database import psycopg_url
 from alos.runtime.service import AgentRunRequest, AgentRunResult
@@ -100,6 +103,9 @@ class TestRunEvidence(BaseModel):
     actual_status: str | None = None
     error_code: str | None = None
     block_reason: str | None = None
+    evidence_id: UUID | None = None
+    evaluator: str | None = None
+    score: float | None = None
 
 
 class ReviewRecord(BaseModel):
@@ -136,6 +142,9 @@ class TestExecutionResult(BaseModel):
     test_key: str
     status: Literal["PASSED", "FAILED", "BLOCKED", "ERROR"]
     agent_run_id: UUID | None
+    evidence_id: UUID
+    evaluator: str
+    score: float | None = None
 
 
 class ReviewRequest(BaseModel):
@@ -182,7 +191,7 @@ class AgentTestRunner:
 
     def __init__(self, repository: ReleaseGovernanceRepository, executor: Executor) -> None:
         self._repository = repository
-        self._executor = executor
+        self._evaluator = AgentStatusEvaluator(executor)
 
     def execute(
         self,
@@ -203,40 +212,43 @@ class AgentTestRunner:
         input_data = case.input_fixture.get("input", case.input_fixture)
         if not isinstance(input_data, dict):
             raise ReleaseGovernanceError("test fixture input must be an object")
-        result = self._executor(
-            case.agent_key,
-            AgentRunRequest(
-                workspace_id=self._repository.workspace_for_change(change_request_id),
-                input=input_data,
-                requested_tool_keys=requested_tools,
-            ),
-            case.agent_version_id,
-        )
         expected_status = case.expected_assertions.get("status")
         if expected_status not in {"SUCCEEDED", "FAILED", "BLOCKED"}:
             raise ReleaseGovernanceError("test expected_assertions.status is required")
-        passed = result.status == expected_status
-        block_reason = next(
-            (
-                decision.reason
-                for decision in result.tool_decisions
-                if decision.decision == "BLOCKED" and decision.reason
+        division_id, project_id, tenant_id = self._repository.scope_for_change(
+            change_request_id
+        )
+        evaluation = self._evaluator.evaluate(
+            AgentEvalInput(
+                test_key=case.test_key,
+                agent_key=case.agent_key,
+                agent_version_id=case.agent_version_id,
+                request=AgentRunRequest(
+                    workspace_id=self._repository.workspace_for_change(change_request_id),
+                    division_id=division_id,
+                    project_id=project_id,
+                    tenant_id=tenant_id,
+                    input=input_data,
+                    requested_tool_keys=requested_tools,
+                    testing=True,
+                ),
             ),
-            None,
+            expected_status=expected_status,
         )
         return self._repository.record_test_result(
             change_request_id,
             case,
             checker_user_id=checker_user_id,
             correlation_id=correlation_id,
-            passed=passed,
-            agent_run_id=result.agent_run_id,
+            passed=evaluation.status == "PASSED",
+            agent_run_id=evaluation.agent_run_id,
             result={
                 "expected_status": expected_status,
-                "actual_status": result.status,
-                "error_code": result.error_code,
-                "block_reason": block_reason,
+                "actual_status": evaluation.actual.get("status"),
+                "error_code": evaluation.error_code,
+                "block_reason": evaluation.block_reason,
             },
+            evaluation=evaluation,
         )
 
 
@@ -561,10 +573,13 @@ class ReleaseGovernanceRepository:
                        test_run.result ->> 'actual_status' AS actual_status,
                        test_run.result ->> 'error_code' AS error_code,
                        test_run.result ->> 'block_reason' AS block_reason,
-                       test_run.correlation_id, test_run.completed_at
+                       test_run.correlation_id, test_run.completed_at,
+                       evidence.evidence_id, evidence.evaluator, evidence.score
                 FROM governance.test_runs AS test_run
                 JOIN governance.test_cases AS test_case
                   ON test_case.test_case_id = test_run.test_case_id
+                LEFT JOIN governance.agent_eval_evidence AS evidence
+                  ON evidence.test_run_id = test_run.test_run_id
                 WHERE test_run.agent_version_id = %s
                 ORDER BY test_run.completed_at DESC NULLS LAST, test_run.test_run_id DESC
                 """,
@@ -829,6 +844,26 @@ class ReleaseGovernanceRepository:
             context = self._context(connection, change_request_id)
             return cast(UUID, context["workspace_id"])
 
+    def scope_for_change(
+        self, change_request_id: UUID
+    ) -> tuple[UUID | None, UUID | None, UUID | None]:
+        """Load optional Factory scope from the authoritative governance linkage."""
+        with self._connection() as connection:
+            context = self._context(connection, change_request_id)
+            factory = connection.execute(
+                """
+                SELECT division_id, project_id, tenant_id
+                FROM genesis.factory_requests
+                WHERE release_change_request_id = %s
+                """,
+                (change_request_id,),
+            ).fetchone()
+            if factory is None:
+                return None, None, None
+            if context["organization_id"] is None:
+                raise ReleaseGovernanceError("release organization scope is unavailable")
+            return factory["division_id"], factory["project_id"], factory["tenant_id"]
+
     def require_workspace_actor(self, change_request_id: UUID, actor_user_id: UUID) -> None:
         """Deny operations by users who are outside the release request workspace."""
         with self._connection() as connection:
@@ -845,6 +880,7 @@ class ReleaseGovernanceRepository:
         passed: bool,
         agent_run_id: UUID | None,
         result: dict[str, Any],
+        evaluation: AgentEvalOutcome | None = None,
     ) -> TestExecutionResult:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
@@ -856,6 +892,32 @@ class ReleaseGovernanceRepository:
                 )
             if case.agent_version_id != context["agent_version_id"]:
                 raise LifecycleConflictError("test case does not belong to this release request")
+            if evaluation is None:
+                raise ReleaseGovernanceError("actual Pydantic evaluation evidence is required")
+            if passed != (evaluation.status == "PASSED"):
+                raise ReleaseGovernanceError("test status conflicts with evaluator evidence")
+            if agent_run_id != evaluation.agent_run_id:
+                raise ReleaseGovernanceError("agent run does not match evaluator evidence")
+            evidence_id = uuid4()
+            evidence_payload = {
+                "evidence_id": str(evidence_id),
+                "test_case_id": str(case.test_case_id),
+                "agent_version_id": str(case.agent_version_id),
+                "agent_run_id": str(agent_run_id) if agent_run_id else None,
+                "category": case.category,
+                "input_reference": evaluation.input_reference,
+                "expected": evaluation.expected,
+                "actual": evaluation.actual,
+                "status": evaluation.status,
+                "evaluator": evaluation.evaluator,
+                "score": evaluation.score,
+                "correlation_id": str(correlation_id),
+                "started_at": evaluation.started_at.isoformat(),
+                "completed_at": evaluation.completed_at.isoformat(),
+            }
+            evidence_digest = hashlib.sha256(
+                json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
             run = connection.execute(
                 """
                 INSERT INTO governance.test_runs (
@@ -867,12 +929,99 @@ class ReleaseGovernanceRepository:
                     case.test_case_id,
                     context["agent_version_id"],
                     correlation_id,
-                    "PASSED" if passed else "FAILED",
-                    Jsonb({**result, "agent_run_id": str(agent_run_id) if agent_run_id else None}),
+                    evaluation.status,
+                    Jsonb(
+                        {
+                            **result,
+                            "agent_run_id": str(agent_run_id) if agent_run_id else None,
+                            "evidence_id": str(evidence_id),
+                        }
+                    ),
                 ),
             ).fetchone()
             if run is None:
                 raise ReleaseGovernanceError("test result could not be recorded")
+            factory_test = connection.execute(
+                """
+                SELECT generated.factory_test_id, factory.tenant_id
+                FROM genesis.factory_requests AS factory
+                JOIN genesis.factory_generated_tests AS generated
+                  ON generated.factory_request_id = factory.factory_request_id
+                 AND generated.category = %s
+                WHERE factory.release_change_request_id = %s
+                """,
+                (case.category, change_request_id),
+            ).fetchone()
+            runtime_scope = None
+            if agent_run_id is not None:
+                runtime_scope = connection.execute(
+                    """
+                    SELECT tenant_id FROM runtime.agent_runs
+                    WHERE agent_run_id = %s AND organization_id = %s
+                      AND workspace_id = %s AND agent_version_id = %s
+                    """,
+                    (
+                        agent_run_id,
+                        context["organization_id"],
+                        context["workspace_id"],
+                        context["agent_version_id"],
+                    ),
+                ).fetchone()
+                if runtime_scope is None:
+                    raise ReleaseGovernanceError("evaluator Agent Run is outside release scope")
+            tenant_id = (
+                factory_test["tenant_id"]
+                if factory_test is not None
+                else runtime_scope["tenant_id"] if runtime_scope is not None else None
+            )
+            connection.execute(
+                """
+                INSERT INTO governance.agent_eval_evidence (
+                    evidence_id, test_run_id, test_case_id, factory_test_id,
+                    organization_id, workspace_id, tenant_id, agent_version_id, agent_run_id,
+                    category, input_reference, expected, actual, status, evaluator, score,
+                    error_code, block_reason, evidence_digest, correlation_id,
+                    created_by_user_id, started_at, completed_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
+                """,
+                (
+                    evidence_id,
+                    run["test_run_id"],
+                    case.test_case_id,
+                    factory_test["factory_test_id"] if factory_test is not None else None,
+                    context["organization_id"],
+                    context["workspace_id"],
+                    tenant_id,
+                    context["agent_version_id"],
+                    agent_run_id,
+                    case.category,
+                    Jsonb(evaluation.input_reference),
+                    Jsonb(evaluation.expected),
+                    Jsonb(evaluation.actual),
+                    evaluation.status,
+                    evaluation.evaluator,
+                    evaluation.score,
+                    evaluation.error_code,
+                    evaluation.block_reason,
+                    evidence_digest,
+                    correlation_id,
+                    checker_user_id,
+                    evaluation.started_at,
+                    evaluation.completed_at,
+                ),
+            )
+            if factory_test is not None:
+                connection.execute(
+                    """
+                    UPDATE genesis.factory_generated_tests
+                    SET execution_status = %s
+                    WHERE factory_test_id = %s
+                    """,
+                    (evaluation.status, factory_test["factory_test_id"]),
+                )
             connection.execute(
                 """
                 UPDATE governance.agent_change_requests
@@ -892,14 +1041,19 @@ class ReleaseGovernanceRepository:
                 "Independent checker recorded a test result",
                 {
                     "change_request_id": str(change_request_id),
-                    "status": "PASSED" if passed else "FAILED",
+                    "status": evaluation.status,
+                    "evidence_id": str(evidence_id),
+                    "evaluator": evaluation.evaluator,
                 },
             )
             return TestExecutionResult(
                 test_run_id=run["test_run_id"],
                 test_key=case.test_key,
-                status="PASSED" if passed else "FAILED",
+                status=evaluation.status,
                 agent_run_id=agent_run_id,
+                evidence_id=evidence_id,
+                evaluator=evaluation.evaluator,
+                score=evaluation.score,
             )
 
     def submit_for_review(
@@ -913,12 +1067,17 @@ class ReleaseGovernanceRepository:
                 raise LifecycleConflictError("only a draft or returned request can enter review")
             categories = connection.execute(
                 """
-                SELECT category, bool_and(latest.status = 'PASSED') AS passed
+                SELECT category, bool_and(
+                    latest.status = 'PASSED' AND latest.evidence_id IS NOT NULL
+                ) AS passed
                 FROM governance.test_cases AS test_case
                 JOIN LATERAL (
-                    SELECT status FROM governance.test_runs
-                    WHERE test_case_id = test_case.test_case_id
-                    ORDER BY completed_at DESC, test_run_id DESC LIMIT 1
+                    SELECT test_run.status, evidence.evidence_id
+                    FROM governance.test_runs AS test_run
+                    LEFT JOIN governance.agent_eval_evidence AS evidence
+                      ON evidence.test_run_id = test_run.test_run_id
+                    WHERE test_run.test_case_id = test_case.test_case_id
+                    ORDER BY test_run.completed_at DESC, test_run.test_run_id DESC LIMIT 1
                 ) AS latest ON true
                 WHERE test_case.agent_version_id = %s
                 GROUP BY category

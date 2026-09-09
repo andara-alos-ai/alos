@@ -2454,6 +2454,7 @@ def execute_release_test_case(
 ) -> TestExecutionResult:
     require_checker(actor)
     runtime = get_agent_runtime()
+    correlation_id = uuid4()
     try:
         runner = AgentTestRunner(
             get_release_repository(),
@@ -2462,6 +2463,8 @@ def execute_release_test_case(
                 runtime_request,
                 organization_id=actor.organization_id,
                 actor_user_id=actor.user_id,
+                correlation_id=correlation_id,
+                actor=actor,
                 target_agent_version_id=agent_version_id,
             ),
         )
@@ -2469,6 +2472,7 @@ def execute_release_test_case(
             change_request_id,
             test_key,
             checker_user_id=actor.user_id,
+            correlation_id=correlation_id,
         )
     except ReleaseGovernanceError as error:
         raise release_http_error(error) from error
