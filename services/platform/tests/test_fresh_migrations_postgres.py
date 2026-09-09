@@ -54,6 +54,7 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             "023_approved_action_execution.sql",
             "024_h5_final_readiness_controls.sql",
             "025_genesis_agentic_runtime.sql",
+            "026_genesis_governed_foundations.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
