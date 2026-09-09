@@ -56,34 +56,32 @@ echo "Creating recoverable PostgreSQL backup: ${backup_path}"
 sha256sum "${backup_path}" > "${backup_path}.sha256"
 
 echo "Protected identity records before reset:"
-"${compose[@]}" exec -T postgres psql -U alos -d alos -v ON_ERROR_STOP=1 \
-  -v organization_code="${ORGANIZATION_CODE}" -c "
+"${compose[@]}" exec -T postgres psql -U alos -d alos -v ON_ERROR_STOP=1 -c "
     SELECT organization.code,
            count(DISTINCT users.user_id) AS users,
            count(DISTINCT credentials.user_id) AS credentials
     FROM identity.organizations AS organization
     LEFT JOIN identity.users AS users USING (organization_id)
     LEFT JOIN identity.user_credentials AS credentials USING (user_id)
-    WHERE organization.code = :'organization_code'
+    WHERE organization.code = '${ORGANIZATION_CODE}'
     GROUP BY organization.code;
   "
 
 echo "Deleting Governance and Agent Control records for ${ORGANIZATION_CODE}…"
-"${compose[@]}" exec -T postgres psql -U alos -d alos -v ON_ERROR_STOP=1 \
-  -v organization_code="${ORGANIZATION_CODE}" <<'SQL'
+"${compose[@]}" exec -T postgres psql -U alos -d alos -v ON_ERROR_STOP=1 <<SQL
 BEGIN;
 
 CREATE TEMP TABLE reset_organizations ON COMMIT DROP AS
 SELECT organization_id
 FROM identity.organizations
-WHERE code = :'organization_code';
+WHERE code = '${ORGANIZATION_CODE}';
 
-DO $$
+DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM reset_organizations) THEN
     RAISE EXCEPTION 'organization was not found';
   END IF;
-END $$;
+END \$\$;
 
 CREATE TEMP TABLE reset_agent_contracts ON COMMIT DROP AS
 SELECT contract.agent_contract_id
@@ -212,21 +210,20 @@ COMMIT;
 SQL
 
 echo "Verifying Governance/Agent Control is empty and accounts are intact…"
-"${compose[@]}" exec -T postgres psql -U alos -d alos -v ON_ERROR_STOP=1 \
-  -v organization_code="${ORGANIZATION_CODE}" -c "
+"${compose[@]}" exec -T postgres psql -U alos -d alos -v ON_ERROR_STOP=1 -c "
     SELECT
       (SELECT count(*) FROM identity.users AS users
        JOIN identity.organizations AS organization USING (organization_id)
-       WHERE organization.code = :'organization_code') AS users_retained,
+       WHERE organization.code = '${ORGANIZATION_CODE}') AS users_retained,
       (SELECT count(*) FROM agents.contracts AS contract
        JOIN identity.organizations AS organization USING (organization_id)
-       WHERE organization.code = :'organization_code') AS agents_remaining,
+       WHERE organization.code = '${ORGANIZATION_CODE}') AS agents_remaining,
       (SELECT count(*) FROM governance.cost_limits AS limits
        JOIN identity.organizations AS organization USING (organization_id)
-       WHERE organization.code = :'organization_code') AS cost_limits_remaining,
+       WHERE organization.code = '${ORGANIZATION_CODE}') AS cost_limits_remaining,
       (SELECT count(*) FROM governance.kill_switches AS switches
        JOIN identity.organizations AS organization USING (organization_id)
-       WHERE organization.code = :'organization_code') AS kill_switches_remaining;
+       WHERE organization.code = '${ORGANIZATION_CODE}') AS kill_switches_remaining;
   "
 
 echo "Governance/Agent Control reset complete."
