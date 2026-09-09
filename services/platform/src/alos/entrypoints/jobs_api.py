@@ -4,16 +4,22 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from psycopg.rows import dict_row
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from alos.config import get_settings
 from alos.identity import HumanRole
-from alos.jobs.repository import JobQueueError, JobQueueRepository, JobRecord
+from alos.jobs.repository import (
+    AgentScheduleRecord,
+    AgentScheduleRequest,
+    JobQueueError,
+    JobQueueRepository,
+    JobRecord,
+)
 from alos.persistence.database import psycopg_url
 from alos.security.tokens import ActorContext, get_current_actor
 
@@ -38,6 +44,51 @@ class BackgroundServiceStatus(BaseModel):
     queued_jobs: int
     failed_jobs: int
     oldest_queued_at: datetime | None
+
+
+class AgentScheduleStateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
+@router.post("/agent-schedules", response_model=AgentScheduleRecord)
+def configure_agent_schedule(
+    request: AgentScheduleRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> AgentScheduleRecord:
+    try:
+        return JobQueueRepository(get_settings().database_url).configure_agent_schedule(
+            request,
+            actor,
+            correlation_id=uuid4(),
+        )
+    except JobQueueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
+@router.get("/agent-schedules", response_model=list[AgentScheduleRecord])
+def list_agent_schedules(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> list[AgentScheduleRecord]:
+    return JobQueueRepository(get_settings().database_url).list_agent_schedules(actor)
+
+
+@router.patch("/agent-schedules/{schedule_id}", response_model=AgentScheduleRecord)
+def set_agent_schedule_state(
+    schedule_id: UUID,
+    request: AgentScheduleStateRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> AgentScheduleRecord:
+    try:
+        return JobQueueRepository(get_settings().database_url).set_agent_schedule_enabled(
+            schedule_id,
+            actor,
+            enabled=request.enabled,
+            correlation_id=uuid4(),
+        )
+    except JobQueueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
 
 @router.get("/jobs", response_model=list[JobRecord])

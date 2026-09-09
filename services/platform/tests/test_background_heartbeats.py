@@ -8,11 +8,13 @@ def test_scheduler_heartbeats_even_when_no_report_is_due() -> None:
     scheduler = DurableScheduler("postgresql+psycopg://ignored")
     queue = MagicMock()
     queue.schedule_due_reports.return_value = []
+    queue.schedule_due_agents.return_value = []
     scheduler._queue = queue
 
     assert scheduler.tick() == 0
 
     queue.heartbeat.assert_called_once_with("SCHEDULER", scheduler._scheduler_id)
+    queue.schedule_due_agents.assert_called_once_with(scheduler._scheduler_id)
 
 
 def test_worker_heartbeats_after_processing_a_job() -> None:

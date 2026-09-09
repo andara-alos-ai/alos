@@ -1,4 +1,5 @@
 import os
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -9,6 +10,10 @@ from psycopg import sql
 
 from alos.agents.registry import AgentContract, AgentRegistryRepository, LocalBootstrapRequest
 from alos.config import Settings, get_settings
+from alos.identity import DataScope, HumanRole
+from alos.jobs.repository import AgentScheduleRequest, JobQueueRepository
+from alos.jobs.scheduler import DurableScheduler
+from alos.jobs.worker import DurableWorker
 from alos.model_gateway import (
     FakeModelGateway,
     GuardedModelGateway,
@@ -38,6 +43,7 @@ from alos.runtime.service import (
     AgentRuntimeBlocked,
     AgentRuntimeRepository,
 )
+from alos.security.tokens import ActorContext
 
 pytestmark = [
     pytest.mark.postgres,
@@ -94,6 +100,7 @@ def _contract(workspace_id: UUID, owner_user_id: UUID, name: str) -> AgentContra
         approval_required=True,
         timeout_seconds=120,
         prompt_template="Return a short cited fixture response. Do not take actions.",
+        schedule_policy={"enabled": True},
     )
 
 
@@ -459,6 +466,65 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
             organization_id=context.organization_id,
             actor_user_id=checker_user_id,
         )[0].change_request_id == version_two_request
+
+        now = datetime.now(UTC)
+        maker_actor = ActorContext(
+            user_id=maker_user_id,
+            organization_id=context.organization_id,
+            roles=[HumanRole.IT_LEAD],
+            division_codes=[],
+            workspace_ids=[context.workspace_id],
+            tenant_ids=[],
+            data_scope=DataScope.COMPANY,
+            permissions=[],
+            issued_at=now,
+            expires_at=now + timedelta(hours=1),
+        )
+        queue = JobQueueRepository(temporary_url)
+        schedule = queue.configure_agent_schedule(
+            AgentScheduleRequest(
+                workspace_id=context.workspace_id,
+                agent_key="PROPERTY_RELEASE_FIXTURE",
+                schedule_expression="DAILY 00:00",
+                timezone="UTC",
+                input={"query": "scheduled generated Agent fixture"},
+            ),
+            maker_actor,
+            correlation_id=uuid4(),
+        )
+        with psycopg.connect(temporary_url) as connection:
+            connection.execute(
+                "UPDATE jobs.agent_schedules SET next_run_at = now() WHERE agent_schedule_id = %s",
+                (schedule.agent_schedule_id,),
+            )
+            connection.commit()
+        assert DurableScheduler(temporary_url, scheduler_id="test-scheduler").tick() == 1
+        scheduled_job = DurableWorker(
+            temporary_url,
+            worker_id="test-worker",
+            runtime_factory=lambda: runtime,
+        ).run_once()
+        assert scheduled_job is not None
+        assert scheduled_job.status == "SUCCEEDED"
+        assert scheduled_job.payload["result"]["status"] == "SUCCEEDED"
+        scheduled_agent_run_id = UUID(scheduled_job.payload["result"]["agent_run_id"])
+        with psycopg.connect(temporary_url) as connection:
+            scheduled_run = connection.execute(
+                """
+                SELECT status, execution_mode, requested_by_user_id
+                FROM runtime.agent_runs WHERE agent_run_id = %s
+                """,
+                (scheduled_agent_run_id,),
+            ).fetchone()
+            assert scheduled_run == ("SUCCEEDED", "LIVE", maker_user_id)
+            dispatch = connection.execute(
+                """
+                SELECT status, job_id FROM jobs.agent_schedule_dispatches
+                WHERE agent_schedule_id = %s
+                """,
+                (schedule.agent_schedule_id,),
+            ).fetchone()
+            assert dispatch == ("ENQUEUED", scheduled_job.job_id)
 
         assert (
             release_repository.kill_switch(

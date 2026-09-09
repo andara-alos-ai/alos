@@ -40,4 +40,5 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "031_persistent_delegation_lineage.sql",
         "032_generic_research_persistence.sql",
         "033_agent_eval_evidence.sql",
+        "034_generated_agent_schedules.sql",
     ]

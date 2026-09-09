@@ -1126,8 +1126,11 @@ class AgentRuntimeRepository:
                   AND (
                       (%s::uuid IS NOT NULL
                           AND agent_version_id = %s::uuid
-                          AND %s
-                          AND lifecycle_status = 'DRAFT'
+                          AND (
+                              (agent_version_id = registry.active_version_id
+                                  AND lifecycle_status = 'ACTIVE')
+                              OR (%s AND lifecycle_status = 'DRAFT')
+                          )
                       )
                       OR (%s::uuid IS NULL AND (
                           (

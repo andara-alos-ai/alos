@@ -14,12 +14,15 @@ from uuid import UUID
 import psycopg
 from psycopg.rows import dict_row
 
-from alos.config import get_settings
+from alos.config import Settings, get_settings
 from alos.identity import DataScope, DivisionCode, HumanRole
-from alos.jobs.repository import JobEnqueueRequest, JobQueueRepository, JobRecord
+from alos.jobs.repository import JobEnqueueRequest, JobQueueError, JobQueueRepository, JobRecord
+from alos.model_gateway import GuardedModelGateway, RetryingModelGateway, UsageBudget
+from alos.model_gateway_factory import create_model_gateway
 from alos.operational.models import ReportGenerateRequest
 from alos.operational.repository import OperationalRepository
 from alos.persistence.database import psycopg_url
+from alos.runtime.service import AgentRunRequest, AgentRuntime, AgentRuntimeRepository
 from alos.security.tokens import ActorContext
 
 
@@ -30,12 +33,20 @@ class JobHandlerError(RuntimeError):
 
 
 class DurableWorker:
-    def __init__(self, database_url: str, worker_id: str | None = None) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        worker_id: str | None = None,
+        *,
+        runtime_factory: Callable[[], AgentRuntime] | None = None,
+    ) -> None:
         self._database_url = psycopg_url(database_url)
         self._queue = JobQueueRepository(database_url)
         self._operations = OperationalRepository(database_url)
         self._worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}"
+        self._runtime_factory = runtime_factory or _build_agent_runtime
         self._handlers: dict[str, Callable[[JobRecord], dict[str, Any]]] = {
+            "AGENT_RUN": self._run_agent,
             "SCHEDULED_REPORT": self._generate_report,
             "NOTIFICATION": self._deliver_notification,
         }
@@ -132,7 +143,48 @@ class DurableWorker:
                 raise JobHandlerError("NOTIFICATION_PERSIST_FAILED")
         return {"notification_id": str(row["notification_id"])}
 
-    def _actor(self, user_id: UUID, organization_id: UUID) -> ActorContext:
+    def _run_agent(self, job: JobRecord) -> dict[str, Any]:
+        try:
+            context = self._queue.authorize_agent_job(job)
+        except JobQueueError as error:
+            raise JobHandlerError("AGENT_SCHEDULE_AUTHORITY_INVALID") from error
+        actor = self._actor(
+            context.owner_user_id,
+            context.organization_id,
+            tenant_id=context.tenant_id,
+        )
+        result = self._runtime_factory().execute(
+            context.agent_key,
+            AgentRunRequest(
+                workspace_id=context.workspace_id,
+                division_id=context.division_id,
+                project_id=context.project_id,
+                tenant_id=context.tenant_id,
+                input=context.input,
+                requested_tool_keys=context.requested_tool_keys,
+                testing=False,
+            ),
+            organization_id=context.organization_id,
+            actor_user_id=context.owner_user_id,
+            correlation_id=job.correlation_id,
+            actor=actor,
+            allow_draft=False,
+            target_agent_version_id=context.agent_version_id,
+        )
+        if result.status != "SUCCEEDED":
+            raise JobHandlerError(result.error_code or f"AGENT_RUN_{result.status}")
+        return {
+            "agent_run_id": str(result.agent_run_id),
+            "agent_version_id": str(context.agent_version_id),
+            "status": result.status,
+            "total_model_calls": result.total_model_calls,
+            "total_tool_calls": result.total_tool_calls,
+            "total_tokens": result.total_tokens,
+        }
+
+    def _actor(
+        self, user_id: UUID, organization_id: UUID, *, tenant_id: UUID | None = None
+    ) -> ActorContext:
         with self._connection() as connection:
             user = connection.execute(
                 """
@@ -179,6 +231,7 @@ class DurableWorker:
             roles=[HumanRole(row["role_code"]) for row in role_rows],
             division_codes=[DivisionCode(row["code"]) for row in division_rows],
             workspace_ids=[row["workspace_id"] for row in workspace_rows],
+            tenant_ids=[tenant_id] if tenant_id is not None else [],
             data_scope=DataScope(user["default_data_scope"]),
             permissions=[],
             issued_at=now,
@@ -198,7 +251,26 @@ class DurableWorker:
                 connection.commit()
             except Exception:
                 connection.rollback()
-                raise
+            raise
+
+
+def _build_agent_runtime() -> AgentRuntime:
+    settings: Settings = get_settings()
+    delegate, close_gateway = create_model_gateway(settings)
+    gateway = GuardedModelGateway(
+        RetryingModelGateway(delegate, settings.llm_max_retries),
+        settings,
+        UsageBudget(
+            request_limit=settings.agentic_max_model_steps,
+            output_token_limit=settings.llm_max_output_tokens * settings.agentic_max_model_steps,
+        ),
+    )
+    return AgentRuntime(
+        AgentRuntimeRepository(settings.database_url, settings),
+        gateway,
+        settings,
+        close_gateway=close_gateway,
+    )
 
 
 def main() -> None:
