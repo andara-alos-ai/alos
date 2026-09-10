@@ -25,6 +25,15 @@ terukur untuk produk ALOS.
 7. [Document Center workflow](product/DOCUMENT_CENTER_WORKFLOW.md) — satu
     repositori dokumen untuk DRAFT Genesis/manual, checklist, dan approval.
 
+## Index
+
+- Architecture: [README](architecture/README.md)
+- Governance: [README](governance/README.md)
+- Security: [README](security/README.md)
+- Development: [README](development/README.md)
+- Operations: [README](operations/README.md)
+- Archive: [2026-mvp1](archive/2026-mvp1/README.md)
+
 ## Status dokumen yang sudah ada
 
 - Laporan delivery dan readiness historis dipindahkan ke
