@@ -23,8 +23,12 @@ from alos.model_gateway import (
 from alos.persistence.database import psycopg_url
 from alos.persistence.migrations import apply_migrations
 from alos.release.governance import ReleaseGovernanceError, ReleaseGovernanceRepository
-from alos.runtime.service import AgentRunRequest, AgentRuntime, AgentRuntimeBlocked
-from alos.runtime.service import AgentRuntimeRepository
+from alos.runtime.service import (
+    AgentRunRequest,
+    AgentRuntime,
+    AgentRuntimeBlocked,
+    AgentRuntimeRepository,
+)
 from alos.security.tokens import ActorContext
 
 pytestmark = [
@@ -117,7 +121,10 @@ def test_runtime_requires_actor_claim_and_factory_tenant_lineage() -> None:
         )
         with psycopg.connect(temporary_url) as connection:
             connection.execute(
-                "UPDATE agents.versions SET lifecycle_status = 'ACTIVE' WHERE agent_version_id = %s",
+                (
+                    "UPDATE agents.versions SET lifecycle_status = 'ACTIVE' "
+                    "WHERE agent_version_id = %s"
+                ),
                 (draft.agent_version_id,),
             )
             connection.execute(

@@ -51,7 +51,9 @@ from alos.tools.executor import (
     ToolExecutor,
 )
 
-RunStatus = Literal["SUCCEEDED", "FAILED", "BLOCKED", "CANCELLED"]
+RunStatus = Literal[
+    "SUCCEEDED", "FAILED", "BLOCKED", "CANCELLED", "CANCEL_REQUESTED"
+]
 H3_FIXTURE_ENVIRONMENTS = frozenset({"local", "test", "staging"})
 
 
