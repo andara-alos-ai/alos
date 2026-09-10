@@ -1,4 +1,4 @@
-# ALOS — Andara Leaverage Operating Sistem
+# ALOS — Andara Leverage Operating System
 
 ALOS adalah satu aplikasi internal dengan satu **Genesis** sebagai AI Executive
 Operating Layer dan satu shared Agent Runtime. Genesis membuat serta mengelola
@@ -43,3 +43,10 @@ provider LLM adalah input eksternal dan tidak disimpan di Git. Gunakan
 [backup/restore](docs/operations/BACKUP_RESTORE.md).
 
 Mulai dari [peta dokumentasi ALOS](docs/README.md).
+
+## Status repository
+
+Cabang aktif untuk pengembangan GENESIS Agent Factory adalah
+`epic/genesis-agent-factory`. Migrasi `001`–`024` memakai nama milestone
+development historis dan sengaja tidak diubah demi integritas history/audit.
+Migrasi baru mulai `037` harus memakai nama domain semantic.

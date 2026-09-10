@@ -20,23 +20,15 @@ terukur untuk produk ALOS.
    dan [ADR-004](architecture/ADR-004-local-validation-boundary.md).
 5. [Security dan human approval](governance/ALOS_SECURITY_AND_HUMAN_APPROVAL.md)
    — batas deterministik dan keputusan yang selalu dipegang manusia.
-6. [Delivery plan](implementation/ALOS_MVP1_DELIVERY_PLAN.md) — lima hari
-   pembuktian dan vertical slice pertama.
-7. [Checklist traceability](implementation/ALOS_MVP1_CHECKLIST_TRACEABILITY.md)
-   — checklist penerimaan MVP1 beserta bukti yang harus dihasilkan.
-8. [H5 backend stability report](implementation/H5_BACKEND_STABILITY_REPORT.md)
-   — status backend lokal, evidence quality gate, dan limitation yang masih HOLD.
-9. [OpenAI staging gateway](implementation/OPENAI_STAGING_GATEWAY.md) —
+6. [OpenAI staging gateway](implementation/OPENAI_STAGING_GATEWAY.md) —
    konfigurasi provider, routing model, dan urutan validasi VPS staging.
-10. [Document Center workflow](product/DOCUMENT_CENTER_WORKFLOW.md) — satu
+7. [Document Center workflow](product/DOCUMENT_CENTER_WORKFLOW.md) — satu
     repositori dokumen untuk DRAFT Genesis/manual, checklist, dan approval.
 
 ## Status dokumen yang sudah ada
 
-- `implementation/DAY_1_FOUNDATION_REPORT.md` adalah evidence foundation yang
-  sudah dilakukan; bukan spesifikasi target terbaru.
-- `implementation/GENESIS_MVP1_EXECUTION_PLAN.md` tetap referensi H0/Hari 1
-  dan quality gate awal. Ia dibaca bersama delivery plan kanonik di atas.
+- Laporan delivery dan readiness historis dipindahkan ke
+  [archive/2026-mvp1](archive/2026-mvp1/README.md).
 - `architecture/GENESIS_MVP1_ARCHITECTURE.md` dan
   `architecture/GENESIS_MVP1_DOMAIN_MODEL.md` adalah baseline ringkas yang
   dilampaui dokumen domain baru, tanpa menghapus bukti keputusan awal.
