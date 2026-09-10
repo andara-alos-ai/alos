@@ -95,3 +95,13 @@ def test_pydantic_engine_cancel_is_false_for_unknown_or_completed_run() -> None:
     assert not engine.cancel(execution_request.context.run_id)
     assert engine.execute(execution_request).status == ExecutionStatus.SUCCEEDED
     assert not engine.cancel(execution_request.context.run_id)
+
+
+def test_pydantic_engine_polled_cancellation_check_returns_cancelled() -> None:
+    engine = PydanticAgenticEngine(TestModel(custom_output_args={"result": "ok"}))
+    execution_request = request()
+
+    result = engine.execute(execution_request, cancellation_check=lambda _run_id: True)
+
+    assert result.status == ExecutionStatus.CANCELLED
+    assert result.error_code == "RUN_CANCELLED"

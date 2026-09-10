@@ -2235,6 +2235,22 @@ def run_agent(
         raise runtime_http_error(error) from error
 
 
+@app.post("/api/v1/agent-runs/{agent_run_id}/cancel", response_model=AgentRunSummary)
+def cancel_agent_run(
+    agent_run_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> AgentRunSummary:
+    """Request durable cancellation for a queued or running Agent Run."""
+    try:
+        return AgentRuntimeRepository(get_settings().database_url, get_settings()).cancel_run(
+            agent_run_id,
+            actor,
+            correlation_id=uuid4(),
+        )
+    except AgentRuntimeError as error:
+        raise runtime_http_error(error) from error
+
+
 @app.get("/api/v1/workspaces/{workspace_id}/runs", response_model=list[AgentRunSummary])
 def list_workspace_runs(
     workspace_id: UUID,

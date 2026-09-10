@@ -19,6 +19,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
 from alos.agents.registry import AgentContract
+from alos.authorization import require_tenant, require_workspace
 from alos.config import Settings
 from alos.model_gateway import (
     DataClassification,
@@ -50,7 +51,7 @@ from alos.tools.executor import (
     ToolExecutor,
 )
 
-RunStatus = Literal["SUCCEEDED", "FAILED", "BLOCKED"]
+RunStatus = Literal["SUCCEEDED", "FAILED", "BLOCKED", "CANCELLED"]
 H3_FIXTURE_ENVIRONMENTS = frozenset({"local", "test", "staging"})
 
 
@@ -244,6 +245,9 @@ class AgentRuntime:
         response: ModelResponse | None = None
         runtime_context = list(prepared.fixture_context)
         try:
+            cancelled = self._cancel_if_requested(prepared)
+            if cancelled is not None:
+                return cancelled
             self._record_step(
                 prepared,
                 "PLAN",
@@ -258,6 +262,9 @@ class AgentRuntime:
             if request.tool_calls and self._tool_executor is None:
                 self._tool_executor = ToolExecutor(self._repository.database_url)
             for call in request.tool_calls:
+                cancelled = self._cancel_if_requested(prepared)
+                if cancelled is not None:
+                    return cancelled
                 if actor is None:  # Narrowed for static analysis after the guard above.
                     raise AgentRuntimeBlocked(
                         "typed tool execution requires an authenticated actor"
@@ -292,8 +299,17 @@ class AgentRuntime:
                         "elapsed_milliseconds": tool_result.elapsed_milliseconds,
                     },
                 )
+                cancelled = self._cancel_if_requested(prepared)
+                if cancelled is not None:
+                    return cancelled
+            cancelled = self._cancel_if_requested(prepared)
+            if cancelled is not None:
+                return cancelled
             if _uses_agentic_engine(prepared.execution.contract):
                 return self._execute_agentic(prepared, request, runtime_context, actor)
+            cancelled = self._cancel_if_requested(prepared)
+            if cancelled is not None:
+                return cancelled
             self._record_step(prepared, "MODEL", {"model_step": 1})
             model_request = self._model_request(
                 prepared.execution.contract, request, tuple(runtime_context)
@@ -403,6 +419,7 @@ class AgentRuntime:
             max_output_tokens=output_limit,
         )
         engine = PydanticAgenticEngine(model_adapter, tool_adapter)
+        cancellation_check = getattr(self._repository, "is_cancel_requested", None)
         result = engine.execute(
             AgenticExecutionRequest(
                 context=ExecutionContext(
@@ -425,7 +442,8 @@ class AgentRuntime:
                 output_schema=prepared.execution.contract.output_schema,
                 tools=tuple(tool_definitions),
                 limits=limits,
-            )
+            ),
+            cancellation_check=cancellation_check if callable(cancellation_check) else None,
         )
         for step in result.steps:
             self._record_step(
@@ -435,6 +453,15 @@ class AgentRuntime:
             )
         if result.status != ExecutionStatus.SUCCEEDED:
             reason = result.reason or "agentic execution stopped safely"
+            cancel_requested = (
+                callable(cancellation_check)
+                and bool(cancellation_check(prepared.agent_run_id))
+            )
+            if result.status == ExecutionStatus.CANCELLED or cancel_requested:
+                finisher = getattr(self._repository, "complete_cancelled", None)
+                if callable(finisher):
+                    finisher(prepared)
+                return _cancelled_result(prepared, reason)
             if result.status == ExecutionStatus.BLOCKED:
                 self._repository.complete_blocked(
                     prepared,
@@ -524,6 +551,15 @@ class AgentRuntime:
     def _close(self) -> None:
         if self._close_gateway is not None:
             self._close_gateway()
+
+    def _cancel_if_requested(self, prepared: _PreparedRun) -> AgentRunResult | None:
+        checker = getattr(self._repository, "is_cancel_requested", None)
+        if not callable(checker) or not checker(prepared.agent_run_id):
+            return None
+        finisher = getattr(self._repository, "complete_cancelled", None)
+        if callable(finisher):
+            finisher(prepared)
+        return _cancelled_result(prepared)
 
     def _record_step(
         self, prepared: _PreparedRun, step_type: str, content: dict[str, Any]
@@ -1106,6 +1142,169 @@ class AgentRuntimeRepository:
                 reason=reason,
                 metadata={"agent_key": prepared.execution.agent_key, "tool_key": tool_key},
             )
+
+    def is_cancel_requested(self, agent_run_id: UUID) -> bool:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM runtime.agent_runs
+                WHERE agent_run_id = %s
+                  AND status IN ('RUNNING', 'CANCEL_REQUESTED')
+                  AND cancel_requested_at IS NOT NULL
+                """,
+                (agent_run_id,),
+            ).fetchone()
+        return row is not None
+
+    def complete_cancelled(self, prepared: _PreparedRun, reason: str = "run was cancelled") -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "DELETE FROM runtime.budget_reservations WHERE agent_run_id = %s",
+                (prepared.agent_run_id,),
+            )
+            row = connection.execute(
+                """
+                UPDATE runtime.agent_runs
+                SET status = 'CANCELLED', cancelled_at = coalesce(cancelled_at, now()),
+                    completed_at = now(), output_reference = %s
+                WHERE agent_run_id = %s
+                  AND status IN ('RUNNING', 'CANCEL_REQUESTED')
+                RETURNING agent_run_id
+                """,
+                (Jsonb({"reason": reason}), prepared.agent_run_id),
+            ).fetchone()
+            if row is None:
+                raise AgentRuntimeError("cancelled Agent Run could not be finalized")
+            connection.execute(
+                """
+                INSERT INTO runtime.run_steps (agent_run_id, step_sequence, step_type, content)
+                SELECT %s, coalesce(max(step_sequence), 0) + 1, 'CANCELLED', %s
+                FROM runtime.run_steps WHERE agent_run_id = %s
+                """,
+                (prepared.agent_run_id, Jsonb({"reason": reason}), prepared.agent_run_id),
+            )
+            self._append_audit(
+                connection,
+                organization_id=prepared.organization_id,
+                actor_user_id=prepared.actor_user_id,
+                action="AGENT_RUN_CANCELLED",
+                entity_type="AGENT_RUN",
+                entity_id=prepared.agent_run_id,
+                correlation_id=prepared.correlation_id,
+                reason=reason,
+                metadata={"agent_key": prepared.execution.agent_key},
+            )
+
+    def cancel_run(
+        self,
+        agent_run_id: UUID,
+        actor: ActorContext,
+        *,
+        correlation_id: UUID,
+    ) -> AgentRunSummary:
+        with self._transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT run.workspace_id, run.tenant_id, run.status
+                FROM runtime.agent_runs AS run
+                WHERE run.agent_run_id = %s AND run.organization_id = %s
+                """,
+                (agent_run_id, actor.organization_id),
+            ).fetchone()
+            if row is None or row["workspace_id"] is None:
+                raise AgentRuntimeBlocked("Agent Run was not found")
+            require_workspace(actor, row["workspace_id"])
+            require_tenant(actor, row["tenant_id"])
+            if row["status"] not in {"QUEUED", "RUNNING", "CANCEL_REQUESTED"}:
+                raise AgentRuntimeBlocked("only an active Agent Run can be cancelled")
+            updated = connection.execute(
+                """
+                UPDATE runtime.agent_runs
+                SET cancel_requested_at = coalesce(cancel_requested_at, now()),
+                    status = CASE
+                        WHEN status = 'QUEUED' THEN 'CANCELLED'
+                        WHEN status = 'CANCELLED' THEN status
+                        ELSE 'CANCEL_REQUESTED'
+                    END,
+                    cancelled_at = CASE
+                        WHEN status = 'QUEUED' THEN now()
+                        ELSE cancelled_at
+                    END,
+                    completed_at = CASE
+                        WHEN status = 'QUEUED' THEN now()
+                        ELSE completed_at
+                    END
+                WHERE agent_run_id = %s
+                RETURNING agent_run_id
+                """,
+                (agent_run_id,),
+            ).fetchone()
+            if updated is None:
+                raise AgentRuntimeError("Agent Run cancellation could not be persisted")
+            self._append_audit(
+                connection,
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+                action="AGENT_RUN_CANCEL_REQUESTED",
+                entity_type="AGENT_RUN",
+                entity_id=agent_run_id,
+                correlation_id=correlation_id,
+                reason="Human requested cancellation of an active Agent Run",
+                metadata={"agent_run_id": str(agent_run_id)},
+            )
+            return self._run_summary(connection, agent_run_id)
+
+    @staticmethod
+    def _run_summary(
+        connection: psycopg.Connection[Any], agent_run_id: UUID
+    ) -> AgentRunSummary:
+        row = connection.execute(
+            """
+            SELECT run.agent_run_id, contract.agent_key, version.semantic_version,
+                   run.status, run.correlation_id, run.created_at, run.completed_at,
+                   ledger.provider, ledger.model, ledger.input_tokens,
+                   ledger.output_tokens, ledger.latency_ms, ledger.estimated_cost_usd,
+                   CASE
+                       WHEN run.status = 'BLOCKED' THEN 'TOOL_OR_INPUT_BLOCKED'
+                       WHEN run.status = 'FAILED' THEN 'RUNTIME_FAILED'
+                       WHEN run.status = 'CANCELLED' THEN 'RUN_CANCELLED'
+                       ELSE NULL
+                   END AS error_code,
+                   CASE
+                       WHEN run.status IN ('BLOCKED', 'FAILED', 'CANCELLED')
+                       THEN nullif(run.output_reference ->> 'reason', '')
+                       ELSE NULL
+                   END AS block_reason
+            FROM runtime.agent_runs AS run
+            JOIN agents.versions AS version
+              ON version.agent_version_id = run.agent_version_id
+            JOIN agents.contracts AS contract
+              ON contract.agent_contract_id = version.agent_contract_id
+            LEFT JOIN observability.usage_ledger AS ledger
+              ON ledger.agent_run_id = run.agent_run_id
+            WHERE run.agent_run_id = %s
+            """,
+            (agent_run_id,),
+        ).fetchone()
+        if row is None:
+            raise AgentRuntimeError("Agent Run was not found")
+        return AgentRunSummary(
+            agent_run_id=row["agent_run_id"],
+            agent_key=row["agent_key"],
+            semantic_version=row["semantic_version"],
+            status=cast(RunStatus, row["status"]),
+            correlation_id=row["correlation_id"],
+            created_at=row["created_at"],
+            completed_at=row["completed_at"],
+            provider=row["provider"],
+            model=row["model"],
+            input_tokens=row["input_tokens"],
+            output_tokens=row["output_tokens"],
+            latency_milliseconds=row["latency_ms"],
+            estimated_cost_usd=row["estimated_cost_usd"],
+            error_code=row["error_code"],
+            block_reason=row["block_reason"],
+        )
 
     def _load_execution(
         self,
@@ -1943,6 +2142,19 @@ def _failure_result(prepared: _PreparedRun, error_code: str) -> AgentRunResult:
         correlation_id=prepared.correlation_id,
         tool_decisions=list(prepared.tool_decisions),
         error_code=error_code,
+    )
+
+
+def _cancelled_result(prepared: _PreparedRun, reason: str = "run was cancelled") -> AgentRunResult:
+    return AgentRunResult(
+        agent_run_id=prepared.agent_run_id,
+        agent_key=prepared.execution.agent_key,
+        semantic_version=prepared.execution.semantic_version,
+        status="CANCELLED",
+        correlation_id=prepared.correlation_id,
+        tool_decisions=list(prepared.tool_decisions),
+        error_code="RUN_CANCELLED",
+        output={"reason": reason},
     )
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from decimal import Decimal
-from threading import Lock
+from threading import Event, Lock, Thread
 from time import monotonic
 from typing import Any
 from uuid import UUID
@@ -37,21 +37,29 @@ class PydanticAgenticEngine:
         self._active: dict[UUID, CancellationToken] = {}
         self._active_lock = Lock()
 
-    def execute(self, request: AgenticExecutionRequest) -> AgenticExecutionResult:
+    def execute(
+        self,
+        request: AgenticExecutionRequest,
+        cancellation_check: Callable[[UUID], bool] | None = None,
+    ) -> AgenticExecutionResult:
         tracer = trace.get_tracer("alos.runtime.agentic")
         with tracer.start_as_current_span("alos.agentic.execute") as span:
             span.set_attribute("alos.run_id", str(request.context.run_id))
             span.set_attribute("alos.correlation_id", str(request.context.correlation_id))
             span.set_attribute("alos.execution_mode", request.context.execution_mode.value)
             span.set_attribute("alos.classification", request.context.classification)
-            result = self._execute_traced(request)
+            result = self._execute_traced(request, cancellation_check)
             span.set_attribute("alos.status", result.status.value)
             span.set_attribute("alos.model_calls", result.usage.total_model_calls)
             span.set_attribute("alos.tool_calls", result.usage.total_tool_calls)
             span.set_attribute("alos.total_tokens", result.usage.total_tokens)
             return result
 
-    def _execute_traced(self, request: AgenticExecutionRequest) -> AgenticExecutionResult:
+    def _execute_traced(
+        self,
+        request: AgenticExecutionRequest,
+        cancellation_check: Callable[[UUID], bool] | None,
+    ) -> AgenticExecutionResult:
         started = monotonic()
         token = CancellationToken()
         with self._active_lock:
@@ -64,6 +72,24 @@ class PydanticAgenticEngine:
                     started,
                 )
             self._active[request.context.run_id] = token
+
+        poll_stop: Event | None = None
+        poll_thread: Thread | None = None
+        if cancellation_check is not None:
+            poll_stop = Event()
+
+            def poll_cancellation() -> None:
+                while poll_stop is not None and not poll_stop.is_set():
+                    try:
+                        if cancellation_check(request.context.run_id):
+                            token.cancel()
+                            return
+                    except Exception:
+                        return
+                    poll_stop.wait(0.2)
+
+            poll_thread = Thread(target=poll_cancellation, daemon=True)
+            poll_thread.start()
 
         try:
             result = asyncio.run(self._run(request, token))
@@ -149,6 +175,10 @@ class PydanticAgenticEngine:
                 started,
             )
         finally:
+            if poll_stop is not None:
+                poll_stop.set()
+            if poll_thread is not None:
+                poll_thread.join(timeout=1)
             with self._active_lock:
                 self._active.pop(request.context.run_id, None)
 
@@ -190,6 +220,8 @@ class PydanticAgenticEngine:
             return True
 
     async def _run(self, request: AgenticExecutionRequest, token: CancellationToken) -> Any:
+        if token.cancelled:
+            raise asyncio.CancelledError()
         output_type = StructuredDict(
             request.output_schema,
             name="alos_governed_output",
