@@ -155,6 +155,7 @@ class GenesisFactoryService:
                 organization_id=actor.organization_id,
                 maker_user_id=actor.user_id,
                 requested_by_user_id=request.requested_by_user_id,
+                tenant_id=request.tenant_id,
                 correlation_id=correlation_id,
             )
             self._register_governance_tests(
@@ -162,6 +163,7 @@ class GenesisFactoryService:
                 proposal.tests,
                 actor,
                 correlation_id,
+                tenant_ids=tuple(actor.tenant_ids),
             )
             return self._repository.link_governance(
                 request_id,
@@ -211,6 +213,8 @@ class GenesisFactoryService:
         tests: tuple[GeneratedTest, ...],
         actor: ActorContext,
         correlation_id: UUID,
+        *,
+        tenant_ids: tuple[UUID, ...],
     ) -> None:
         supported = {"POSITIVE", "NEGATIVE", "REGRESSION", "SECURITY", "RECOVERY"}
         for sequence, test in enumerate(
@@ -230,5 +234,6 @@ class GenesisFactoryService:
                     expected_assertions={"status": expected},
                 ),
                 actor_user_id=actor.user_id,
+                tenant_ids=tenant_ids,
                 correlation_id=correlation_id,
             )

@@ -219,6 +219,14 @@ class AgentRuntime:
         target_agent_version_id: UUID | None = None,
     ) -> AgentRunResult:
         correlation_id = correlation_id or uuid4()
+        if actor is not None and (
+            actor.organization_id != organization_id or actor.user_id != actor_user_id
+        ):
+            raise AgentRuntimeBlocked("authenticated actor does not match execution authority")
+        if request.tenant_id is not None and (
+            actor is None or request.tenant_id not in actor.tenant_ids
+        ):
+            raise AgentRuntimeBlocked("tenant is outside the authenticated execution scope")
         prepared = self._repository.prepare_run(
             agent_key,
             request,
@@ -552,7 +560,6 @@ class AgentRuntimeRepository:
             self._require_actor_workspace(
                 connection, organization_id, actor_user_id, request.workspace_id
             )
-            scope_error = self._validate_execution_scope(connection, organization_id, request)
             execution = self._load_execution(
                 connection,
                 organization_id,
@@ -560,6 +567,9 @@ class AgentRuntimeRepository:
                 agent_key,
                 allow_draft=allow_draft,
                 target_agent_version_id=target_agent_version_id,
+            )
+            scope_error = self._validate_execution_scope(
+                connection, organization_id, request, execution
             )
             execution_mode: Literal["TEST", "LIVE"] = "TEST" if request.testing else "LIVE"
             input_hash = _digest(request.input)
@@ -1572,9 +1582,26 @@ class AgentRuntimeRepository:
         connection: psycopg.Connection[Any],
         organization_id: UUID,
         request: AgentRunRequest,
+        execution: _ExecutionVersion,
     ) -> str | None:
-        if request.tenant_id is not None:
-            return "tenant isolation is not configured for the current ALOS storage model"
+        factory_scope = connection.execute(
+            """
+            SELECT tenant_id FROM genesis.factory_requests
+            WHERE organization_id = %s AND workspace_id = %s
+              AND agent_version_id = %s
+            """,
+            (organization_id, request.workspace_id, execution.agent_version_id),
+        ).fetchone()
+        if factory_scope is not None and factory_scope["tenant_id"] != request.tenant_id:
+            return "execution tenant does not match the Agent Factory scope"
+        if factory_scope is None and request.tenant_id is not None:
+            return "tenant execution requires authoritative Agent Factory scope"
+        if request.tenant_id is not None and (
+            execution.contract.tool_keys
+            or request.requested_tool_keys
+            or request.tool_calls
+        ):
+            return "tenant-scoped tool execution is unavailable for non-tenant-aware resources"
         if request.division_id is not None:
             division = connection.execute(
                 """
@@ -1764,7 +1791,7 @@ def _policy_int(policy: dict[str, Any], key: str, default: int) -> int:
     value = policy.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise AgentRuntimeBlocked(f"contract {key} policy is invalid")
-    return value
+    return cast(int, value)
 
 
 def _model_instructions(contract: AgentContract) -> str:

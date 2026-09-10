@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from fastapi import HTTPException
 from psycopg import sql
 
 from alos.agents.registry import AgentRegistryRepository, LocalBootstrapRequest
@@ -90,6 +91,12 @@ def test_factory_request_survives_reload_and_enforces_tenant_scope() -> None:
         )
 
         record = repository.create(create, actor_a, correlation_id=uuid4())
+        with pytest.raises(HTTPException, match="tenant"):
+            repository.create(
+                create.model_copy(update={"tenant_id": tenant_b}),
+                actor_a,
+                correlation_id=uuid4(),
+            )
         duplicate = repository.create(create, actor_a, correlation_id=uuid4())
         assert duplicate.factory_request_id == record.factory_request_id
         with pytest.raises(FactoryRequestConflictError):

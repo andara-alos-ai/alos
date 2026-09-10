@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from fastapi import HTTPException
 from psycopg import sql
 
 from alos.agents.registry import AgentRegistryRepository, LocalBootstrapRequest
@@ -18,6 +19,7 @@ from alos.research import ResearchArtifactRequest, ResearchProjectCreate, Resear
 from alos.research.repository import (
     ResearchArtifactType,
     ResearchConflictError,
+    ResearchNotFoundError,
 )
 from alos.security.tokens import ActorContext
 
@@ -30,7 +32,7 @@ pytestmark = [
 ]
 
 
-def _actor(context, *, role, division_code=DivisionCode.IT):
+def _actor(context, *, role, division_code=DivisionCode.IT, tenant_id=None):
     now = datetime.now(UTC)
     return ActorContext(
         user_id=context.user_id,
@@ -38,6 +40,7 @@ def _actor(context, *, role, division_code=DivisionCode.IT):
         roles=[role],
         division_codes=[division_code],
         workspace_ids=[context.workspace_id],
+        tenant_ids=[tenant_id] if tenant_id is not None else [],
         data_scope=DataScope.DIVISION,
         issued_at=now,
         expires_at=now + timedelta(hours=1),
@@ -63,7 +66,8 @@ def test_generic_research_requires_independent_decision_before_factory_handoff()
             bootstrap.workspace_id, uuid4()
         )
         reviewer = next(item for item in team.participants if item.duty == "BUSINESS_REVIEWER")
-        requester = _actor(bootstrap, role=HumanRole.IT_LEAD)
+        tenant_a, tenant_b = uuid4(), uuid4()
+        requester = _actor(bootstrap, role=HumanRole.IT_LEAD, tenant_id=tenant_a)
         reviewer_context = type(bootstrap)(
             organization_id=bootstrap.organization_id,
             user_id=reviewer.user_id,
@@ -73,10 +77,12 @@ def test_generic_research_requires_independent_decision_before_factory_handoff()
             reviewer_context,
             role=HumanRole.BUSINESS_REVIEWER,
             division_code=team.division_code,
+            tenant_id=tenant_a,
         )
         scope = Scope(
             organization_id=bootstrap.organization_id,
             workspace_id=bootstrap.workspace_id,
+            tenant_id=tenant_a,
         )
         repository = ResearchRepository(temporary_url)
         project = repository.create(
@@ -125,6 +131,9 @@ def test_generic_research_requires_independent_decision_before_factory_handoff()
             repository.add_artifact(
                 project.research_id, artifact, requester, correlation_id=uuid4()
             )
+        tenant_b_actor = requester.model_copy(update={"tenant_ids": [tenant_b]})
+        with pytest.raises((HTTPException, ResearchNotFoundError)):
+            repository.get(project.research_id, tenant_b_actor)
         for target in (
             ResearchStatus.SCOPING,
             ResearchStatus.RESEARCH,

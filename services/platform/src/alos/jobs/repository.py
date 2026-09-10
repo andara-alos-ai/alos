@@ -208,6 +208,18 @@ class JobQueueRepository:
             ).fetchone()
             if agent is None:
                 raise JobQueueError("only a governed ACTIVE Agent can be scheduled")
+            factory_scope = connection.execute(
+                """
+                SELECT tenant_id FROM genesis.factory_requests
+                WHERE organization_id = %s AND workspace_id = %s
+                  AND agent_version_id = %s
+                """,
+                (actor.organization_id, request.workspace_id, agent["active_version_id"]),
+            ).fetchone()
+            if factory_scope is None and request.tenant_id is not None:
+                raise JobQueueError("tenant schedule requires authoritative Factory scope")
+            if factory_scope is not None and factory_scope["tenant_id"] != request.tenant_id:
+                raise JobQueueError("schedule tenant does not match the Agent Factory scope")
             if agent["contract_snapshot"].get("schedule_policy", {}).get("enabled") is not True:
                 raise JobQueueError("Agent Contract does not enable scheduled execution")
             contract_tools = set(agent["contract_snapshot"].get("tool_keys", []))
@@ -709,6 +721,22 @@ class JobQueueRepository:
         ).fetchone()
         if active is None:
             return None, "AGENT_NOT_ACTIVE_OR_SUSPENDED"
+        factory_scope = connection.execute(
+            """
+            SELECT tenant_id FROM genesis.factory_requests
+            WHERE organization_id = %s AND workspace_id = %s
+              AND agent_version_id = %s
+            """,
+            (
+                schedule["organization_id"],
+                schedule["workspace_id"],
+                active["active_version_id"],
+            ),
+        ).fetchone()
+        if factory_scope is None and schedule["tenant_id"] is not None:
+            return active["active_version_id"], "TENANT_FACTORY_SCOPE_MISSING"
+        if factory_scope is not None and factory_scope["tenant_id"] != schedule["tenant_id"]:
+            return active["active_version_id"], "TENANT_SCOPE_MISMATCH"
         workspace = connection.execute(
             """
             SELECT 1 FROM workspace.workspaces

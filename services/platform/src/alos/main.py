@@ -20,7 +20,7 @@ from alos.agents.registry import (
 )
 from alos.agents.validation_catalog import validation_agent_requests
 from alos.audit.reader import AuditEventRecord, AuditReader
-from alos.authorization import can_govern_agents
+from alos.authorization import can_govern_agents, require_tenant
 from alos.config import get_settings
 from alos.documents.center import (
     ChecklistCompletionRequest,
@@ -2340,6 +2340,7 @@ def create_release_request(
 ) -> ReleaseRequestRecord:
     require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
+    require_tenant(actor, request.tenant_id)
     try:
         return get_release_repository().create_release_request(
             agent_key,
@@ -2347,6 +2348,7 @@ def create_release_request(
             request.requirement,
             organization_id=actor.organization_id,
             maker_user_id=actor.user_id,
+            tenant_id=request.tenant_id,
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2365,6 +2367,7 @@ def list_release_requests(
             workspace_id,
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             limit=limit,
         )
     except ReleaseGovernanceError as error:
@@ -2381,6 +2384,7 @@ def get_release_request_detail(
             change_request_id,
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
         )
     except ReleaseGovernanceError as error:
         raise release_http_error(error) from error
@@ -2397,6 +2401,7 @@ def register_release_test_case(
             change_request_id,
             request,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2419,6 +2424,7 @@ def update_release_test_case(
             test_key,
             request,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2436,6 +2442,7 @@ def delete_release_test_case(
             change_request_id,
             test_key,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -2472,6 +2479,7 @@ def execute_release_test_case(
             change_request_id,
             test_key,
             checker_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=correlation_id,
         )
     except ReleaseGovernanceError as error:
@@ -2491,6 +2499,7 @@ def submit_release_for_review(
         return get_release_repository().submit_for_review(
             change_request_id,
             checker_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2511,6 +2520,7 @@ def review_release_request(
             change_request_id,
             request,
             reviewer_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2529,6 +2539,7 @@ def approve_release_request(
         return get_release_repository().approve(
             change_request_id,
             approver_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2547,6 +2558,7 @@ def release_approved_request(
         return get_release_repository().release(
             change_request_id,
             approver_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2565,6 +2577,7 @@ def activate_released_request(
         return get_release_repository().activate(
             change_request_id,
             approver_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2584,6 +2597,7 @@ def suspend_release_request(
         return get_release_repository().suspend(
             change_request_id,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             reason=request.reason,
             correlation_id=uuid4(),
         )
@@ -2607,6 +2621,7 @@ def activate_kill_switch(
         return get_release_repository().kill_switch(
             change_request_id,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             reason=request.reason,
             correlation_id=uuid4(),
         )
@@ -2631,6 +2646,7 @@ def clear_kill_switch(
         return get_release_repository().clear_kill_switch(
             change_request_id,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             reason=request.reason,
             correlation_id=uuid4(),
         )
@@ -2652,6 +2668,7 @@ def rollback_release_request(
             change_request_id,
             request,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:

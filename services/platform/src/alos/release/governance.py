@@ -62,6 +62,7 @@ class ReleaseRequestInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: UUID
+    tenant_id: UUID | None = None
     requirement: str = Field(min_length=20, max_length=10_000)
 
 
@@ -199,11 +200,16 @@ class AgentTestRunner:
         test_key: str,
         *,
         checker_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
         correlation_id: UUID | None = None,
     ) -> TestExecutionResult:
         correlation_id = correlation_id or uuid4()
-        self._repository.require_workspace_actor(change_request_id, checker_user_id)
-        case = self._repository.get_test_case(change_request_id, test_key)
+        self._repository.require_workspace_actor(
+            change_request_id, checker_user_id, tenant_ids=tenant_ids
+        )
+        case = self._repository.get_test_case(
+            change_request_id, test_key, tenant_ids=tenant_ids
+        )
         requested_tools = case.input_fixture.get("requested_tool_keys", [])
         if not isinstance(requested_tools, list) or not all(
             isinstance(tool_key, str) for tool_key in requested_tools
@@ -216,7 +222,7 @@ class AgentTestRunner:
         if expected_status not in {"SUCCEEDED", "FAILED", "BLOCKED"}:
             raise ReleaseGovernanceError("test expected_assertions.status is required")
         division_id, project_id, tenant_id = self._repository.scope_for_change(
-            change_request_id
+            change_request_id, tenant_ids=tenant_ids
         )
         evaluation = self._evaluator.evaluate(
             AgentEvalInput(
@@ -224,7 +230,9 @@ class AgentTestRunner:
                 agent_key=case.agent_key,
                 agent_version_id=case.agent_version_id,
                 request=AgentRunRequest(
-                    workspace_id=self._repository.workspace_for_change(change_request_id),
+                    workspace_id=self._repository.workspace_for_change(
+                        change_request_id, tenant_ids=tenant_ids
+                    ),
                     division_id=division_id,
                     project_id=project_id,
                     tenant_id=tenant_id,
@@ -249,6 +257,7 @@ class AgentTestRunner:
                 "block_reason": evaluation.block_reason,
             },
             evaluation=evaluation,
+            tenant_ids=tenant_ids,
         )
 
 
@@ -378,6 +387,7 @@ class ReleaseGovernanceRepository:
         organization_id: UUID,
         maker_user_id: UUID,
         requested_by_user_id: UUID | None = None,
+        tenant_id: UUID | None = None,
         correlation_id: UUID,
     ) -> ReleaseRequestRecord:
         requested_by_user_id = requested_by_user_id or maker_user_id
@@ -402,11 +412,11 @@ class ReleaseGovernanceRepository:
             change = connection.execute(
                 """
                 INSERT INTO genesis.change_requests (
-                    organization_id, workspace_id, requested_by_user_id, requirement
-                ) VALUES (%s, %s, %s, %s)
+                    organization_id, workspace_id, tenant_id, requested_by_user_id, requirement
+                ) VALUES (%s, %s, %s, %s, %s)
                 RETURNING change_request_id
                 """,
-                (organization_id, workspace_id, requested_by_user_id, requirement),
+                (organization_id, workspace_id, tenant_id, requested_by_user_id, requirement),
             ).fetchone()
             if change is None:
                 raise ReleaseGovernanceError("release request could not be created")
@@ -499,6 +509,7 @@ class ReleaseGovernanceRepository:
         *,
         organization_id: UUID,
         actor_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
         limit: int = 50,
     ) -> list[ReleaseRequestRecord]:
         with self._connection() as connection:
@@ -537,10 +548,14 @@ class ReleaseGovernanceRepository:
                 JOIN agents.versions AS version
                   ON version.agent_version_id = governance.agent_version_id
                 WHERE request.organization_id = %s AND request.workspace_id = %s
+                  AND (
+                      request.tenant_id IS NULL
+                      OR request.tenant_id = ANY(%s)
+                  )
                 ORDER BY request.created_at DESC, request.change_request_id DESC
                 LIMIT %s
                 """,
-                (organization_id, workspace_id, limit),
+                (organization_id, workspace_id, list(tenant_ids), limit),
             ).fetchall()
         return [ReleaseRequestRecord(**row) for row in rows]
 
@@ -550,11 +565,13 @@ class ReleaseGovernanceRepository:
         *,
         organization_id: UUID,
         actor_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
     ) -> ReleaseRequestDetail:
         with self._connection() as connection:
             context = self._context(connection, change_request_id)
             if context["organization_id"] != organization_id:
                 raise ReleaseGovernanceError("release request was not found")
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, actor_user_id)
             test_cases = connection.execute(
                 """
@@ -663,10 +680,12 @@ class ReleaseGovernanceRepository:
         request: TestCaseRequest,
         *,
         actor_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
         correlation_id: UUID,
     ) -> TestCaseRecord:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, actor_user_id)
             self._require_maker(context, actor_user_id)
             if context["state"] not in {"DRAFT", "RETURNED"}:
@@ -717,6 +736,7 @@ class ReleaseGovernanceRepository:
         request: TestCaseRequest,
         *,
         actor_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
         correlation_id: UUID,
     ) -> TestCaseRecord:
         """Amend a draft fixture without discarding previous test-run evidence."""
@@ -724,6 +744,7 @@ class ReleaseGovernanceRepository:
             raise ReleaseGovernanceError("test case key does not match the requested update")
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, actor_user_id)
             self._require_maker(context, actor_user_id)
             if context["state"] not in {"DRAFT", "RETURNED"}:
@@ -765,9 +786,16 @@ class ReleaseGovernanceRepository:
                 **request.model_dump(),
             )
 
-    def get_test_case(self, change_request_id: UUID, test_key: str) -> TestCaseRecord:
+    def get_test_case(
+        self,
+        change_request_id: UUID,
+        test_key: str,
+        *,
+        tenant_ids: tuple[UUID, ...] = (),
+    ) -> TestCaseRecord:
         with self._connection() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             case = connection.execute(
                 """
                 SELECT test_case_id, test_key, category, input_fixture, expected_assertions
@@ -794,11 +822,13 @@ class ReleaseGovernanceRepository:
         test_key: str,
         *,
         actor_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
         correlation_id: UUID,
     ) -> None:
         """Delete a mutable test definition only when no immutable run evidence exists."""
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, actor_user_id)
             self._require_maker(context, actor_user_id)
             if context["state"] not in {"DRAFT", "RETURNED"}:
@@ -839,17 +869,21 @@ class ReleaseGovernanceRepository:
                 {"change_request_id": str(change_request_id), "test_key": test_key},
             )
 
-    def workspace_for_change(self, change_request_id: UUID) -> UUID:
+    def workspace_for_change(
+        self, change_request_id: UUID, *, tenant_ids: tuple[UUID, ...] = ()
+    ) -> UUID:
         with self._connection() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             return cast(UUID, context["workspace_id"])
 
     def scope_for_change(
-        self, change_request_id: UUID
+        self, change_request_id: UUID, *, tenant_ids: tuple[UUID, ...] = ()
     ) -> tuple[UUID | None, UUID | None, UUID | None]:
         """Load optional Factory scope from the authoritative governance linkage."""
         with self._connection() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             factory = connection.execute(
                 """
                 SELECT division_id, project_id, tenant_id
@@ -864,10 +898,17 @@ class ReleaseGovernanceRepository:
                 raise ReleaseGovernanceError("release organization scope is unavailable")
             return factory["division_id"], factory["project_id"], factory["tenant_id"]
 
-    def require_workspace_actor(self, change_request_id: UUID, actor_user_id: UUID) -> None:
+    def require_workspace_actor(
+        self,
+        change_request_id: UUID,
+        actor_user_id: UUID,
+        *,
+        tenant_ids: tuple[UUID, ...] = (),
+    ) -> None:
         """Deny operations by users who are outside the release request workspace."""
         with self._connection() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, actor_user_id)
 
     def record_test_result(
@@ -881,9 +922,11 @@ class ReleaseGovernanceRepository:
         agent_run_id: UUID | None,
         result: dict[str, Any],
         evaluation: AgentEvalOutcome | None = None,
+        tenant_ids: tuple[UUID, ...] = (),
     ) -> TestExecutionResult:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, checker_user_id)
             self._require_checker(context, checker_user_id)
             if context["state"] not in {"DRAFT", "RETURNED"}:
@@ -969,6 +1012,12 @@ class ReleaseGovernanceRepository:
                 ).fetchone()
                 if runtime_scope is None:
                     raise ReleaseGovernanceError("evaluator Agent Run is outside release scope")
+            if (
+                factory_test is not None
+                and runtime_scope is not None
+                and factory_test["tenant_id"] != runtime_scope["tenant_id"]
+            ):
+                raise ReleaseGovernanceError("evaluator Agent Run tenant is outside release scope")
             tenant_id = (
                 factory_test["tenant_id"]
                 if factory_test is not None
@@ -1057,10 +1106,16 @@ class ReleaseGovernanceRepository:
             )
 
     def submit_for_review(
-        self, change_request_id: UUID, *, checker_user_id: UUID, correlation_id: UUID
+        self,
+        change_request_id: UUID,
+        *,
+        checker_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
+        correlation_id: UUID,
     ) -> ReleaseRequestRecord:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, checker_user_id)
             self._require_checker(context, checker_user_id)
             if context["state"] not in {"DRAFT", "RETURNED"}:
@@ -1123,10 +1178,12 @@ class ReleaseGovernanceRepository:
         request: ReviewRequest,
         *,
         reviewer_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
         correlation_id: UUID,
     ) -> ReleaseRequestRecord:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, reviewer_user_id)
             if context["state"] != "IN_REVIEW":
                 raise LifecycleConflictError("request is not ready for review")
@@ -1168,10 +1225,16 @@ class ReleaseGovernanceRepository:
             return self._record_from_context(connection, change_request_id)
 
     def approve(
-        self, change_request_id: UUID, *, approver_user_id: UUID, correlation_id: UUID
+        self,
+        change_request_id: UUID,
+        *,
+        approver_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
+        correlation_id: UUID,
     ) -> ReleaseRequestRecord:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, approver_user_id)
             if context["state"] != "IN_REVIEW":
                 raise LifecycleConflictError("only an in-review request can be approved")
@@ -1203,10 +1266,16 @@ class ReleaseGovernanceRepository:
             return self._record_from_context(connection, change_request_id)
 
     def release(
-        self, change_request_id: UUID, *, approver_user_id: UUID, correlation_id: UUID
+        self,
+        change_request_id: UUID,
+        *,
+        approver_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
+        correlation_id: UUID,
     ) -> ReleaseRequestRecord:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, approver_user_id)
             if context["state"] != "APPROVED" or context["approver_user_id"] != approver_user_id:
                 raise LifecycleConflictError(
@@ -1232,10 +1301,16 @@ class ReleaseGovernanceRepository:
             return self._record_from_context(connection, change_request_id)
 
     def activate(
-        self, change_request_id: UUID, *, approver_user_id: UUID, correlation_id: UUID
+        self,
+        change_request_id: UUID,
+        *,
+        approver_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
+        correlation_id: UUID,
     ) -> ReleaseRequestRecord:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, approver_user_id)
             if context["state"] != "RELEASED" or context["approver_user_id"] != approver_user_id:
                 raise LifecycleConflictError(
@@ -1348,10 +1423,17 @@ class ReleaseGovernanceRepository:
                 )
 
     def suspend(
-        self, change_request_id: UUID, *, actor_user_id: UUID, reason: str, correlation_id: UUID
+        self,
+        change_request_id: UUID,
+        *,
+        actor_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
+        reason: str,
+        correlation_id: UUID,
     ) -> ReleaseRequestRecord:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, actor_user_id)
             if context["state"] not in {"ACTIVE", "RELEASED"}:
                 raise LifecycleConflictError("only released or active versions can be suspended")
@@ -1368,10 +1450,17 @@ class ReleaseGovernanceRepository:
             return self._record_from_context(connection, change_request_id)
 
     def kill_switch(
-        self, change_request_id: UUID, *, actor_user_id: UUID, reason: str, correlation_id: UUID
+        self,
+        change_request_id: UUID,
+        *,
+        actor_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
+        reason: str,
+        correlation_id: UUID,
     ) -> ReleaseRequestRecord:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, actor_user_id)
             existing = connection.execute(
                 """
@@ -1424,10 +1513,12 @@ class ReleaseGovernanceRepository:
         request: RollbackRequest,
         *,
         actor_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
         correlation_id: UUID,
     ) -> ReleaseRequestRecord:
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, actor_user_id)
             if context["state"] not in {"ACTIVE", "SUSPENDED"}:
                 raise LifecycleConflictError(
@@ -1509,12 +1600,14 @@ class ReleaseGovernanceRepository:
         change_request_id: UUID,
         *,
         actor_user_id: UUID,
+        tenant_ids: tuple[UUID, ...] = (),
         reason: str,
         correlation_id: UUID,
     ) -> ReleaseRequestRecord:
         """Require an explicit human action before a suspended agent can recover."""
         with self._transaction() as connection:
             context = self._context(connection, change_request_id)
+            self._require_context_tenant(context, tenant_ids)
             self._require_context_actor(connection, context, actor_user_id)
             cleared = connection.execute(
                 """
@@ -1697,6 +1790,14 @@ class ReleaseGovernanceRepository:
         )
 
     @staticmethod
+    def _require_context_tenant(
+        context: dict[str, Any], tenant_ids: tuple[UUID, ...]
+    ) -> None:
+        tenant_id = context.get("tenant_id")
+        if tenant_id is not None and tenant_id not in tenant_ids:
+            raise ReleaseGovernanceError("release request was not found")
+
+    @staticmethod
     def _draft_version(
         connection: psycopg.Connection[Any],
         organization_id: UUID,
@@ -1724,6 +1825,7 @@ class ReleaseGovernanceRepository:
         row = connection.execute(
             """
             SELECT request.change_request_id, request.organization_id, request.workspace_id,
+                   request.tenant_id,
                    request.requirement, request.requested_by_user_id,
                    governance.agent_contract_id, governance.agent_version_id,
                    governance.maker_user_id,

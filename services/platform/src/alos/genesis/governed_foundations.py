@@ -20,16 +20,16 @@ class Scope(BaseModel):
     tenant_id: UUID | None = None
 
     def contains(self, other: Scope) -> bool:
-        return all(
+        hierarchical_scope_contains = all(
             parent is None or parent == child
             for parent, child in (
                 (self.organization_id, other.organization_id),
                 (self.workspace_id, other.workspace_id),
                 (self.division_id, other.division_id),
                 (self.project_id, other.project_id),
-                (self.tenant_id, other.tenant_id),
             )
         )
+        return hierarchical_scope_contains and self.tenant_id == other.tenant_id
 
 
 class MemoryKind(StrEnum):

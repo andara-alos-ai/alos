@@ -2,8 +2,16 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+import pytest
+from fastapi import HTTPException
+
 from alos.identity import DataScope, HumanRole
-from alos.jobs.repository import AgentJobContext, JobRecord
+from alos.jobs.repository import (
+    AgentJobContext,
+    AgentScheduleRequest,
+    JobQueueRepository,
+    JobRecord,
+)
 from alos.jobs.scheduler import DurableScheduler
 from alos.jobs.worker import DurableWorker
 from alos.runtime.service import AgentRunResult
@@ -110,3 +118,31 @@ def test_worker_invokes_exact_active_agent_version_and_persists_job_result() -> 
     persisted = queue.succeed.call_args.kwargs["result"]
     assert persisted["agent_run_id"] == str(runtime.execute.return_value.agent_run_id)
     assert persisted["status"] == "SUCCEEDED"
+
+
+def test_tenant_a_cannot_configure_a_tenant_b_agent_schedule() -> None:
+    tenant_a, tenant_b = uuid4(), uuid4()
+    actor = ActorContext(
+        user_id=uuid4(),
+        organization_id=uuid4(),
+        roles=[HumanRole.AI_ADMIN],
+        workspace_ids=[uuid4()],
+        tenant_ids=[tenant_a],
+        data_scope=DataScope.COMPANY,
+        permissions=[],
+        issued_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+    with pytest.raises(HTTPException, match="tenant"):
+        JobQueueRepository("postgresql+psycopg://not-contacted").configure_agent_schedule(
+            AgentScheduleRequest(
+                workspace_id=actor.workspace_ids[0],
+                agent_key="TENANT_B_AGENT",
+                tenant_id=tenant_b,
+                schedule_expression="DAILY 08:00",
+                timezone="UTC",
+            ),
+            actor,
+            correlation_id=uuid4(),
+        )

@@ -41,4 +41,5 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "032_generic_research_persistence.sql",
         "033_agent_eval_evidence.sql",
         "034_generated_agent_schedules.sql",
+        "035_release_tenant_scope.sql",
     ]
