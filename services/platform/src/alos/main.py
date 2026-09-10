@@ -1,4 +1,3 @@
-from datetime import date
 from hashlib import sha256
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -50,6 +49,7 @@ from alos.documents.center import (
     DocumentReviewDecisionRequest,
     GenesisDocumentDraftRequest,
 )
+from alos.entrypoints.dashboard_api import router as dashboard_router
 from alos.entrypoints.documents_api import router as documents_intelligence_router
 from alos.entrypoints.genesis_agents_api import create_genesis_agent_designer
 from alos.entrypoints.genesis_agents_api import router as genesis_agents_router
@@ -61,9 +61,6 @@ from alos.entrypoints.operational_api import router as operational_router
 from alos.entrypoints.projects_api import router as projects_router
 from alos.entrypoints.readiness_api import router as readiness_router
 from alos.entrypoints.system_api import router as system_router
-from alos.executive_dashboard import (
-    ExecutiveDashboardSnapshot,
-)
 from alos.genesis.agent_designer import AgentDesignRequest, GenesisAgentDesignerError
 from alos.genesis.document_analysis import (
     GenesisDocumentAnalysisError,
@@ -104,20 +101,12 @@ from alos.genesis.uploads import (
     GenesisUploadRecord,
 )
 from alos.identity import DivisionCode, HumanRole
-from alos.identity.authentication import (
-    WorkspaceSummary,
-)
 from alos.permissions.registry import (
     PermissionConflictError,
     PermissionNotFoundError,
     PermissionPolicyRecord,
     PermissionPolicyRequest,
     PermissionRegistryError,
-)
-from alos.portfolio import (
-    DivisionsOverviewSnapshot,
-    ProjectPortfolioSnapshot,
-    ProjectStatus,
 )
 from alos.release.governance import (
     AgentTestRunner,
@@ -175,6 +164,7 @@ from alos.tools.registry import (
 app = FastAPI(title="ALOS", version="0.2.0")
 install_security_middleware(app, get_settings())
 app.include_router(operational_router)
+app.include_router(dashboard_router)
 app.include_router(documents_intelligence_router)
 app.include_router(genesis_agents_router)
 app.include_router(genesis_chat_router)
@@ -454,84 +444,6 @@ def require_review_role(actor: ActorContext, gate: str) -> None:
 
 
 
-@app.get("/api/v1/executive-dashboard", response_model=ExecutiveDashboardSnapshot)
-def get_executive_dashboard(
-    response: Response,
-    actor: Annotated[ActorContext, Depends(get_current_actor)],
-) -> ExecutiveDashboardSnapshot:
-    """Return a read-only company snapshot from the Director's accessible workspaces."""
-
-    if HumanRole.DIRECTOR not in actor.roles:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Director authority required for executive dashboard",
-        )
-    response.headers["Cache-Control"] = "no-store"
-    return get_executive_dashboard_repository().snapshot(
-        organization_id=actor.organization_id,
-        actor_user_id=actor.user_id,
-        workspace_ids=actor.workspace_ids,
-    )
-
-
-@app.get("/api/v1/divisions/overview", response_model=DivisionsOverviewSnapshot)
-def get_divisions_overview(
-    response: Response,
-    actor: Annotated[ActorContext, Depends(get_current_actor)],
-) -> DivisionsOverviewSnapshot:
-    """Return division health derived only from the actor's accessible workspaces."""
-
-    response.headers["Cache-Control"] = "no-store"
-    return get_portfolio_repository().divisions_overview(
-        organization_id=actor.organization_id,
-        workspace_ids=actor.workspace_ids,
-    )
-
-
-@app.get("/api/v1/projects/portfolio", response_model=ProjectPortfolioSnapshot)
-def get_project_portfolio(
-    response: Response,
-    actor: Annotated[ActorContext, Depends(get_current_actor)],
-    division_code: Annotated[str | None, Query(max_length=40)] = None,
-    project_status: Annotated[ProjectStatus | None, Query(alias="status")] = None,
-    category: Annotated[str | None, Query(max_length=80)] = None,
-    date_from: Annotated[date | None, Query()] = None,
-    date_to: Annotated[date | None, Query()] = None,
-    search: Annotated[str | None, Query(max_length=160)] = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> ProjectPortfolioSnapshot:
-    """Return the filtered project portfolio without crossing workspace boundaries."""
-
-    if date_from and date_to and date_to < date_from:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="date_to must be on or after date_from",
-        )
-    response.headers["Cache-Control"] = "no-store"
-    return get_portfolio_repository().project_portfolio(
-        organization_id=actor.organization_id,
-        workspace_ids=actor.workspace_ids,
-        division_code=division_code,
-        project_status=project_status,
-        category=category,
-        date_from=date_from,
-        date_to=date_to,
-        search=search,
-        page=page,
-        page_size=page_size,
-    )
-
-
-@app.get("/api/v1/workspaces", response_model=list[WorkspaceSummary])
-def list_workspaces(
-    actor: Annotated[ActorContext, Depends(get_current_actor)],
-) -> list[WorkspaceSummary]:
-    return get_identity_authentication_repository().list_workspaces(
-        organization_id=actor.organization_id, user_id=actor.user_id
-    )
-
-
 @app.get("/api/v1/governance/model-policy", response_model=ModelPolicySummary)
 def get_model_policy(
     actor: Annotated[ActorContext, Depends(get_current_actor)],
@@ -603,6 +515,28 @@ def bootstrap_local_release_review_team(workspace_id: UUID) -> dict[str, object]
         return {"team": team.model_dump(mode="json"), "access_tokens": tokens}
     except ReleaseGovernanceError as error:
         raise release_http_error(error) from error
+
+
+__all__ = [
+    "get_agent_draft_builder",
+    "get_agent_registry_repository",
+    "get_agent_runtime",
+    "get_audit_reader",
+    "get_document_center_repository",
+    "get_executive_dashboard_repository",
+    "get_genesis_document_analysis_service",
+    "get_genesis_document_workflow_repository",
+    "get_genesis_follow_up_service",
+    "get_genesis_history_repository",
+    "get_identity_authentication_repository",
+    "get_genesis_upload_repository",
+    "get_genesis_upload_service",
+    "get_permission_registry_repository",
+    "get_portfolio_repository",
+    "get_release_repository",
+    "get_source_registry_repository",
+    "get_tool_registry_repository",
+]
 
 
 @app.post("/api/v1/genesis/conversations", response_model=GenesisConversationRecord)
