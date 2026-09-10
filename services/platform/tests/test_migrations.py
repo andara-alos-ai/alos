@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from alos.persistence.migrations import discover_migrations
@@ -44,3 +45,20 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "035_release_tenant_scope.sql",
         "036_agent_run_cancellation.sql",
     ]
+
+
+def test_no_migration_redefines_an_existing_table() -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    migrations = discover_migrations(repository_root / "infra" / "database")
+    table_counts: dict[str, int] = {}
+    for migration in migrations:
+        sql = migration.path.read_text(encoding="utf-8")
+        pattern = (
+            r"CREATE TABLE\s+"
+            r"([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*|"
+            r"IF NOT EXISTS\s+[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)"
+        )
+        for match in re.findall(pattern, sql, re.IGNORECASE):
+            table = match.split()[-1].lower()
+            table_counts[table] = table_counts.get(table, 0) + 1
+    assert not {table for table, count in table_counts.items() if count > 1}
