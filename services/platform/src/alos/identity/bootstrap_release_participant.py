@@ -1,4 +1,4 @@
-"""Interactive, VPS-only setup for one independent H4 staging duty account."""
+"""Interactive, VPS-only setup for one independent release staging duty account."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from alos.identity.models import HumanRole
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Bootstrap one ALOS H4 staging duty account.")
+    parser = argparse.ArgumentParser(description="Bootstrap one ALOS release staging duty account.")
     parser.add_argument("--email", required=True)
     parser.add_argument("--display-name", required=True)
     parser.add_argument(

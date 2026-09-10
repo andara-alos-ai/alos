@@ -1,4 +1,4 @@
-"""H4 governance: no agent becomes active without independently recorded evidence."""
+"""Release governance: no agent becomes active without independently recorded evidence."""
 
 from __future__ import annotations
 
@@ -272,21 +272,31 @@ class ReleaseGovernanceRepository:
     ) -> LocalReleaseTeam:
         """Create idempotent local test identities; unavailable outside the local API route."""
         duties: tuple[tuple[LocalReleaseDuty, str, HumanRole, str], ...] = (
-            ("MAKER", "h4-maker@alos.local", HumanRole.DIVISION_OWNER, "ALOS H4 Maker"),
-            ("CHECKER", "h4-checker@alos.local", HumanRole.QA_SECURITY, "ALOS H4 Checker"),
+            ("MAKER", "release-maker@alos.local", HumanRole.DIVISION_OWNER, "ALOS Release Maker"),
+            (
+                "CHECKER",
+                "release-checker@alos.local",
+                HumanRole.QA_SECURITY,
+                "ALOS Release Checker",
+            ),
             (
                 "BUSINESS_REVIEWER",
-                "h4-business-reviewer@alos.local",
+                "release-business-reviewer@alos.local",
                 HumanRole.BUSINESS_REVIEWER,
-                "ALOS H4 Business Reviewer",
+                "ALOS Release Business Reviewer",
             ),
             (
                 "TECHNICAL_REVIEWER",
-                "h4-technical-reviewer@alos.local",
+                "release-technical-reviewer@alos.local",
                 HumanRole.TECHNICAL_REVIEWER,
-                "ALOS H4 Technical Reviewer",
+                "ALOS Release Technical Reviewer",
             ),
-            ("APPROVER", "h4-approver@alos.local", HumanRole.DIRECTOR, "ALOS H4 Approver"),
+            (
+                "APPROVER",
+                "release-approver@alos.local",
+                HumanRole.DIRECTOR,
+                "ALOS Release Approver",
+            ),
         )
         with self._transaction() as connection:
             workspace = connection.execute(
@@ -368,7 +378,7 @@ class ReleaseGovernanceRepository:
                 "WORKSPACE",
                 workspace_id,
                 correlation_id,
-                "Local-only H4 maker/checker/reviewer/approver test identities were prepared",
+                "Local-only release maker/checker/reviewer/approver test identities were prepared",
                 {"duties": [participant.duty for participant in participants]},
             )
             return LocalReleaseTeam(

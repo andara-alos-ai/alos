@@ -1,4 +1,4 @@
-"""H3 shared Agent Runtime with deterministic budgets and tool guardrails."""
+"""Shared Agent Runtime with deterministic budgets and tool guardrails."""
 
 from __future__ import annotations
 
@@ -54,12 +54,12 @@ from alos.tools.executor import (
 RunStatus = Literal[
     "SUCCEEDED", "FAILED", "BLOCKED", "CANCELLED", "CANCEL_REQUESTED"
 ]
-H3_FIXTURE_ENVIRONMENTS = frozenset({"local", "test", "staging"})
+VALIDATION_FIXTURE_ENVIRONMENTS = frozenset({"local", "test", "staging"})
 
 
-def h3_fixture_runtime_enabled(environment: str) -> bool:
-    """Allow bounded H3 fixture runs in staging, never production."""
-    return environment in H3_FIXTURE_ENVIRONMENTS
+def validation_fixture_runtime_enabled(environment: str) -> bool:
+    """Allow bounded validation fixture runs in staging, never production."""
+    return environment in VALIDATION_FIXTURE_ENVIRONMENTS
 
 
 class AgentRuntimeError(RuntimeError):
@@ -2100,7 +2100,7 @@ def _validate_json_schema(value: Any, schema: dict[str, Any], path: str) -> None
 
 def _read_only_fixture(fixture_input: dict[str, Any]) -> dict[str, Any]:
     return {
-        "fixture": "H3_READ_ONLY_PROPERTY_SOURCE",
+        "fixture": "VALIDATION_READ_ONLY_PROPERTY_SOURCE",
         "query": fixture_input.get("query", ""),
         "records": [
             {

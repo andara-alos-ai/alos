@@ -45,7 +45,7 @@ type PermissionControl = {
   lifecycle_status: "DRAFT" | "IN_REVIEW" | "APPROVED" | "REVOKED";
 };
 
-type H5ControlSummary = {
+type ValidationControlSummary = {
   source_tool: ToolControl | null;
   permissions: Array<{
     agent_key: string;
@@ -55,7 +55,7 @@ type H5ControlSummary = {
   ready_for_uat: boolean;
 };
 
-type H5RunResult = {
+type ValidationRunResult = {
   agent_run_id: string;
   agent_key: string;
   semantic_version: string;
@@ -71,12 +71,12 @@ type H5RunResult = {
   error_code: string | null;
 };
 
-type H5Data = {
+type ValidationData = {
   actor: SessionActor;
   workspaces: Workspace[];
   vault: SourceVault | null;
   sources: SourceVersion[];
-  controls: H5ControlSummary | null;
+  controls: ValidationControlSummary | null;
 };
 
 const permittedRoot = "https://drive.google.com/drive/folders/1D66GYJVl7WZlefS8e8FO9lkL034CA9wS";
@@ -84,7 +84,7 @@ const excludedFolder = "https://drive.google.com/drive/folders/1rf-8esLauaCNylWm
 
 export function AgentValidationConsole() {
   const router = useRouter();
-  const [data, setData] = useState<H5Data | null>(null);
+  const [data, setData] = useState<ValidationData | null>(null);
   const [workspaceId, setWorkspaceId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -105,9 +105,9 @@ export function AgentValidationConsole() {
   });
   const [selectedAgent, setSelectedAgent] = useState<"DAILY_BRIEF" | "EVIDENCE_CHECKER" | "PERMIT_OVERDUE_MONITOR">("DAILY_BRIEF");
   const [fixtureInput, setFixtureInput] = useState('{\n  "as_of_date": "2026-09-05",\n  "query": "operasional"\n}');
-  const [runResult, setRunResult] = useState<H5RunResult | null>(null);
+  const [runResult, setRunResult] = useState<ValidationRunResult | null>(null);
 
-  const loadWorkspace = useCallback(async (selectedWorkspaceId: string, foundation?: Pick<H5Data, "actor" | "workspaces">) => {
+  const loadWorkspace = useCallback(async (selectedWorkspaceId: string, foundation?: Pick<ValidationData, "actor" | "workspaces">) => {
     const base = foundation ?? await loadFoundation();
     const [vault, sources, controls] = await Promise.all([
       loadVault(selectedWorkspaceId),
@@ -261,7 +261,7 @@ export function AgentValidationConsole() {
       return;
     }
     await mutate("UAT agent selesai; hasil, correlation ID, usage, dan audit telah disimpan.", async () => {
-      const result = await api<H5RunResult>("/api/v1/validation/runs", {
+      const result = await api<ValidationRunResult>("/api/v1/validation/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workspace_id: workspaceId, agent_key: selectedAgent, input }),
@@ -297,7 +297,7 @@ export function AgentValidationConsole() {
   if (!data) return <main className="loading-shell"><p>{error || "Sesi tidak tersedia."}</p><Link className="text-link" href="/login">Ke halaman login</Link></main>;
 
   return (
-    <main className="dashboard-shell h5-shell">
+    <main className="dashboard-shell validation-shell">
       <header className="dashboard-header">
         <div>
           <p className="eyebrow">ALOS / AGENT VALIDATION</p>
@@ -314,8 +314,8 @@ export function AgentValidationConsole() {
 
       <section className="workspace-bar" aria-label="Workspace validasi agent">
         <div>
-          <label htmlFor="h5-workspace">Workspace aktif</label>
-          <select disabled={saving} id="h5-workspace" onChange={(event) => void selectWorkspace(event.target.value)} value={workspaceId}>
+          <label htmlFor="validation-workspace">Workspace aktif</label>
+          <select disabled={saving} id="validation-workspace" onChange={(event) => void selectWorkspace(event.target.value)} value={workspaceId}>
             {data.workspaces.map((workspace) => <option key={workspace.workspace_id} value={workspace.workspace_id}>{workspace.name} · {workspace.workspace_key}</option>)}
           </select>
         </div>
@@ -325,56 +325,56 @@ export function AgentValidationConsole() {
       {error ? <p className="banner-error" role="alert">{error}</p> : null}
       {notice ? <p className="banner-success" role="status">{notice}</p> : null}
 
-      <section className="h5-step-grid" aria-label="Tahapan validasi agent">
+      <section className="validation-step-grid" aria-label="Tahapan validasi agent">
         <StatusCard label="1. Source Vault" ready={Boolean(data.vault)} value={data.vault ? "Configured" : "Belum diatur"} />
         <StatusCard label="2. Evidence" ready={data.sources.some((source) => source.status === "VERIFIED")} value={`${data.sources.filter((source) => source.status === "VERIFIED").length} terverifikasi`} />
         <StatusCard label="3. Agent & control" ready={Boolean(data.controls?.source_tool)} value={data.controls?.ready_for_uat ? "Siap UAT" : "Menunggu approval"} />
         <StatusCard label="4. UAT & review" ready={canRunFixture} value={canRunFixture ? "Fixture dapat dijalankan" : "Menunggu control"} />
       </section>
 
-      <section className="dashboard-grid h5-grid">
+      <section className="dashboard-grid validation-grid">
         <article className="panel">
           <div className="panel-heading"><div><p className="eyebrow">SOURCE VAULT</p><h2>Batas sumber yang dapat didaftarkan</h2></div><span className={data.vault ? "permission-ok" : "permission-readonly"}>{data.vault ? "READ_ONLY" : "Belum ada policy"}</span></div>
           <p className="safe-note">Folder sumber dan folder yang dikecualikan hanya menjadi kebijakan audit. ALOS tidak membaca Google Drive sampai content extract didaftarkan oleh manusia.</p>
-          <label className="h5-field">Root folder yang diizinkan<input disabled={!canOperatePilot || saving} onChange={(event) => setVaultForm({ ...vaultForm, allowedRootUrl: event.target.value })} value={vaultForm.allowedRootUrl} /></label>
-          <label className="h5-field">Folder yang dikecualikan<input disabled={!canOperatePilot || saving} onChange={(event) => setVaultForm({ ...vaultForm, excludedFolderUrl: event.target.value })} value={vaultForm.excludedFolderUrl} /></label>
-          <label className="h5-field">Alasan audit<textarea disabled={!canOperatePilot || saving} onChange={(event) => setVaultForm({ ...vaultForm, reason: event.target.value })} value={vaultForm.reason} /></label>
+          <label className="validation-field">Root folder yang diizinkan<input disabled={!canOperatePilot || saving} onChange={(event) => setVaultForm({ ...vaultForm, allowedRootUrl: event.target.value })} value={vaultForm.allowedRootUrl} /></label>
+          <label className="validation-field">Folder yang dikecualikan<input disabled={!canOperatePilot || saving} onChange={(event) => setVaultForm({ ...vaultForm, excludedFolderUrl: event.target.value })} value={vaultForm.excludedFolderUrl} /></label>
+          <label className="validation-field">Alasan audit<textarea disabled={!canOperatePilot || saving} onChange={(event) => setVaultForm({ ...vaultForm, reason: event.target.value })} value={vaultForm.reason} /></label>
           <button disabled={!canOperatePilot || saving} onClick={() => void saveVault()} type="button">{saving ? "Menyimpan…" : "Simpan Source Vault & audit"}</button>
         </article>
 
-        <article className="panel h5-control-panel">
+        <article className="panel validation-control-panel">
           <p className="eyebrow">VALIDATION AGENTS &amp; CONTROLS</p>
           <h2>Siapkan tanpa menjalankan Agent</h2>
           <p className="muted">Catalog yang dibuat: Daily Brief, Evidence Checker, dan Permit/Overdue Monitor. Semua LOW risk, output bercitation, dan tetap DRAFT.</p>
-          <ol className="h5-control-list">
+          <ol className="validation-control-list">
             <li><strong>1. Agent Contracts</strong><span>Buat atau perbarui successor DRAFT dari katalog validasi.</span><button disabled={!canOperatePilot || saving} onClick={() => void createDrafts("/api/v1/validation/agents/drafts", "Tiga Agent Contract telah disiapkan sebagai DRAFT.")} type="button">Siapkan 3 Agent DRAFT</button></li>
             <li><strong>2. Tool &amp; permissions</strong><span>Hanya menyiapkan Tool dan Permission Policy DRAFT. Persetujuan independen tetap wajib.</span><button disabled={!canOperatePilot || saving} onClick={() => void createDrafts("/api/v1/validation/controls/drafts", "Control DRAFT telah disiapkan. Setujui secara independen sebelum UAT.")} type="button">Siapkan Control DRAFT</button></li>
             <li><strong>3. UAT &amp; GO / HOLD / NO-GO</strong><span>Jalankan fixture, review, dan keputusan manusia melalui lifecycle release.</span><Link className="secondary-button button-link" href="/releases">Buka Release Governance</Link></li>
           </ol>
-          <div className="h5-approval-card">
+          <div className="validation-approval-card">
             <div><p className="eyebrow">INDEPENDENT APPROVAL</p><h3>Tool &amp; permission control</h3></div>
             {!data.controls ? <p className="empty-state">Masuk sebagai IT Lead, Director, atau QA Security untuk melihat kontrol validasi.</p> : <>
-              <div className="h5-approval-row"><span><strong>Tool: SOURCE_REGISTRY_SEARCH</strong><small>{data.controls.source_tool?.lifecycle_status ?? "Belum dibuat"} · hanya read-only</small></span>{data.controls.source_tool?.lifecycle_status === "APPROVED" ? <b className="permission-ok">APPROVED</b> : <button disabled={!canApproveControls || saving || data.controls.source_tool?.lifecycle_status !== "DRAFT"} onClick={() => void approveTool()} type="button">Approve Tool</button>}</div>
-              {data.controls.permissions.map((control) => <div className="h5-approval-row" key={control.agent_key}><span><strong>{control.agent_key}: SOURCE_READ_INTERNAL</strong><small>{control.semantic_version ? `v${control.semantic_version}` : "Agent belum tersedia"} · {control.permission_policy?.lifecycle_status ?? "Belum dibuat"}</small></span>{control.permission_policy?.lifecycle_status === "APPROVED" ? <b className="permission-ok">APPROVED</b> : <button disabled={!canApproveControls || saving || control.permission_policy?.lifecycle_status !== "DRAFT"} onClick={() => control.permission_policy && void approvePermission(control.permission_policy.permission_policy_id, control.agent_key)} type="button">Approve Permission</button>}</div>)}
+              <div className="validation-approval-row"><span><strong>Tool: SOURCE_REGISTRY_SEARCH</strong><small>{data.controls.source_tool?.lifecycle_status ?? "Belum dibuat"} · hanya read-only</small></span>{data.controls.source_tool?.lifecycle_status === "APPROVED" ? <b className="permission-ok">APPROVED</b> : <button disabled={!canApproveControls || saving || data.controls.source_tool?.lifecycle_status !== "DRAFT"} onClick={() => void approveTool()} type="button">Approve Tool</button>}</div>
+              {data.controls.permissions.map((control) => <div className="validation-approval-row" key={control.agent_key}><span><strong>{control.agent_key}: SOURCE_READ_INTERNAL</strong><small>{control.semantic_version ? `v${control.semantic_version}` : "Agent belum tersedia"} · {control.permission_policy?.lifecycle_status ?? "Belum dibuat"}</small></span>{control.permission_policy?.lifecycle_status === "APPROVED" ? <b className="permission-ok">APPROVED</b> : <button disabled={!canApproveControls || saving || control.permission_policy?.lifecycle_status !== "DRAFT"} onClick={() => control.permission_policy && void approvePermission(control.permission_policy.permission_policy_id, control.agent_key)} type="button">Approve Permission</button>}</div>)}
               <p className="safe-note">Hanya DIRECTOR atau QA_SECURITY yang dapat menyetujui. Pembuat control tidak dapat menyetujui control buatannya sendiri.</p>
             </>}
           </div>
         </article>
       </section>
 
-      <section className="dashboard-grid h5-grid lower-grid">
-        <article className="panel h5-register-panel">
+      <section className="dashboard-grid validation-grid lower-grid">
+        <article className="panel validation-register-panel">
           <p className="eyebrow">MANUAL SOURCE REGISTRATION</p>
           <h2>Catat extract bukti</h2>
           <p className="muted">Salin extract teks yang telah diperiksa manusia. Locator hanya referensi; Runtime tidak mengunduh URL tersebut.</p>
-          {!data.vault ? <p className="empty-state">Atur Source Vault lebih dahulu.</p> : <div className="h5-source-form">
+          {!data.vault ? <p className="empty-state">Atur Source Vault lebih dahulu.</p> : <div className="validation-source-form">
             <label>Source key<input disabled={!canOperatePilot || saving} onChange={(event) => setSourceForm({ ...sourceForm, sourceKey: event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "") })} placeholder="MISAL: SOP_OPERASIONAL" value={sourceForm.sourceKey} /></label>
             <label>Nama sumber<input disabled={!canOperatePilot || saving} onChange={(event) => setSourceForm({ ...sourceForm, name: event.target.value })} value={sourceForm.name} /></label>
             <label>Jenis<select disabled={!canOperatePilot || saving} onChange={(event) => setSourceForm({ ...sourceForm, sourceType: event.target.value as SourceVersion["source_type"] })} value={sourceForm.sourceType}><option value="TEXT">TEXT extract</option><option value="DOCX">DOCX extract</option><option value="PDF">PDF extract</option><option value="URL">URL extract</option></select></label>
             <label>Versi<input disabled={!canOperatePilot || saving} onChange={(event) => setSourceForm({ ...sourceForm, versionLabel: event.target.value })} value={sourceForm.versionLabel} /></label>
-            <label className="h5-wide">Drive locator / referensi<input disabled={!canOperatePilot || saving} onChange={(event) => setSourceForm({ ...sourceForm, locator: event.target.value })} placeholder="Link file atau folder yang sudah Anda periksa" value={sourceForm.locator} /></label>
-            <label className="h5-wide">Extract teks yang diverifikasi<textarea disabled={!canOperatePilot || saving} onChange={(event) => setSourceForm({ ...sourceForm, content: event.target.value })} placeholder="Tempel isi penting yang dapat menjadi evidence. Jangan masukkan credential atau informasi rahasia yang tidak diperlukan." value={sourceForm.content} /></label>
-            <p className="safe-note h5-wide">Dengan menyimpan, Anda mengesahkan bahwa locator berada pada Source Vault yang diizinkan dan bukan folder yang dikecualikan.</p>
+            <label className="validation-wide">Drive locator / referensi<input disabled={!canOperatePilot || saving} onChange={(event) => setSourceForm({ ...sourceForm, locator: event.target.value })} placeholder="Link file atau folder yang sudah Anda periksa" value={sourceForm.locator} /></label>
+            <label className="validation-wide">Extract teks yang diverifikasi<textarea disabled={!canOperatePilot || saving} onChange={(event) => setSourceForm({ ...sourceForm, content: event.target.value })} placeholder="Tempel isi penting yang dapat menjadi evidence. Jangan masukkan credential atau informasi rahasia yang tidak diperlukan." value={sourceForm.content} /></label>
+            <p className="safe-note validation-wide">Dengan menyimpan, Anda mengesahkan bahwa locator berada pada Source Vault yang diizinkan dan bukan folder yang dikecualikan.</p>
             <button disabled={!canOperatePilot || saving} onClick={() => void registerSource()} type="button">Simpan source version</button>
           </div>}
         </article>
@@ -382,33 +382,33 @@ export function AgentValidationConsole() {
         <article className="panel">
           <p className="eyebrow">EVIDENCE REGISTER</p>
           <h2>Verifikasi sumber sebelum retrieval</h2>
-          {data.sources.length === 0 ? <p className="empty-state">Belum ada source version pada workspace ini.</p> : <div className="h5-source-list">
+          {data.sources.length === 0 ? <p className="empty-state">Belum ada source version pada workspace ini.</p> : <div className="validation-source-list">
             {data.sources.map((source) => <article key={source.source_version_id}><div><strong>{source.name}</strong><span>{source.source_key} · {source.version_label} · {source.citation_count} citation</span><small>{source.status === "VERIFIED" ? "Verified — boleh menjadi evidence read-only" : "Source received — belum boleh diretrieval"}</small></div>{source.status === "VERIFIED" ? <span className="permission-ok">VERIFIED</span> : <button disabled={!canOperatePilot || saving} onClick={() => void verifySource(source.source_key)} type="button">Verifikasi &amp; audit</button>}</article>)}
           </div>}
         </article>
       </section>
 
-      <section className="dashboard-grid h5-grid lower-grid">
-        <article className="panel h5-uat-panel">
+      <section className="dashboard-grid validation-grid lower-grid">
+        <article className="panel validation-uat-panel">
           <p className="eyebrow">BOUNDED AGENT UAT</p>
           <h2>Jalankan satu Agent DRAFT secara terbatas</h2>
           <p className="muted">Memakai shared Runtime, satu Tool read-only, evidence yang telah VERIFIED, dan limit biaya workspace yang berlaku. Tidak ada perubahan pada dokumen atau Drive.</p>
-          <label className="h5-field">Agent<select disabled={!canOperatePilot || saving || !canRunFixture} onChange={(event) => { const agentKey = event.target.value as typeof selectedAgent; setSelectedAgent(agentKey); setFixtureInput(defaultFixtureInput(agentKey)); }} value={selectedAgent}><option value="DAILY_BRIEF">Daily Brief Agent</option><option value="EVIDENCE_CHECKER">Evidence Checker Agent</option><option value="PERMIT_OVERDUE_MONITOR">Permit/Overdue Monitor Agent</option></select></label>
-          <label className="h5-field">Input fixture (JSON)<textarea disabled={!canOperatePilot || saving || !canRunFixture} onChange={(event) => setFixtureInput(event.target.value)} value={fixtureInput} /></label>
+          <label className="validation-field">Agent<select disabled={!canOperatePilot || saving || !canRunFixture} onChange={(event) => { const agentKey = event.target.value as typeof selectedAgent; setSelectedAgent(agentKey); setFixtureInput(defaultFixtureInput(agentKey)); }} value={selectedAgent}><option value="DAILY_BRIEF">Daily Brief Agent</option><option value="EVIDENCE_CHECKER">Evidence Checker Agent</option><option value="PERMIT_OVERDUE_MONITOR">Permit/Overdue Monitor Agent</option></select></label>
+          <label className="validation-field">Input fixture (JSON)<textarea disabled={!canOperatePilot || saving || !canRunFixture} onChange={(event) => setFixtureInput(event.target.value)} value={fixtureInput} /></label>
           <button disabled={!canOperatePilot || saving || !canRunFixture} onClick={() => void runFixture()} type="button">{saving ? "Menjalankan…" : "Jalankan Fixture UAT"}</button>
           {!canRunFixture ? <p className="safe-note">Butuh minimal satu source VERIFIED serta Tool dan tiga Permission Policy APPROVED oleh pihak independen.</p> : null}
         </article>
-        <article className="panel h5-run-result">
+        <article className="panel validation-run-result">
           <p className="eyebrow">UAT RESULT</p>
           <h2>Correlation &amp; evidence</h2>
-          {!runResult ? <p className="empty-state">Belum ada UAT run pada sesi ini.</p> : <div className="h5-result-body"><div><span>Status</span><strong>{runResult.status}</strong></div><div><span>Correlation ID</span><code>{runResult.correlation_id}</code></div><div><span>Provider / model</span><strong>{runResult.provider ?? "—"} / {runResult.model ?? "—"}</strong></div><div><span>Token / latency</span><strong>{runResult.input_tokens ?? "—"} input · {runResult.output_tokens ?? "—"} output · {runResult.latency_milliseconds ?? "—"} ms</strong></div>{runResult.output ? <pre>{JSON.stringify(runResult.output, null, 2)}</pre> : <p className="banner-error">{runResult.error_code ?? "Run tidak menghasilkan output."}</p>}</div>}
+          {!runResult ? <p className="empty-state">Belum ada UAT run pada sesi ini.</p> : <div className="validation-result-body"><div><span>Status</span><strong>{runResult.status}</strong></div><div><span>Correlation ID</span><code>{runResult.correlation_id}</code></div><div><span>Provider / model</span><strong>{runResult.provider ?? "—"} / {runResult.model ?? "—"}</strong></div><div><span>Token / latency</span><strong>{runResult.input_tokens ?? "—"} input · {runResult.output_tokens ?? "—"} output · {runResult.latency_milliseconds ?? "—"} ms</strong></div>{runResult.output ? <pre>{JSON.stringify(runResult.output, null, 2)}</pre> : <p className="banner-error">{runResult.error_code ?? "Run tidak menghasilkan output."}</p>}</div>}
         </article>
       </section>
     </main>
   );
 }
 
-async function loadFoundation(): Promise<Pick<H5Data, "actor" | "workspaces">> {
+async function loadFoundation(): Promise<Pick<ValidationData, "actor" | "workspaces">> {
   const [actor, workspaces] = await Promise.all([
     api<SessionActor>("/api/v1/whoami"),
     api<Workspace[]>("/api/v1/workspaces"),
@@ -425,9 +425,9 @@ async function loadVault(workspaceId: string): Promise<SourceVault | null> {
   }
 }
 
-async function loadControls(workspaceId: string): Promise<H5ControlSummary | null> {
+async function loadControls(workspaceId: string): Promise<ValidationControlSummary | null> {
   try {
-    return await api<H5ControlSummary>(`/api/v1/validation/controls?workspace_id=${workspaceId}`);
+    return await api<ValidationControlSummary>(`/api/v1/validation/controls?workspace_id=${workspaceId}`);
   } catch (error: unknown) {
     if (error instanceof ApiError && error.status === 403) return null;
     throw error;

@@ -44,7 +44,7 @@ class SourceNotFoundError(SourceRegistryError):
 
 
 class SourceVaultPolicyRequest(BaseModel):
-    """Human-approved source boundary for a controlled H5 pilot.
+    """Human-approved source boundary for a controlled validation pilot.
 
     A Source Vault records an allowed Drive root and a separately denied folder.
     It never grants the Runtime a Drive token or permission to fetch Drive.
@@ -362,7 +362,7 @@ class SourceRegistryRepository:
         actor_user_id: UUID,
         correlation_id: UUID,
     ) -> SourceVaultPolicyRecord:
-        """Persist a read-only human boundary for sources used in the H5 pilot."""
+        """Persist a read-only human boundary for sources used in the validation pilot."""
         allowed_folder_id = _google_drive_folder_id(request.allowed_root_url)
         excluded_folder_id = _google_drive_folder_id(request.excluded_folder_url)
         if allowed_folder_id is None or excluded_folder_id is None:

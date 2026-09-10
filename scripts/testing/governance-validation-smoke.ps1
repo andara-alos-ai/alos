@@ -13,7 +13,7 @@ param(
 
     [switch]$RunControlledWrites,
 
-    [string]$OutputDirectory = "artifacts/h5-smoke"
+    [string]$OutputDirectory = "artifacts/governance-validation-smoke"
 )
 
 Set-StrictMode -Version Latest
@@ -56,7 +56,7 @@ catch { Add-Result "workspace_access" FAIL $_.Exception.Message }
 
 if ($RunControlledWrites) {
     try {
-        $conversation = Invoke-ALOS POST "/api/v1/genesis/conversations" @{ workspace_id = $WorkspaceId; title = "H5 smoke $timestamp"; context_mode = "INTERNAL" }
+        $conversation = Invoke-ALOS POST "/api/v1/genesis/conversations" @{ workspace_id = $WorkspaceId; title = "Governance validation smoke $timestamp"; context_mode = "INTERNAL" }
         $turn = Invoke-ALOS POST "/api/v1/genesis/conversations/$($conversation.conversation_id)/turns" @{ content = "Ringkas data internal yang tersedia, tanpa membuat task."; context_mode = "INTERNAL"; attachments = @() }
         if ($turn.assistant_message.structured_content.response.reliability) {
             Add-Result "genesis_conversation_and_source_behavior" PASS "structured reliability persisted"
@@ -86,9 +86,9 @@ $report = [ordered]@{
     commit_sha = $commit
     results = $results
 }
-$output = Join-Path $root $OutputDirectory "h5-smoke-$((Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')).json"
+$output = Join-Path $root $OutputDirectory "governance-validation-smoke-$((Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')).json"
 $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $output -Encoding utf8
-Write-Output "H5 smoke: $overall"
+Write-Output "Governance validation smoke: $overall"
 Write-Output "Evidence: $output"
 if ($overall -eq "FAIL") { exit 1 }
 if ($overall -eq "BLOCKED") { exit 2 }

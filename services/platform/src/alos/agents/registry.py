@@ -1,4 +1,4 @@
-"""H2 Agent Registry and deterministic Genesis draft builder.
+"""Agent Registry and deterministic Genesis draft builder.
 
 The Builder compiles human-controlled inputs into a safe DRAFT without calling
 an external model. Every create, update, and retirement writes an append-only
@@ -90,7 +90,13 @@ class GeneratedAgentFields(BaseModel):
 
 
 class AgentContract(BaseModel):
-    """Runtime-neutral, versioned contract for every logical ALOS agent."""
+    """Runtime-neutral, versioned contract for every logical ALOS agent.
+
+    ``forbidden_actions`` is declarative, human-readable contract metadata.
+    Deterministic enforcement is performed by ALOS controls such as identity
+    scope, Permission Registry, Release Governance, ToolExecutor, ModelGateway,
+    human gates, tenant boundaries, kill/suspend, and budget controls.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -180,8 +186,8 @@ class LocalBootstrapRequest(BaseModel):
 
     email: str = Field(default="it-lead@alos.local", min_length=3, max_length=320)
     display_name: str = Field(default="ALOS IT Lead", min_length=1, max_length=200)
-    workspace_key: str = Field(default="H2_REGISTRY", pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
-    workspace_name: str = Field(default="ALOS H2 Agent Registry", min_length=1, max_length=200)
+    workspace_key: str = Field(default="AGENT_REGISTRY", pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
+    workspace_name: str = Field(default="ALOS Agent Registry", min_length=1, max_length=200)
 
 
 class LocalBootstrapContext(BaseModel):
@@ -331,7 +337,7 @@ class AgentRegistryRepository:
                 entity_type="WORKSPACE",
                 entity_id=workspace_id,
                 correlation_id=correlation_id,
-                reason="Local H2 Registry bootstrap",
+                reason="Local Agent Registry bootstrap",
                 metadata={
                     "workspace_id": str(workspace_id),
                     "workspace_key": request.workspace_key,
