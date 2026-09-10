@@ -598,6 +598,33 @@ th { color: #aac0d5; font-weight: 700; }
 /* GENESIS Company AI Workspace */
 .genesis-workspace { max-width: 1760px; padding-top: 20px; }
 .genesis-workspace button, .genesis-workspace input, .genesis-workspace select, .genesis-workspace textarea { font: inherit; }
+.genesis-factory-console { display: grid; gap: 16px; }
+.genesis-factory-console form { display: grid; gap: 12px; margin-top: 14px; }
+.genesis-factory-console form label { color: #29493e; display: grid; gap: 6px; font-size: .72rem; font-weight: 700; }
+.genesis-factory-console form input, .genesis-factory-console form select, .genesis-factory-console form textarea { background: #fff; border: 1px solid #bacdc0; border-radius: 8px; color: #24483b; font: inherit; font-size: .72rem; padding: 10px; width: 100%; }
+.genesis-factory-console form textarea { min-height: 110px; resize: vertical; }
+.genesis-factory-console form button, .genesis-factory-actions button { background: #0b4b3b; border: 0; border-radius: 8px; color: #fff; cursor: pointer; font-weight: 800; padding: 10px 14px; }
+.genesis-factory-notice { color: #087744; font-size: .7rem; }
+.genesis-factory-layout { display: grid; gap: 14px; grid-template-columns: 280px minmax(0, 1fr); margin-top: 14px; }
+.genesis-factory-layout > div:first-child { display: grid; gap: 6px; max-height: 540px; overflow-y: auto; }
+.genesis-factory-layout > div:first-child button { background: #fff; border: 1px solid #dfe6df; border-radius: 8px; color: #29493e; cursor: pointer; display: grid; gap: 3px; padding: 9px; text-align: left; }
+.genesis-factory-layout > div:first-child button.selected { background: #eaf3eb; border-color: #8fbd9c; }
+.genesis-factory-layout > div:first-child button strong { font-size: .63rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.genesis-factory-layout > div:first-child button small { color: #7b8b84; font-size: .52rem; }
+.genesis-factory-detail { background: #fbfcf9; border: 1px solid #dfe6df; border-radius: 9px; display: grid; gap: 12px; padding: 13px; }
+.genesis-factory-detail-head { align-items: center; display: flex; gap: 8px; }
+.genesis-factory-detail h4 { color: #1d4235; font-size: .84rem; margin: 0; }
+.genesis-factory-detail dl { display: grid; gap: 8px; margin: 0; }
+.genesis-factory-detail dl div { display: grid; gap: 2px; }
+.genesis-factory-detail dt { color: #788980; font-size: .54rem; font-weight: 800; text-transform: uppercase; }
+.genesis-factory-detail dd { color: #29493e; font-size: .68rem; margin: 0; overflow-wrap: anywhere; }
+.genesis-factory-actions { align-items: center; display: flex; gap: 12px; }
+.genesis-factory-actions small { color: #7b8b84; font-size: .62rem; }
+.genesis-factory-empty { color: #7b8b84; font-size: .7rem; }
+.genesis-factory-error { background: #fff0ef; border: 1px solid #f0c2bf; border-radius: 8px; display: grid; gap: 3px; padding: 11px; }
+.genesis-factory-error strong { color: #9d3c34; font-size: .72rem; }
+.genesis-factory-error span { color: #5f403d; font-size: .68rem; }
+.genesis-factory-error small { color: #7d5b58; font-size: .6rem; }
 .genesis-workspace-grid { background: #fffefa; border: 1px solid #dce5dd; border-radius: 14px; display: grid; grid-template-columns: 238px minmax(420px, 1fr) 318px; min-height: calc(100vh - 180px); overflow: hidden; }
 .genesis-mobile-controls { display: none; }
 .genesis-conversation-nav, .genesis-inspector { background: #fbfcf8; min-width: 0; padding: 13px; }

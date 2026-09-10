@@ -141,6 +141,9 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
             <span className="alos-genesis-label"><strong>GENESIS</strong><small>AI Executive</small></span>
             <AppIcon name="chevron" />
           </Link>
+          <Link href="/factory">
+            <span className="alos-genesis-label"><strong>Factory</strong><small>Governed DRAFT</small></span>
+          </Link>
         </div>
 
         <div className="alos-sidebar-footer">
