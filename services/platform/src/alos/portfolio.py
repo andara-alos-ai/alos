@@ -173,6 +173,8 @@ class PortfolioRepository:
                            count(*) FILTER (WHERE project.status <> 'COMPLETED') AS active_projects,
                            avg(project.progress_percent)
                                FILTER (WHERE project.status <> 'COMPLETED') AS average_progress,
+                           sum(project.overdue_tasks)
+                               FILTER (WHERE project.status <> 'COMPLETED') AS overdue_tasks,
                            count(*) FILTER (WHERE project.status = 'CRITICAL') AS critical_projects,
                            count(*) FILTER (WHERE project.status = 'AT_RISK') AS at_risk_projects
                     FROM portfolio.projects AS project
@@ -180,16 +182,6 @@ class PortfolioRepository:
                       ON workspace.workspace_id = project.workspace_id
                     WHERE project.organization_id = %s AND project.status <> 'ARCHIVED'
                     GROUP BY project.division_id
-                ),
-                task_stats AS (
-                    SELECT task.division_id, count(*) AS overdue_tasks
-                    FROM operational.tasks AS task
-                    JOIN accessible_workspaces AS workspace
-                      ON workspace.workspace_id = task.workspace_id
-                    WHERE task.organization_id = %s
-                      AND task.due_date < current_date
-                      AND task.status NOT IN ('DONE', 'CANCELLED')
-                    GROUP BY task.division_id
                 ),
                 issue_stats AS (
                     SELECT issue.division_id,
@@ -224,7 +216,7 @@ class PortfolioRepository:
                        coalesce(project.project_count, 0) AS project_count,
                        coalesce(project.active_projects, 0) AS active_projects,
                        project.average_progress,
-                       coalesce(task.overdue_tasks, 0) AS overdue_tasks,
+                        coalesce(project.overdue_tasks, 0) AS overdue_tasks,
                        coalesce(project.critical_projects, 0) AS critical_projects,
                        coalesce(project.at_risk_projects, 0) AS at_risk_projects,
                        coalesce(issue.open_issues, 0) AS open_issues,
@@ -234,7 +226,6 @@ class PortfolioRepository:
                        coalesce(approval.document_count, 0) AS document_count
                 FROM identity.divisions AS division
                 LEFT JOIN project_stats AS project ON project.division_id = division.division_id
-                LEFT JOIN task_stats AS task ON task.division_id = division.division_id
                 LEFT JOIN issue_stats AS issue ON issue.division_id = division.division_id
                 LEFT JOIN approval_stats AS approval ON approval.division_id = division.division_id
                 WHERE division.organization_id = %s
@@ -242,7 +233,6 @@ class PortfolioRepository:
                 (
                     organization_id,
                     accessible,
-                    organization_id,
                     organization_id,
                     organization_id,
                     organization_id,
