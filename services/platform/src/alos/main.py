@@ -10,22 +10,38 @@ from pydantic import BaseModel, ConfigDict, Field
 from alos.agents.registry import (
     AgentBuilderRequest,
     AgentConflictError,
-    AgentDraftBuilder,
     AgentNotFoundError,
     AgentRegistryError,
     AgentRegistryRecord,
-    AgentRegistryRepository,
-    DeterministicAgentDraftGenerator,
     LocalBootstrapRequest,
 )
 from alos.agents.validation_catalog import validation_agent_requests
-from alos.audit.reader import AuditEventRecord, AuditReader
+from alos.audit.reader import AuditEventRecord
 from alos.authorization import can_govern_agents, require_tenant
 from alos.config import get_settings
+from alos.dependencies import (
+    get_agent_draft_builder,
+    get_agent_registry_repository,
+    get_agent_runtime,
+    get_audit_reader,
+    get_document_center_repository,
+    get_executive_dashboard_repository,
+    get_genesis_document_analysis_service,
+    get_genesis_document_workflow_repository,
+    get_genesis_follow_up_service,
+    get_genesis_history_repository,
+    get_genesis_upload_repository,
+    get_genesis_upload_service,
+    get_identity_authentication_repository,
+    get_permission_registry_repository,
+    get_portfolio_repository,
+    get_release_repository,
+    get_source_registry_repository,
+    get_tool_registry_repository,
+)
 from alos.documents.center import (
     ChecklistCompletionRequest,
     DocumentCenterError,
-    DocumentCenterRepository,
     DocumentConflictError,
     DocumentDetail,
     DocumentDraftRequest,
@@ -44,8 +60,8 @@ from alos.entrypoints.jobs_api import router as jobs_router
 from alos.entrypoints.operational_api import router as operational_router
 from alos.entrypoints.projects_api import router as projects_router
 from alos.entrypoints.readiness_api import router as readiness_router
+from alos.entrypoints.system_api import router as system_router
 from alos.executive_dashboard import (
-    ExecutiveDashboardRepository,
     ExecutiveDashboardSnapshot,
 )
 from alos.genesis.agent_designer import AgentDesignRequest, GenesisAgentDesignerError
@@ -53,7 +69,6 @@ from alos.genesis.document_analysis import (
     GenesisDocumentAnalysisError,
     GenesisDocumentAnalysisRequest,
     GenesisDocumentAnalysisResult,
-    GenesisDocumentAnalysisService,
     GenesisDocumentWorkflowStageResult,
 )
 from alos.genesis.document_workflow import (
@@ -65,69 +80,42 @@ from alos.genesis.document_workflow import (
     GenesisDocumentWorkflowError,
     GenesisDocumentWorkflowNotFoundError,
     GenesisDocumentWorkflowRecord,
-    GenesisDocumentWorkflowRepository,
 )
 from alos.genesis.follow_up import (
     GenesisFollowUpBlocked,
     GenesisFollowUpErrorResponse,
     GenesisFollowUpFailed,
-    GenesisFollowUpRepository,
     GenesisFollowUpRequest,
     GenesisFollowUpResponse,
-    GenesisFollowUpService,
 )
 from alos.genesis.history import (
     GenesisArtifactRecord,
     GenesisConversationRecord,
     GenesisConversationRequest,
     GenesisHistoryError,
-    GenesisHistoryRepository,
     GenesisMessageRecord,
     GenesisMessageRequest,
 )
-from alos.genesis.semantic_analysis import (
-    GenesisSemanticAnalysisRepository,
-    GenesisSemanticAnalyzer,
-)
 from alos.genesis.uploads import (
-    FilesystemGenesisUploadStorage,
     GenesisUploadConflictError,
     GenesisUploadDocumentDraftRequest,
     GenesisUploadError,
     GenesisUploadNotFoundError,
     GenesisUploadRecord,
-    GenesisUploadRepository,
-    GenesisUploadService,
-    S3GenesisUploadStorage,
-    object_storage_is_ready,
 )
 from alos.identity import DivisionCode, HumanRole
 from alos.identity.authentication import (
-    AuthenticationError,
-    AuthenticationPrincipal,
-    IdentityAuthenticationRepository,
-    PasswordLoginRequest,
     WorkspaceSummary,
 )
-from alos.model_gateway import (
-    GuardedModelGateway,
-    ModelGatewayPolicyError,
-    RetryingModelGateway,
-    UsageBudget,
-)
-from alos.model_gateway_factory import create_model_gateway
 from alos.permissions.registry import (
     PermissionConflictError,
     PermissionNotFoundError,
     PermissionPolicyRecord,
     PermissionPolicyRequest,
     PermissionRegistryError,
-    PermissionRegistryRepository,
 )
-from alos.persistence.database import database_is_ready
 from alos.portfolio import (
     DivisionsOverviewSnapshot,
-    PortfolioRepository,
     ProjectPortfolioSnapshot,
     ProjectStatus,
 )
@@ -137,7 +125,6 @@ from alos.release.governance import (
     LocalReleaseTeam,
     ReasonRequest,
     ReleaseGovernanceError,
-    ReleaseGovernanceRepository,
     ReleaseRequestDetail,
     ReleaseRequestInput,
     ReleaseRequestRecord,
@@ -152,7 +139,6 @@ from alos.runtime.service import (
     AgentRunRequest,
     AgentRunResult,
     AgentRunSummary,
-    AgentRuntime,
     AgentRuntimeBlocked,
     AgentRuntimeError,
     AgentRuntimeRepository,
@@ -160,13 +146,11 @@ from alos.runtime.service import (
     WorkspaceBudgetRequest,
     WorkspaceUsageSummary,
 )
-from alos.security.middleware import install_security_middleware, metrics
+from alos.security.middleware import install_security_middleware
 from alos.security.tokens import (
-    SESSION_COOKIE_NAME,
     ActorContext,
     LocalTokenRequest,
     get_current_actor,
-    issue_access_token,
     issue_local_token,
 )
 from alos.sources.registry import (
@@ -175,7 +159,6 @@ from alos.sources.registry import (
     SourceNotFoundError,
     SourceRegistrationRequest,
     SourceRegistryError,
-    SourceRegistryRepository,
     SourceVaultPolicyRecord,
     SourceVaultPolicyRequest,
     SourceVerificationRequest,
@@ -187,7 +170,6 @@ from alos.tools.registry import (
     ToolDefinitionRequest,
     ToolNotFoundError,
     ToolRegistryError,
-    ToolRegistryRepository,
 )
 
 app = FastAPI(title="ALOS", version="0.2.0")
@@ -201,6 +183,7 @@ app.include_router(jobs_router)
 app.include_router(integrations_router)
 app.include_router(projects_router)
 app.include_router(readiness_router)
+app.include_router(system_router)
 
 
 class AgentDesignerRequest(BaseModel):
@@ -286,132 +269,6 @@ class ValidationRunRequest(BaseModel):
     workspace_id: UUID
     agent_key: Literal["DAILY_BRIEF", "EVIDENCE_CHECKER", "PERMIT_OVERDUE_MONITOR"]
     input: dict[str, object] = Field(default_factory=dict)
-
-
-def get_agent_registry_repository() -> AgentRegistryRepository:
-    return AgentRegistryRepository(get_settings().database_url)
-
-
-def get_identity_authentication_repository() -> IdentityAuthenticationRepository:
-    return IdentityAuthenticationRepository(get_settings().database_url)
-
-
-def get_agent_draft_builder() -> AgentDraftBuilder:
-    return AgentDraftBuilder(DeterministicAgentDraftGenerator())
-
-
-def get_agent_runtime() -> AgentRuntime:
-    settings = get_settings()
-    try:
-        delegate, close_gateway = create_model_gateway(settings)
-    except ModelGatewayPolicyError as error:
-        raise AgentRuntimeBlocked(str(error)) from error
-    gateway = GuardedModelGateway(
-        RetryingModelGateway(delegate, settings.llm_max_retries),
-        settings,
-        UsageBudget(
-            request_limit=settings.agentic_max_model_steps,
-            output_token_limit=(
-                settings.llm_max_output_tokens * settings.agentic_max_model_steps
-            ),
-        ),
-    )
-    return AgentRuntime(
-        AgentRuntimeRepository(settings.database_url, settings),
-        gateway,
-        settings,
-        close_gateway=close_gateway,
-    )
-
-
-def get_release_repository() -> ReleaseGovernanceRepository:
-    return ReleaseGovernanceRepository(get_settings().database_url)
-
-
-def get_source_registry_repository() -> SourceRegistryRepository:
-    settings = get_settings()
-    return SourceRegistryRepository(settings.database_url, settings=settings)
-
-
-def get_audit_reader() -> AuditReader:
-    return AuditReader(get_settings().database_url)
-
-
-def get_genesis_history_repository() -> GenesisHistoryRepository:
-    return GenesisHistoryRepository(get_settings().database_url)
-
-
-def get_document_center_repository() -> DocumentCenterRepository:
-    return DocumentCenterRepository(get_settings().database_url)
-
-
-def get_executive_dashboard_repository() -> ExecutiveDashboardRepository:
-    return ExecutiveDashboardRepository(get_settings().database_url)
-
-
-def get_portfolio_repository() -> PortfolioRepository:
-    return PortfolioRepository(get_settings().database_url)
-
-
-def get_genesis_document_workflow_repository() -> GenesisDocumentWorkflowRepository:
-    return GenesisDocumentWorkflowRepository(get_settings().database_url)
-
-
-def get_genesis_semantic_analyzer() -> GenesisSemanticAnalyzer | None:
-    """Build the opt-in external-model boundary for one Genesis request."""
-
-    settings = get_settings()
-    if not settings.genesis_semantic_analysis_enabled:
-        return None
-    return GenesisSemanticAnalyzer(
-        settings,
-        lambda: create_model_gateway(settings),
-        GenesisSemanticAnalysisRepository(settings.database_url, settings),
-    )
-
-
-def get_genesis_document_analysis_service() -> GenesisDocumentAnalysisService:
-    return GenesisDocumentAnalysisService(
-        get_document_center_repository(),
-        get_genesis_history_repository(),
-        get_genesis_document_workflow_repository(),
-        get_genesis_semantic_analyzer(),
-    )
-
-
-def get_genesis_follow_up_service() -> GenesisFollowUpService:
-    settings = get_settings()
-    return GenesisFollowUpService(
-        settings,
-        GenesisFollowUpRepository(settings.database_url, settings),
-        lambda: create_model_gateway(settings),
-    )
-
-
-def get_genesis_upload_repository() -> GenesisUploadRepository:
-    return GenesisUploadRepository(get_settings().database_url)
-
-
-def get_genesis_upload_service() -> GenesisUploadService:
-    settings = get_settings()
-    storage = (
-        S3GenesisUploadStorage(settings)
-        if settings.object_storage_provider == "s3"
-        else FilesystemGenesisUploadStorage(settings)
-    )
-    return GenesisUploadService(
-        get_genesis_upload_repository(),
-        storage,
-        get_document_center_repository(),
-    )
-
-
-def get_tool_registry_repository() -> ToolRegistryRepository:
-    return ToolRegistryRepository(get_settings().database_url)
-
-
-def get_permission_registry_repository() -> PermissionRegistryRepository:
-    return PermissionRegistryRepository(get_settings().database_url)
 
 
 def require_registry_editor(actor: ActorContext) -> None:
@@ -595,99 +452,6 @@ def require_review_role(actor: ActorContext, gate: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN, detail=f"{gate} reviewer role required"
         )
 
-
-@app.get("/health")
-def health() -> dict[str, str]:
-    settings = get_settings()
-    return {
-        "status": "ok",
-        "service": "alos",
-        "environment": settings.environment,
-    }
-
-
-@app.get("/metrics", include_in_schema=False)
-def prometheus_metrics() -> Response:
-    return Response(content=metrics.prometheus(), media_type="text/plain; version=0.0.4")
-
-
-@app.get("/health/ready")
-def readiness() -> dict[str, str]:
-    settings = get_settings()
-    if not database_is_ready(settings.database_url):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="database is not ready",
-        )
-    if not object_storage_is_ready(settings):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="object storage is not ready",
-        )
-    return {"status": "ok", "database": "ready", "object_storage": "ready"}
-
-
-@app.post("/api/v1/auth/local-token")
-def create_local_token(request: LocalTokenRequest) -> dict[str, str]:
-    return {"access_token": issue_local_token(request, get_settings()), "token_type": "bearer"}
-
-
-@app.post("/api/v1/auth/login", response_model=AuthenticationPrincipal)
-def login(request: PasswordLoginRequest, response: Response) -> AuthenticationPrincipal:
-    """Create an HttpOnly, same-site browser session without returning its token to JavaScript."""
-    try:
-        principal = get_identity_authentication_repository().authenticate(request)
-    except AuthenticationError as error:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid email or password",
-        ) from error
-    settings = get_settings()
-    token = issue_access_token(
-        LocalTokenRequest(
-            user_id=principal.user_id,
-            organization_id=principal.organization_id,
-            roles=principal.roles,
-            division_codes=principal.division_codes,
-            workspace_ids=principal.workspace_ids,
-            data_scope=principal.data_scope,
-            permissions=principal.permissions,
-        ),
-        settings,
-    )
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=token,
-        max_age=settings.auth_token_ttl_seconds,
-        httponly=True,
-        secure=settings.environment in {"staging", "production"},
-        samesite="lax",
-        path="/api",
-    )
-    response.headers["Cache-Control"] = "no-store"
-    return principal
-
-
-@app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout() -> Response:
-    # Construct the response explicitly.  The injected FastAPI response can
-    # carry a `None` status before route finalisation, while observability
-    # middleware needs a concrete status code during this request.
-    response = Response(status_code=status.HTTP_204_NO_CONTENT)
-    response.delete_cookie(
-        key=SESSION_COOKIE_NAME,
-        httponly=True,
-        secure=get_settings().environment in {"staging", "production"},
-        samesite="lax",
-        path="/api",
-    )
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-
-@app.get("/api/v1/whoami")
-def whoami(actor: Annotated[ActorContext, Depends(get_current_actor)]) -> ActorContext:
-    return actor
 
 
 @app.get("/api/v1/executive-dashboard", response_model=ExecutiveDashboardSnapshot)
