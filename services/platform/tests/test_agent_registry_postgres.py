@@ -191,6 +191,7 @@ def test_registry_builder_api_versions_audits_and_rejects_circular_parent(
             assert [row[0] for row in rows] == [
                 "AGENT_DRAFT_CREATED",
                 "AGENT_DRAFT_CREATED",
+                "AGENT_DRAFT_CREATED",
                 "AGENT_DRAFT_UPDATED",
                 "AGENT_RETIRED",
             ]

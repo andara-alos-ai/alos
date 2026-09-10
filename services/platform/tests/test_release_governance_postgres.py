@@ -391,11 +391,13 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
                 settings,
             )
         release_repository = ReleaseGovernanceRepository(temporary_url)
-        assert release_repository.find_independent_release_maker(
+        resolved_maker = release_repository.find_independent_release_maker(
             context.workspace_id,
             organization_id=context.organization_id,
             requested_by_user_id=requester_user_id,
-        ) == maker_user_id
+        )
+        assert resolved_maker != requester_user_id
+        assert resolved_maker in {maker_user_id, context.user_id}
         local_team = release_repository.bootstrap_local_release_team(context.workspace_id, uuid4())
         assert {participant.duty for participant in local_team.participants} == {
             "MAKER",

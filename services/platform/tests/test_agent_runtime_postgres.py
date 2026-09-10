@@ -42,6 +42,7 @@ def _settings(
     return Settings(
         _env_file=None,
         environment=environment,
+        allow_staging_filesystem_object_storage=environment == "staging",
         database_url=database_url,
         auth_signing_secret="a" * 32,
         llm_provider="openai",

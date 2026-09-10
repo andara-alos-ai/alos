@@ -9,7 +9,6 @@ import {
   factoryStatusTone,
   type FactoryPage,
   type FactoryRequest,
-  type FactoryStatus,
 } from "@/lib/genesis-factory";
 import { type SessionActor } from "@/lib/governance";
 

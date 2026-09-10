@@ -55,6 +55,16 @@ def test_clean_baseline_applies_to_a_fresh_database() -> None:
             "024_h5_final_readiness_controls.sql",
             "025_genesis_agentic_runtime.sql",
             "026_genesis_governed_foundations.sql",
+            "027_genesis_factory_persistence.sql",
+            "028_genesis_factory_governance_linkage.sql",
+            "029_scoped_semantic_memory.sql",
+            "030_governed_skill_persistence.sql",
+            "031_persistent_delegation_lineage.sql",
+            "032_generic_research_persistence.sql",
+            "033_agent_eval_evidence.sql",
+            "034_generated_agent_schedules.sql",
+            "035_release_tenant_scope.sql",
+            "036_agent_run_cancellation.sql",
         )
         with psycopg.connect(temporary_url) as connection:
             assert connection.execute("SELECT count(*) FROM identity.divisions").fetchone() == (6,)
