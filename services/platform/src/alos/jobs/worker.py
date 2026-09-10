@@ -251,7 +251,7 @@ class DurableWorker:
                 connection.commit()
             except Exception:
                 connection.rollback()
-            raise
+                raise
 
 
 def _build_agent_runtime() -> AgentRuntime:

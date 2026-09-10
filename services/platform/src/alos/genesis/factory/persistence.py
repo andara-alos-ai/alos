@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import psycopg
@@ -534,7 +534,7 @@ class FactoryRepository:
         ).fetchone()
         if row is None:
             raise FactoryRequestNotFoundError("Factory request was not found")
-        return row
+        return cast(dict[str, Any], row)
 
     @staticmethod
     def _append_tenant_filter(
