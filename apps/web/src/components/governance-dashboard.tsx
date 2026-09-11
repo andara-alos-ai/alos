@@ -7,7 +7,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, apiRequest as api } from "@/lib/api-client";
 import { GovernanceFeedback } from "@/components/governance-control-ui";
 import { normalizeGovernanceError, type GovernanceUiError } from "@/lib/governance-errors";
-import type { ReleaseRequest } from "@/lib/release-governance";
+import {
+  type ReleaseRequest,
+  type ReleaseRequestDetail,
+  releaseTestCategories,
+  defaultTestForm,
+  testCasePayload,
+  latestRunByTestCase,
+} from "@/lib/release-governance";
 import type { AgentRecord } from "@/lib/agent-registry";
 import {
   type AuditEvent,
@@ -222,6 +229,15 @@ export function GovernanceDashboard() {
   const [runResult, setRunResult] = useState<Record<string, unknown> | null>(null);
 
   const [inspectReleaseItem, setInspectReleaseItem] = useState<ReleaseRequestItem | null>(null);
+  const [releaseDetail, setReleaseDetail] = useState<ReleaseRequestDetail | null>(null);
+  const [loadingReleaseDetail, setLoadingReleaseDetail] = useState(false);
+  const [releaseDetailsMap, setReleaseDetailsMap] = useState<Record<string, ReleaseRequestDetail>>({});
+  const [executingTestKey, setExecutingTestKey] = useState<string | null>(null);
+  const [batchRunningTests, setBatchRunningTests] = useState(false);
+  const [businessReviewNotes, setBusinessReviewNotes] = useState("Kesesuaian logika bisnis, kepatuhan proses operasional, dan parameter risiko telah diverifikasi.");
+  const [technicalReviewNotes, setTechnicalReviewNotes] = useState("Arsitektur agen, batas latensi SLA, guardrail deterministik, dan isolasi sandbox telah diverifikasi.");
+  const [submittingReviewGate, setSubmittingReviewGate] = useState<"BUSINESS" | "TECHNICAL" | null>(null);
+  const [inspectSubTab, setInspectSubTab] = useState<"pipeline" | "tests" | "reviews" | "audit">("pipeline");
   const [pipelineWorking, setPipelineWorking] = useState(false);
 
   // Audit Logs State
@@ -281,6 +297,17 @@ export function GovernanceDashboard() {
       tokens: String(budget.daily_output_token_limit || 2500000),
       cost: String(budget.daily_cost_cap_usd || "50.00"),
     });
+
+    const detailsList = await Promise.all(
+      releases.slice(0, 10).map((r) =>
+        api<ReleaseRequestDetail>(`/api/v1/release-requests/${r.change_request_id}`).catch(() => null)
+      )
+    );
+    const validDetailsMap: Record<string, ReleaseRequestDetail> = {};
+    for (const item of detailsList) {
+      if (item) validDetailsMap[item.change_request_id] = item;
+    }
+    setReleaseDetailsMap(validDetailsMap);
 
     const mappedAudit: AuditTrailRecord[] = auditResult.audit.map((ev) => {
       const knownUser = ev.actor_user_id ? KNOWN_SYSTEM_USERS[ev.actor_user_id] : null;
@@ -673,7 +700,37 @@ export function GovernanceDashboard() {
     return true;
   });
 
-  const testEvidenceList: { id: string; agentKey: string; agentName: string; category: string; testKey: string; expected: string; actual: string; status: string; lastRun: string }[] = [];
+  const testEvidenceList: {
+    id: string;
+    changeRequestId: string;
+    agentKey: string;
+    agentName: string;
+    category: string;
+    testKey: string;
+    expected: string;
+    actual: string;
+    status: string;
+    lastRun: string;
+  }[] = Object.values(releaseDetailsMap).flatMap((detail) => {
+    const latest = latestRunByTestCase(detail.test_runs);
+    return detail.test_cases.map((tc) => {
+      const run = latest.get(tc.test_case_id);
+      const ag = realAgents.find((a) => a.agent_key === detail.agent_key);
+      const expStatus = String((tc.expected_assertions as Record<string, unknown>)?.status ?? "SUCCEEDED");
+      return {
+        id: tc.test_case_id,
+        changeRequestId: detail.change_request_id,
+        agentKey: detail.agent_key,
+        agentName: ag?.name ?? detail.agent_key,
+        category: tc.category,
+        testKey: tc.test_key,
+        expected: expStatus,
+        actual: run?.actual_status ?? (run?.status === "PASSED" ? expStatus : "PENDING"),
+        status: run?.status ?? "NOT RUN",
+        lastRun: run?.completed_at ? formatDateTime(run.completed_at) : "Belum diuji",
+      };
+    });
+  });
   const filteredTestEvidence = testEvidenceList.filter((item) => {
     if (testFilterAgent !== "ALL" && item.agentKey !== testFilterAgent) return false;
     if (testFilterCategory !== "ALL" && item.category !== testFilterCategory) return false;
@@ -1173,6 +1230,174 @@ export function GovernanceDashboard() {
     }
   }
 
+  const reloadReleaseDetail = useCallback(async (releaseId: string) => {
+    try {
+      const detail = await api<ReleaseRequestDetail>(`/api/v1/release-requests/${encodeURIComponent(releaseId)}`);
+      setReleaseDetail(detail);
+      setReleaseDetailsMap((prev) => ({ ...prev, [releaseId]: detail }));
+      setInspectReleaseItem((prev) => prev ? {
+        ...prev,
+        status: (["IN_REVIEW", "APPROVED", "REJECTED", "DRAFT", "RELEASED"].includes(detail.state) ? detail.state : "DRAFT") as ReleaseRequestItem["status"],
+      } : null);
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    }
+  }, []);
+
+  async function handleOpenReleaseInspect(
+    releaseId: string,
+    initialItem?: ReleaseRequestItem,
+    initialSubTab: "pipeline" | "tests" | "reviews" | "audit" = "pipeline"
+  ) {
+    if (initialItem) {
+      setInspectReleaseItem(initialItem);
+    }
+    setInspectSubTab(initialSubTab);
+    setSafetyModal("RELEASE_INSPECT");
+    setLoadingReleaseDetail(true);
+    setError(null);
+    try {
+      const detail = await api<ReleaseRequestDetail>(`/api/v1/release-requests/${encodeURIComponent(releaseId)}`);
+      setReleaseDetail(detail);
+      setReleaseDetailsMap((prev) => ({ ...prev, [releaseId]: detail }));
+      if (!initialItem) {
+        const ag = realAgents.find((a) => a.agent_key === detail.agent_key);
+        setInspectReleaseItem({
+          id: detail.change_request_id,
+          agentKey: detail.agent_key,
+          agentName: ag?.name ?? detail.agent_key,
+          iconName: "file",
+          iconColor: "#10b981",
+          iconBg: "rgba(16, 185, 129, 0.12)",
+          version: detail.semantic_version,
+          requester: detail.requested_by_user_id ? detail.requested_by_user_id.slice(0, 8) : "System",
+          status: (["IN_REVIEW", "APPROVED", "REJECTED", "DRAFT", "RELEASED"].includes(detail.state) ? detail.state : "DRAFT") as ReleaseRequestItem["status"],
+          submitted: "—",
+          updated: "—",
+          actionLabel: detail.state === "IN_REVIEW" ? "Release" : "View",
+        });
+      }
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    } finally {
+      setLoadingReleaseDetail(false);
+    }
+  }
+
+  async function handleGenerateDefaultTests(changeRequestId: string, agentKey: string) {
+    setPipelineWorking(true);
+    setError(null);
+    try {
+      for (const cat of releaseTestCategories) {
+        const form = defaultTestForm(cat, agentKey);
+        const payload = testCasePayload(form);
+        await api(`/api/v1/release-requests/${encodeURIComponent(changeRequestId)}/test-cases`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+      setNotice("5 Kategori Test Case standar (POSITIVE, NEGATIVE, REGRESSION, SECURITY, RECOVERY) berhasil didaftarkan dan diserahkan ke QA.");
+      await reloadReleaseDetail(changeRequestId);
+      await loadWorkspace(workspaceId);
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    } finally {
+      setPipelineWorking(false);
+    }
+  }
+
+  async function handleExecuteSingleTest(changeRequestId: string, testKey: string) {
+    setExecutingTestKey(testKey);
+    setError(null);
+    try {
+      const result = await api<{ test_run_id: string; test_key: string; status: string }>(
+        `/api/v1/release-requests/${encodeURIComponent(changeRequestId)}/test-cases/${encodeURIComponent(testKey)}/execute`,
+        { method: "POST" }
+      );
+      setNotice(`Test '${testKey}' selesai dieksekusi: Status ${result.status}`);
+      await reloadReleaseDetail(changeRequestId);
+      await loadWorkspace(workspaceId);
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    } finally {
+      setExecutingTestKey(null);
+    }
+  }
+
+  async function handleExecuteAllTests(changeRequestId: string) {
+    if (!releaseDetail || releaseDetail.test_cases.length === 0) return;
+    setBatchRunningTests(true);
+    setError(null);
+    try {
+      for (const tc of releaseDetail.test_cases) {
+        setExecutingTestKey(tc.test_key);
+        await api(
+          `/api/v1/release-requests/${encodeURIComponent(changeRequestId)}/test-cases/${encodeURIComponent(tc.test_key)}/execute`,
+          { method: "POST" }
+        );
+      }
+      setNotice("Semua 5 test cases berhasil dieksekusi oleh QA. Evidence hasil pengujian telah tercatat.");
+      await reloadReleaseDetail(changeRequestId);
+      await loadWorkspace(workspaceId);
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    } finally {
+      setExecutingTestKey(null);
+      setBatchRunningTests(false);
+    }
+  }
+
+  async function handleSubmitForReview(changeRequestId: string) {
+    setPipelineWorking(true);
+    setError(null);
+    try {
+      await api(`/api/v1/release-requests/${encodeURIComponent(changeRequestId)}/submit-review`, {
+        method: "POST",
+      });
+      setNotice("Hasil pengujian 5 kategori berhasil diserahkan ke Review Gate. Status pipeline kini IN_REVIEW.");
+      await reloadReleaseDetail(changeRequestId);
+      await loadWorkspace(workspaceId);
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    } finally {
+      setPipelineWorking(false);
+    }
+  }
+
+  async function handleSubmitReviewGate(changeRequestId: string, gate: "BUSINESS" | "TECHNICAL", decision: "APPROVED" | "REJECTED") {
+    const notes = gate === "BUSINESS" ? businessReviewNotes.trim() : technicalReviewNotes.trim();
+    if (!notes) {
+      setError({
+        title: "Catatan Review Wajib Diisi",
+        reason: `Harap masukkan catatan evaluasi untuk ${gate} Review Gate.`,
+        nextAction: "Lengkapi catatan evaluasi sebelum mengirim keputusan.",
+        severity: "warning",
+        status: null,
+        correlationId: null,
+      });
+      return;
+    }
+    setSubmittingReviewGate(gate);
+    setError(null);
+    try {
+      await api(`/api/v1/release-requests/${encodeURIComponent(changeRequestId)}/reviews`, {
+        method: "POST",
+        body: JSON.stringify({
+          gate,
+          decision,
+          notes,
+        }),
+      });
+      setNotice(`Keputusan ${gate} Review '${decision}' berhasil dicatat.`);
+      await reloadReleaseDetail(changeRequestId);
+      await loadWorkspace(workspaceId);
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    } finally {
+      setSubmittingReviewGate(null);
+    }
+  }
+
   async function handleReleasePipelineAction(changeRequestId: string, actionType: "approve" | "release" | "activate") {
     setPipelineWorking(true);
     setError(null);
@@ -1181,7 +1406,9 @@ export function GovernanceDashboard() {
         method: "POST",
       });
       setNotice(`Aksi pipeline '${actionType.toUpperCase()}' berhasil dijalankan.`);
-      setSafetyModal(null);
+      if (safetyModal === "RELEASE_INSPECT") {
+        await reloadReleaseDetail(changeRequestId);
+      }
       await loadWorkspace(workspaceId);
     } catch (err: unknown) {
       setError(normalizeGovernanceError(err));
@@ -2476,84 +2703,629 @@ export function GovernanceDashboard() {
     }
 
     if (safetyModal === "RELEASE_INSPECT" && inspectReleaseItem) {
+      const detail = releaseDetail ?? releaseDetailsMap[inspectReleaseItem.id];
+      const testCases = detail?.test_cases ?? [];
+      const latestRuns = detail ? latestRunByTestCase(detail.test_runs) : new Map();
+      const passedCount = testCases.filter((tc) => latestRuns.get(tc.test_case_id)?.status === "PASSED").length;
+      const all5TestsConfigured = testCases.length >= 5;
+      const all5TestsPassed = all5TestsConfigured && passedCount === 5;
+      const isDraft = (detail?.state ?? inspectReleaseItem.status) === "DRAFT";
+      const isInReview = (detail?.state ?? inspectReleaseItem.status) === "IN_REVIEW";
+      const isApproved = (detail?.state ?? inspectReleaseItem.status) === "APPROVED";
+      const isReleased = (detail?.state ?? inspectReleaseItem.status) === "RELEASED";
+      const isRejected = (detail?.state ?? inspectReleaseItem.status) === "REJECTED";
+
+      const businessReview = detail?.reviews?.find((r) => r.review_gate === "BUSINESS");
+      const technicalReview = detail?.reviews?.find((r) => r.review_gate === "TECHNICAL");
+      const dualGateApproved = businessReview?.decision === "APPROVED" && technicalReview?.decision === "APPROVED";
+
+      // Stepper Stage calculations:
+      const stage1Status = all5TestsConfigured ? "completed" : "active";
+      const stage2Status = !isDraft ? "completed" : all5TestsConfigured ? "active" : "waiting";
+      const stage3Status = isRejected ? "rejected" : isApproved || isReleased ? "completed" : isInReview ? "active" : "waiting";
+      const stage4Status = isReleased ? "completed" : isApproved ? "active" : (isInReview && dualGateApproved) ? "active" : "waiting";
+
       return (
         <div className="gov-modal-backdrop" onClick={() => setSafetyModal(null)}>
-          <div className="gov-modal-box" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "620px" }}>
+          <div className="gov-modal-box pipeline-modal" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
             <div className="gov-modal-header">
-              <h3>
-                <GovIcon name="file" />
-                <span>Inspeksi Pipeline Rilis: {inspectReleaseItem.agentName}</span>
-              </h3>
-              <button className="gov-modal-close-btn" onClick={() => setSafetyModal(null)} type="button">✕</button>
-            </div>
-            <div className="gov-modal-body">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", fontSize: "0.8rem", background: "#f8faf9", padding: "12px", borderRadius: "8px", border: "1px solid #e2eae4" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span className="gov-rel-icon" style={{ background: "rgba(12, 59, 47, 0.12)", color: "#0c3b2f" }}>
+                  <GovIcon name="file" />
+                </span>
                 <div>
-                  <span style={{ color: "#6b7280", display: "block" }}>Agent Key:</span>
-                  <strong>{inspectReleaseItem.agentKey}</strong>
-                </div>
-                <div>
-                  <span style={{ color: "#6b7280", display: "block" }}>Versi Rilis:</span>
-                  <span className="gov-rel-version">{inspectReleaseItem.version}</span>
-                </div>
-                <div>
-                  <span style={{ color: "#6b7280", display: "block" }}>Status Pipeline:</span>
-                  <strong style={{ color: "#111827" }}>{inspectReleaseItem.status}</strong>
-                </div>
-                <div>
-                  <span style={{ color: "#6b7280", display: "block" }}>Diajukan Oleh:</span>
-                  <span>{inspectReleaseItem.requester}</span>
-                </div>
-              </div>
-
-              <div className="gov-modal-alert info" style={{ margin: 0 }}>
-                <GovIcon name="info_circle" />
-                <div>
-                  <strong>Tahapan Pipeline Tata Kelola ALOS</strong>
-                  <p>
-                    {inspectReleaseItem.status === "DRAFT" && "Versi sedang dalam tahap DRAFT; memerlukan eksekusi test evidence."}
-                    {inspectReleaseItem.status === "IN_REVIEW" && "Menunggu persetujuan review Business, Technical, dan Direktur Utama."}
-                    {inspectReleaseItem.status === "APPROVED" && "Persetujuan selesai; siap dirilis ke staging internal."}
-                    {inspectReleaseItem.status === "RELEASED" && "Telah rilis dan siap melayani pemanggilan operasional."}
-                    {inspectReleaseItem.status === "REJECTED" && "Pengajuan rilis ditolak pada tahapan review."}
+                  <h3 style={{ margin: 0, fontSize: "1.05rem" }}>
+                    Separation of Duties (SoD) Release Pipeline
+                  </h3>
+                  <p style={{ margin: 0, fontSize: "0.76rem", color: "#6b7280" }}>
+                    {inspectReleaseItem.agentName} ({inspectReleaseItem.agentKey}) &bull; Versi {detail?.semantic_version ?? inspectReleaseItem.version}
                   </p>
                 </div>
               </div>
+              <button className="gov-modal-close-btn" onClick={() => setSafetyModal(null)} type="button">✕</button>
             </div>
+
+            {/* Stepper Bar */}
+            <div style={{ padding: "14px 24px 0 24px", background: "#ffffff" }}>
+              <div className="gov-pipe-stepper">
+                {/* Step 1: Maker / IT Lead */}
+                <div className={`gov-pipe-step ${stage1Status}`}>
+                  <div className="gov-pipe-step-num">1</div>
+                  <div className="gov-pipe-step-text">
+                    <span className="gov-pipe-step-title">IT Lead (Maker)</span>
+                    <span className="gov-pipe-step-desc">
+                      {all5TestsConfigured ? "5 Test Didaftarkan" : "Setup Test Suites"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Step 2: Checker / QA */}
+                <div className={`gov-pipe-step ${stage2Status}`}>
+                  <div className="gov-pipe-step-num">2</div>
+                  <div className="gov-pipe-step-text">
+                    <span className="gov-pipe-step-title">QA &amp; Security</span>
+                    <span className="gov-pipe-step-desc">
+                      {!isDraft ? "Evidence Lulus" : `${passedCount}/5 Suite Lulus`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Step 3: Dual Review Gates */}
+                <div className={`gov-pipe-step ${stage3Status}`}>
+                  <div className="gov-pipe-step-num">3</div>
+                  <div className="gov-pipe-step-text">
+                    <span className="gov-pipe-step-title">Dual Review Gates</span>
+                    <span className="gov-pipe-step-desc">
+                      {dualGateApproved ? "Bisnis & Teknis OK" : isRejected ? "Ditolak Review" : isInReview ? "Dalam Evaluasi" : "Menunggu QA"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Step 4: Executive Director */}
+                <div className={`gov-pipe-step ${stage4Status}`}>
+                  <div className="gov-pipe-step-num">4</div>
+                  <div className="gov-pipe-step-text">
+                    <span className="gov-pipe-step-title">Direktur Utama</span>
+                    <span className="gov-pipe-step-desc">
+                      {isReleased ? "Rilis Operasional" : isApproved ? "Siap Staging" : "Approval Final"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Subtabs Bar */}
+            <div style={{ padding: "12px 24px 0 24px", background: "#ffffff" }}>
+              <div className="gov-pipe-subtabs">
+                <button
+                  className={`gov-pipe-subtab-btn ${inspectSubTab === "pipeline" ? "active" : ""}`}
+                  onClick={() => setInspectSubTab("pipeline")}
+                  type="button"
+                >
+                  Alur Pipeline &amp; Tindakan
+                </button>
+                <button
+                  className={`gov-pipe-subtab-btn ${inspectSubTab === "tests" ? "active" : ""}`}
+                  onClick={() => setInspectSubTab("tests")}
+                  type="button"
+                >
+                  Test Cases ({passedCount}/{testCases.length})
+                </button>
+                <button
+                  className={`gov-pipe-subtab-btn ${inspectSubTab === "reviews" ? "active" : ""}`}
+                  onClick={() => setInspectSubTab("reviews")}
+                  type="button"
+                >
+                  Review Gates (Bisnis &amp; Teknis)
+                </button>
+                <button
+                  className={`gov-pipe-subtab-btn ${inspectSubTab === "audit" ? "active" : ""}`}
+                  onClick={() => setInspectSubTab("audit")}
+                  type="button"
+                >
+                  Audit &amp; Detail Payload
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="gov-modal-body-scroll">
+              {loadingReleaseDetail && (
+                <div style={{ textAlign: "center", padding: "20px", color: "#6b7280" }}>
+                  <p>Memuat rincian state pipeline rilis...</p>
+                </div>
+              )}
+
+              {!loadingReleaseDetail && inspectSubTab === "pipeline" && (
+                <>
+                  {/* Summary Bar */}
+                  <div className="gov-pipe-header-bar">
+                    <div>
+                      <span style={{ fontSize: "0.72rem", color: "#6b7280", display: "block" }}>Change Request ID:</span>
+                      <strong style={{ fontSize: "0.84rem", fontFamily: "monospace" }}>{inspectReleaseItem.id}</strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: "0.72rem", color: "#6b7280", display: "block" }}>Status Pipeline:</span>
+                      <span className={`gov-rel-status ${
+                        (detail?.state ?? inspectReleaseItem.status).toLowerCase()
+                      }`}>
+                        {(detail?.state ?? inspectReleaseItem.status).replace("_", " ")}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: "0.72rem", color: "#6b7280", display: "block" }}>Maker (IT Lead):</span>
+                      <strong style={{ fontSize: "0.82rem" }}>
+                        {detail?.requested_by_user_id ? detail.requested_by_user_id.slice(0, 10) : inspectReleaseItem.requester}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: "0.72rem", color: "#6b7280", display: "block" }}>Checker (QA):</span>
+                      <strong style={{ fontSize: "0.82rem" }}>
+                        {detail?.checker_user_id ? detail.checker_user_id.slice(0, 10) : "Belum dieksekusi"}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Stage 1: Maker Handover */}
+                  <div className="gov-callout-action stage1">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px" }}>
+                      <div>
+                        <strong style={{ fontSize: "0.88rem", color: "#1e3a8a", display: "block" }}>
+                          Tahap 1 — Maker (IT Lead): Pendaftaran &amp; Handover 5 Test Cases
+                        </strong>
+                        <p style={{ margin: "4px 0 0 0", fontSize: "0.78rem", color: "#3b82f6" }}>
+                          IT Lead mendaftarkan minimal 5 kategori pengujian: POSITIVE, NEGATIVE, REGRESSION, SECURITY, dan RECOVERY.
+                        </p>
+                      </div>
+                      <span className={`gov-test-status-badge ${testCases.length >= 5 ? "passed" : "not-run"}`}>
+                        {testCases.length >= 5 ? "5 KATEGORI TERDAFTAR" : `${testCases.length}/5 DIDAFTARKAN`}
+                      </span>
+                    </div>
+
+                    {testCases.length === 0 && (
+                      <div className="gov-pipe-btn-group" style={{ marginTop: "6px" }}>
+                        <button
+                          className="gov-modal-btn-confirm primary"
+                          disabled={pipelineWorking}
+                          onClick={() => handleGenerateDefaultTests(inspectReleaseItem.id, inspectReleaseItem.agentKey)}
+                          type="button"
+                        >
+                          {pipelineWorking ? "Mendaftarkan..." : "Daftarkan 5 Kategori Test Suites (Handover ke QA)"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stage 2: Checker QA Execution & Review Submission */}
+                  <div className="gov-callout-action stage2">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px" }}>
+                      <div>
+                        <strong style={{ fontSize: "0.88rem", color: "#065f46", display: "block" }}>
+                          Tahap 2 — Checker (QA &amp; Security): Eksekusi Pengujian &amp; Penyerahan Evidence
+                        </strong>
+                        <p style={{ margin: "4px 0 0 0", fontSize: "0.78rem", color: "#047857" }}>
+                          QA &amp; Security mengeksekusi ke-5 test cases dan memastikan ada minimal 1 runtime agent run valid sebelum menyerahkan hasil ke Review Gates.
+                        </p>
+                      </div>
+                      <span className={`gov-test-status-badge ${!isDraft ? "passed" : all5TestsPassed ? "passed" : "not-run"}`}>
+                        {!isDraft ? "EVIDENCE DISERAHKAN" : `${passedCount}/${testCases.length} LULUS`}
+                      </span>
+                    </div>
+
+                    {isDraft && testCases.length > 0 && (
+                      <div className="gov-pipe-btn-group" style={{ marginTop: "6px" }}>
+                        <button
+                          className="gov-modal-btn-confirm"
+                          disabled={batchRunningTests || pipelineWorking}
+                          onClick={() => handleExecuteAllTests(inspectReleaseItem.id)}
+                          style={{ background: "#0c3b2f", color: "#ffffff" }}
+                          type="button"
+                        >
+                          {batchRunningTests ? "Mengeksekusi 5 Test..." : "Jalankan Semua 5 Test Cases (QA Run)"}
+                        </button>
+
+                        <button
+                          className="gov-modal-btn-confirm primary"
+                          disabled={pipelineWorking || batchRunningTests || !all5TestsPassed}
+                          onClick={() => handleSubmitForReview(inspectReleaseItem.id)}
+                          type="button"
+                        >
+                          {pipelineWorking ? "Menyerahkan..." : "Serahkan Hasil ke Review Gate (Submit Review)"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stage 3: Dual Review Gates (Business & Technical) */}
+                  <div className="gov-callout-action stage3">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px" }}>
+                      <div>
+                        <strong style={{ fontSize: "0.88rem", color: "#581c87", display: "block" }}>
+                          Tahap 3 — Dual Review Gates (Business &amp; Technical Reviewers)
+                        </strong>
+                        <p style={{ margin: "4px 0 0 0", fontSize: "0.78rem", color: "#7e22ce" }}>
+                          Evaluasi independen dua arah: Gate Bisnis memverifikasi kesesuaian SOP, Gate Teknis memverifikasi integritas arsitektur &amp; guardrail.
+                        </p>
+                      </div>
+                      <span className={`gov-test-status-badge ${dualGateApproved ? "passed" : isRejected ? "failed" : isInReview ? "blocked" : "not-run"}`}>
+                        {dualGateApproved ? "KEDUA GATE APPROVED" : isRejected ? "REVIEW DITOLAK" : isInReview ? "MENUNGGU EVALUASI" : "BELUM DIBUKA"}
+                      </span>
+                    </div>
+
+                    <div className="gov-gate-grid" style={{ marginTop: "6px" }}>
+                      {/* Business Gate Card */}
+                      <div className={`gov-gate-card ${businessReview?.decision === "APPROVED" ? "approved" : businessReview?.decision === "REJECTED" ? "rejected" : ""}`}>
+                        <div className="gov-gate-header">
+                          <span className="gov-gate-title">Gate 1: Business Review</span>
+                          <span className={`gov-gate-status ${businessReview?.decision === "APPROVED" ? "approved" : businessReview?.decision === "REJECTED" ? "rejected" : "pending"}`}>
+                            {businessReview?.decision ?? (isInReview ? "PENDING" : "LOCKED")}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: "0.74rem", color: "#6b7280", margin: 0 }}>
+                          {businessReview?.notes ?? (isInReview ? "Menunggu keputusan Business Reviewer." : "Terbuka setelah QA menyerahkan evidence.")}
+                        </p>
+                        {isInReview && !businessReview && (
+                          <div className="gov-gate-actions">
+                            <button
+                              className="gov-modal-btn-confirm success"
+                              disabled={submittingReviewGate === "BUSINESS"}
+                              onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "BUSINESS", "APPROVED")}
+                              style={{ padding: "6px 12px", fontSize: "0.74rem" }}
+                              type="button"
+                            >
+                              Approve Bisnis
+                            </button>
+                            <button
+                              className="gov-modal-btn-cancel"
+                              disabled={submittingReviewGate === "BUSINESS"}
+                              onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "BUSINESS", "REJECTED")}
+                              style={{ padding: "6px 12px", fontSize: "0.74rem" }}
+                              type="button"
+                            >
+                              Reject Bisnis
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Technical Gate Card */}
+                      <div className={`gov-gate-card ${technicalReview?.decision === "APPROVED" ? "approved" : technicalReview?.decision === "REJECTED" ? "rejected" : ""}`}>
+                        <div className="gov-gate-header">
+                          <span className="gov-gate-title">Gate 2: Technical Review</span>
+                          <span className={`gov-gate-status ${technicalReview?.decision === "APPROVED" ? "approved" : technicalReview?.decision === "REJECTED" ? "rejected" : "pending"}`}>
+                            {technicalReview?.decision ?? (isInReview ? "PENDING" : "LOCKED")}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: "0.74rem", color: "#6b7280", margin: 0 }}>
+                          {technicalReview?.notes ?? (isInReview ? "Menunggu keputusan Technical Reviewer." : "Terbuka setelah QA menyerahkan evidence.")}
+                        </p>
+                        {isInReview && !technicalReview && (
+                          <div className="gov-gate-actions">
+                            <button
+                              className="gov-modal-btn-confirm success"
+                              disabled={submittingReviewGate === "TECHNICAL"}
+                              onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "TECHNICAL", "APPROVED")}
+                              style={{ padding: "6px 12px", fontSize: "0.74rem" }}
+                              type="button"
+                            >
+                              Approve Teknis
+                            </button>
+                            <button
+                              className="gov-modal-btn-cancel"
+                              disabled={submittingReviewGate === "TECHNICAL"}
+                              onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "TECHNICAL", "REJECTED")}
+                              style={{ padding: "6px 12px", fontSize: "0.74rem" }}
+                              type="button"
+                            >
+                              Reject Teknis
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Stage 4: Executive Approver */}
+                  <div className="gov-callout-action stage4">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px" }}>
+                      <div>
+                        <strong style={{ fontSize: "0.88rem", color: "#78350f", display: "block" }}>
+                          Tahap 4 — Approver (Direktur Utama): Persetujuan &amp; Aktivasi Rilis
+                        </strong>
+                        <p style={{ margin: "4px 0 0 0", fontSize: "0.78rem", color: "#b45309" }}>
+                          Direktur Utama mengesahkan rilis setelah dual review gates disetujui, melakukan deployment ke staging internal, lalu mengaktifkan ke produksi.
+                        </p>
+                      </div>
+                      <span className={`gov-test-status-badge ${isReleased ? "passed" : isApproved ? "passed" : "not-run"}`}>
+                        {isReleased ? "RILIS OPERASIONAL" : isApproved ? "APPROVED (SIAP STAGING)" : "MENUNGGU DUAL GATES"}
+                      </span>
+                    </div>
+
+                    <div className="gov-pipe-btn-group" style={{ marginTop: "6px" }}>
+                      {isInReview && (
+                        <button
+                          className="gov-modal-btn-confirm primary"
+                          disabled={pipelineWorking || !dualGateApproved}
+                          onClick={() => handleReleasePipelineAction(inspectReleaseItem.id, "approve")}
+                          type="button"
+                        >
+                          {pipelineWorking ? "Memproses..." : "1. Sahkan Rilis (Approve by Director)"}
+                        </button>
+                      )}
+
+                      {isApproved && (
+                        <button
+                          className="gov-modal-btn-confirm primary"
+                          disabled={pipelineWorking}
+                          onClick={() => handleReleasePipelineAction(inspectReleaseItem.id, "release")}
+                          type="button"
+                        >
+                          {pipelineWorking ? "Memproses..." : "2. Deploy ke Staging Internal (Release)"}
+                        </button>
+                      )}
+
+                      {isReleased && (
+                        <button
+                          className="gov-modal-btn-confirm success"
+                          disabled={pipelineWorking}
+                          onClick={() => handleReleasePipelineAction(inspectReleaseItem.id, "activate")}
+                          type="button"
+                        >
+                          {pipelineWorking ? "Memproses..." : "3. Aktifkan Agen ke Produksi (Activate Agent)"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Tab 2: Test Cases */}
+              {!loadingReleaseDetail && inspectSubTab === "tests" && (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                    <div>
+                      <strong style={{ fontSize: "0.88rem", color: "#111827" }}>
+                        Daftar 5 Kategori Test Evidence ({testCases.length} Test Suites)
+                      </strong>
+                      <p style={{ fontSize: "0.74rem", color: "#6b7280", margin: "2px 0 0 0" }}>
+                        Dikelola oleh QA &amp; Security untuk membuktikan ketahanan model agen sebelum diajukan ke review.
+                      </p>
+                    </div>
+                    {isDraft && testCases.length > 0 && (
+                      <button
+                        className="gov-modal-btn-confirm"
+                        disabled={batchRunningTests}
+                        onClick={() => handleExecuteAllTests(inspectReleaseItem.id)}
+                        style={{ background: "#0c3b2f", color: "#ffffff", padding: "6px 14px", fontSize: "0.76rem" }}
+                        type="button"
+                      >
+                        {batchRunningTests ? "Menjalankan..." : "Eksekusi Semua Test (Batch Run)"}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="gov-table-wrap" style={{ margin: 0 }}>
+                    <table className="gov-rel-table">
+                      <thead>
+                        <tr>
+                          <th>Kategori</th>
+                          <th>Test Key</th>
+                          <th>Expected Assertions</th>
+                          <th>Hasil Terakhir</th>
+                          <th>Waktu Eksekusi</th>
+                          <th style={{ textAlign: "right", paddingRight: "16px" }}>Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {testCases.map((tc) => {
+                          const run = latestRuns.get(tc.test_case_id);
+                          const isExecuting = executingTestKey === tc.test_key;
+                          return (
+                            <tr key={tc.test_case_id}>
+                              <td>
+                                <span className={`gov-test-cat-pill ${tc.category.toLowerCase()}`}>
+                                  {tc.category}
+                                </span>
+                              </td>
+                              <td><strong style={{ fontFamily: "monospace", fontSize: "0.78rem" }}>{tc.test_key}</strong></td>
+                              <td>
+                                <span style={{ fontSize: "0.74rem", color: "#374151" }}>
+                                  status = {String((tc.expected_assertions as Record<string, unknown>)?.status ?? "SUCCEEDED")}
+                                </span>
+                              </td>
+                              <td>
+                                <span className={`gov-test-status-badge ${run?.status === "PASSED" ? "passed" : run?.status === "FAILED" ? "failed" : "not-run"}`}>
+                                  {run?.status ?? "NOT RUN"}
+                                </span>
+                              </td>
+                              <td>
+                                <span style={{ fontSize: "0.74rem", color: "#6b7280" }}>
+                                  {run?.completed_at ? formatDateTime(run.completed_at) : "—"}
+                                </span>
+                              </td>
+                              <td style={{ textAlign: "right", paddingRight: "16px" }}>
+                                <button
+                                  className="gov-rel-action-btn"
+                                  disabled={isExecuting || batchRunningTests}
+                                  onClick={() => handleExecuteSingleTest(inspectReleaseItem.id, tc.test_key)}
+                                  type="button"
+                                >
+                                  {isExecuting ? "Running..." : "Run Test"}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {testCases.length === 0 && (
+                          <tr>
+                            <td colSpan={6} style={{ textAlign: "center", padding: "24px", color: "#6b7280" }}>
+                              Belum ada test case yang didaftarkan. Kembali ke tab Alur Pipeline untuk mendaftarkan 5 test cases standar.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: Review Gates */}
+              {!loadingReleaseDetail && inspectSubTab === "reviews" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  <div>
+                    <strong style={{ fontSize: "0.88rem", color: "#111827" }}>
+                      Dual Review Gate Governance
+                    </strong>
+                    <p style={{ fontSize: "0.74rem", color: "#6b7280", margin: "2px 0 0 0" }}>
+                      Persetujuan independen dari Business Reviewer dan Technical Reviewer sebelum Direktur Utama dapat mengesahkan rilis.
+                    </p>
+                  </div>
+
+                  {/* Business Review Form */}
+                  <div className="gov-gate-card">
+                    <div className="gov-gate-header">
+                      <div>
+                        <span className="gov-gate-title">1. Business Governance Review Gate</span>
+                        <span style={{ display: "block", fontSize: "0.72rem", color: "#6b7280" }}>
+                          Evaluasi dampak proses bisnis, kepatuhan SOP, dan limit risiko finansial.
+                        </span>
+                      </div>
+                      <span className={`gov-gate-status ${businessReview?.decision === "APPROVED" ? "approved" : businessReview?.decision === "REJECTED" ? "rejected" : "pending"}`}>
+                        {businessReview?.decision ?? (isInReview ? "PENDING" : "BELUM AKTIF")}
+                      </span>
+                    </div>
+
+                    {businessReview ? (
+                      <div style={{ background: "#f8faf9", padding: "10px 12px", borderRadius: "6px", fontSize: "0.78rem" }}>
+                        <div><strong>Evaluator:</strong> {businessReview.reviewer_user_id?.slice(0, 10) ?? "Business Reviewer"}</div>
+                        <div><strong>Waktu:</strong> {formatDateTime(businessReview.created_at)}</div>
+                        <div style={{ marginTop: "4px" }}><strong>Catatan:</strong> {businessReview.notes}</div>
+                      </div>
+                    ) : (
+                      <div className="gov-modal-field" style={{ margin: 0 }}>
+                        <label htmlFor="business-notes-input">Catatan Evaluasi Bisnis:</label>
+                        <textarea
+                          id="business-notes-input"
+                          onChange={(e) => setBusinessReviewNotes(e.target.value)}
+                          placeholder="Masukkan catatan evaluasi kesesuaian bisnis..."
+                          rows={2}
+                          value={businessReviewNotes}
+                        />
+                        <div className="gov-gate-actions" style={{ marginTop: "8px" }}>
+                          <button
+                            className="gov-modal-btn-confirm success"
+                            disabled={submittingReviewGate === "BUSINESS" || !isInReview}
+                            onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "BUSINESS", "APPROVED")}
+                            type="button"
+                          >
+                            {submittingReviewGate === "BUSINESS" ? "Menyimpan..." : "Approve Business Gate"}
+                          </button>
+                          <button
+                            className="gov-modal-btn-cancel"
+                            disabled={submittingReviewGate === "BUSINESS" || !isInReview}
+                            onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "BUSINESS", "REJECTED")}
+                            type="button"
+                          >
+                            Reject Business Gate
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Technical Review Form */}
+                  <div className="gov-gate-card">
+                    <div className="gov-gate-header">
+                      <div>
+                        <span className="gov-gate-title">2. Technical Governance Review Gate</span>
+                        <span style={{ display: "block", fontSize: "0.72rem", color: "#6b7280" }}>
+                          Evaluasi arsitektur runtime, isolasi sandbox, guardrail deterministik, dan SLA token.
+                        </span>
+                      </div>
+                      <span className={`gov-gate-status ${technicalReview?.decision === "APPROVED" ? "approved" : technicalReview?.decision === "REJECTED" ? "rejected" : "pending"}`}>
+                        {technicalReview?.decision ?? (isInReview ? "PENDING" : "BELUM AKTIF")}
+                      </span>
+                    </div>
+
+                    {technicalReview ? (
+                      <div style={{ background: "#f8faf9", padding: "10px 12px", borderRadius: "6px", fontSize: "0.78rem" }}>
+                        <div><strong>Evaluator:</strong> {technicalReview.reviewer_user_id?.slice(0, 10) ?? "Technical Reviewer"}</div>
+                        <div><strong>Waktu:</strong> {formatDateTime(technicalReview.created_at)}</div>
+                        <div style={{ marginTop: "4px" }}><strong>Catatan:</strong> {technicalReview.notes}</div>
+                      </div>
+                    ) : (
+                      <div className="gov-modal-field" style={{ margin: 0 }}>
+                        <label htmlFor="technical-notes-input">Catatan Evaluasi Teknis:</label>
+                        <textarea
+                          id="technical-notes-input"
+                          onChange={(e) => setTechnicalReviewNotes(e.target.value)}
+                          placeholder="Masukkan catatan evaluasi teknis dan guardrail..."
+                          rows={2}
+                          value={technicalReviewNotes}
+                        />
+                        <div className="gov-gate-actions" style={{ marginTop: "8px" }}>
+                          <button
+                            className="gov-modal-btn-confirm success"
+                            disabled={submittingReviewGate === "TECHNICAL" || !isInReview}
+                            onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "TECHNICAL", "APPROVED")}
+                            type="button"
+                          >
+                            {submittingReviewGate === "TECHNICAL" ? "Menyimpan..." : "Approve Technical Gate"}
+                          </button>
+                          <button
+                            className="gov-modal-btn-cancel"
+                            disabled={submittingReviewGate === "TECHNICAL" || !isInReview}
+                            onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "TECHNICAL", "REJECTED")}
+                            type="button"
+                          >
+                            Reject Technical Gate
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 4: Audit & Detail JSON */}
+              {!loadingReleaseDetail && inspectSubTab === "audit" && (
+                <div>
+                  <strong style={{ fontSize: "0.88rem", color: "#111827", display: "block", marginBottom: "6px" }}>
+                    Metadata Rilis &amp; Audit Trail Snapshot
+                  </strong>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", marginBottom: "12px", fontSize: "0.76rem" }}>
+                    <div style={{ background: "#f8faf9", padding: "10px", borderRadius: "6px", border: "1px solid #e2eae4" }}>
+                      <span style={{ color: "#6b7280", display: "block" }}>Change Request ID:</span>
+                      <strong style={{ fontFamily: "monospace", fontSize: "0.72rem" }}>
+                        {inspectReleaseItem.id}
+                      </strong>
+                    </div>
+                    <div style={{ background: "#f8faf9", padding: "10px", borderRadius: "6px", border: "1px solid #e2eae4" }}>
+                      <span style={{ color: "#6b7280", display: "block" }}>Submitted At:</span>
+                      <strong>{detail?.lifecycle_events?.[0]?.created_at ? formatDateTime(detail.lifecycle_events[0].created_at) : inspectReleaseItem.submitted}</strong>
+                    </div>
+                    <div style={{ background: "#f8faf9", padding: "10px", borderRadius: "6px", border: "1px solid #e2eae4" }}>
+                      <span style={{ color: "#6b7280", display: "block" }}>Updated At:</span>
+                      <strong>{detail?.lifecycle_events?.length ? formatDateTime(detail.lifecycle_events[detail.lifecycle_events.length - 1].created_at) : inspectReleaseItem.updated}</strong>
+                    </div>
+                  </div>
+
+                  <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "#374151", display: "block", marginBottom: "4px" }}>
+                    Raw Release Detail JSON (Cryptographic Audit):
+                  </span>
+                  <pre className="gov-json-viewer" style={{ maxHeight: "240px" }}>
+                    {JSON.stringify(detail ?? inspectReleaseItem, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
             <div className="gov-modal-footer">
-              <button className="gov-modal-btn-cancel" disabled={pipelineWorking} onClick={() => setSafetyModal(null)} type="button">
-                Tutup
+              <button className="gov-modal-btn-cancel" onClick={() => setSafetyModal(null)} type="button">
+                Tutup Konsol
               </button>
-              {inspectReleaseItem.status === "IN_REVIEW" && (
-                <button
-                  className="gov-modal-btn-confirm primary"
-                  disabled={pipelineWorking}
-                  onClick={() => handleReleasePipelineAction(inspectReleaseItem.id, "approve")}
-                  type="button"
-                >
-                  {pipelineWorking ? "Memproses..." : "Approve Release"}
-                </button>
-              )}
-              {inspectReleaseItem.status === "APPROVED" && (
-                <button
-                  className="gov-modal-btn-confirm primary"
-                  disabled={pipelineWorking}
-                  onClick={() => handleReleasePipelineAction(inspectReleaseItem.id, "release")}
-                  type="button"
-                >
-                  {pipelineWorking ? "Memproses..." : "Release ke Staging"}
-                </button>
-              )}
-              {inspectReleaseItem.status === "RELEASED" && (
-                <button
-                  className="gov-modal-btn-confirm success"
-                  disabled={pipelineWorking}
-                  onClick={() => handleReleasePipelineAction(inspectReleaseItem.id, "activate")}
-                  type="button"
-                >
-                  {pipelineWorking ? "Memproses..." : "Aktifkan Agent"}
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -2908,7 +3680,7 @@ export function GovernanceDashboard() {
                               <div className="gov-row-actions">
                                 <button
                                   className="gov-review-btn"
-                                  onClick={() => router.push("/releases?view=reviews")}
+                                  onClick={() => void handleOpenReleaseInspect(action.id, undefined, "reviews")}
                                   type="button"
                                 >
                                   Review
@@ -3120,10 +3892,7 @@ export function GovernanceDashboard() {
                           <td style={{ textAlign: "right", paddingRight: "24px" }}>
                             <button
                               className="gov-rel-action-btn"
-                              onClick={() => {
-                                setInspectReleaseItem(row);
-                                setSafetyModal("RELEASE_INSPECT");
-                              }}
+                              onClick={() => void handleOpenReleaseInspect(row.id, row, "pipeline")}
                               type="button"
                             >
                               {row.actionLabel}
@@ -4060,22 +4829,26 @@ export function GovernanceDashboard() {
                             <button
                               className="gov-test-view-btn"
                               onClick={() => {
-                                setTargetRunAgentKey(te.agentKey);
-                                setTargetRunAgentName(te.agentName);
-                                setRunIsTesting(true);
-                                setRunInputText(
-                                  JSON.stringify(
-                                    {
-                                      test_key: te.testKey,
-                                      category: te.category,
-                                      expected: te.expected,
-                                      actual: te.actual,
-                                    },
-                                    null,
-                                    2
-                                  )
-                                );
-                                setSafetyModal("RUN_AGENT");
+                                if (te.changeRequestId) {
+                                  void handleOpenReleaseInspect(te.changeRequestId, undefined, "tests");
+                                } else {
+                                  setTargetRunAgentKey(te.agentKey);
+                                  setTargetRunAgentName(te.agentName);
+                                  setRunIsTesting(true);
+                                  setRunInputText(
+                                    JSON.stringify(
+                                      {
+                                        test_key: te.testKey,
+                                        category: te.category,
+                                        expected: te.expected,
+                                        actual: te.actual,
+                                      },
+                                      null,
+                                      2
+                                    )
+                                  );
+                                  setSafetyModal("RUN_AGENT");
+                                }
                               }}
                               type="button"
                             >
@@ -4163,37 +4936,14 @@ export function GovernanceDashboard() {
                             </span>
                           </td>
                           <td style={{ textAlign: "right", paddingRight: "20px" }}>
-                            <div style={{ display: "inline-flex", gap: "8px" }}>
-                              <button
-                                className="gov-review-btn"
-                                onClick={() => handleReleasePipelineAction(act.id, "approve")}
-                                style={{ background: "#0c3b2f", color: "#ffffff", borderColor: "#0c3b2f" }}
-                                type="button"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                className="gov-review-btn"
-                                onClick={async () => {
-                                  try {
-                                    await api(`/api/v1/release-requests/${encodeURIComponent(act.id)}/reviews`, {
-                                      method: "POST",
-                                      body: JSON.stringify({
-                                        decision: "REJECTED",
-                                        comment: `Ditolak oleh ${currentActiveUserName} melalui Governance Review`,
-                                      }),
-                                    });
-                                    setNotice(`Pengajuan ${act.type} untuk ${act.agentName} telah ditolak.`);
-                                    await loadWorkspace(workspaceId);
-                                  } catch (err: unknown) {
-                                    setError(normalizeGovernanceError(err));
-                                  }
-                                }}
-                                type="button"
-                              >
-                                Reject
-                              </button>
-                            </div>
+                            <button
+                              className="gov-review-btn"
+                              onClick={() => void handleOpenReleaseInspect(act.id, undefined, "reviews")}
+                              style={{ background: "#0c3b2f", color: "#ffffff", borderColor: "#0c3b2f" }}
+                              type="button"
+                            >
+                              Buka Evaluasi &amp; Review
+                            </button>
                           </td>
                         </tr>
                       ))}
