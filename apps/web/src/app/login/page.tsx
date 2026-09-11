@@ -4,7 +4,6 @@ import { FormEvent, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ApiError, apiRequest } from "@/lib/api-client";
-
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");

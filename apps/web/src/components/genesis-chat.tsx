@@ -1178,9 +1178,9 @@ export function GenesisChat({
                     const option = contextLabels[item.entity_id];
                     return (
                       <article className="genesis-context-card" key={item.conversation_context_id}>
-                        <span className={"genesis-context-icon type-" + item.entity_type.toLowerCase()}><GenesisWorkspaceIcon name={contextIcon(item.entity_type)} /></span>
+                        <span className={"genesis-context-icon type-" + (item.entity_type?.toLowerCase() ?? "")}><GenesisWorkspaceIcon name={contextIcon(item.entity_type)} /></span>
                         <div>
-                          <strong>{option?.title ?? "Authorized " + item.entity_type}</strong>
+                          <strong>{option?.title ?? "Authorized " + (item.entity_type ?? "item")}</strong>
                           <small>{humanContextType(item.entity_type)}{item.source_version ? " · v" + item.source_version : ""} · {option?.scope ?? option?.status ?? "Attached"}</small>
                         </div>
                         <details className="genesis-row-menu">
@@ -1826,15 +1826,16 @@ function contextIcon(type: ContextEntityType): GenesisWorkspaceIconName {
   return "database";
 }
 
-function humanContextType(type: ContextEntityType): string {
-  return {
+function humanContextType(type: ContextEntityType | undefined): string {
+  if (!type) return "";
+  return ({
     DOCUMENT: "Dokumen",
     PROJECT: "Proyek",
     TASK: "Task",
     EVIDENCE: "Evidence",
     FINDING: "Temuan",
     REPORT: "Laporan",
-  }[type];
+  } as Record<string, string>)[type] ?? type;
 }
 
 function conversationGroupLabel(group: "Today" | "Yesterday" | "Previous 7 Days" | "Older"): string {

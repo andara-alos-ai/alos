@@ -150,6 +150,7 @@ export function formatOperationalDate(value: string | null): string {
   return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(new Date(value));
 }
 
-export function humanStatus(value: string): string {
+export function humanStatus(value: string | null | undefined): string {
+  if (!value) return "—";
   return value.toLowerCase().replaceAll("_", " ");
 }

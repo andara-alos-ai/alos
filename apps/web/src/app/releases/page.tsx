@@ -1,5 +1,5 @@
-import { ReleaseGovernance } from "@/components/release-governance";
+import { redirect } from "next/navigation";
 
 export default function ReleasesPage() {
-  return <ReleaseGovernance />;
+  redirect("/governance?view=agents&sub=releases");
 }
