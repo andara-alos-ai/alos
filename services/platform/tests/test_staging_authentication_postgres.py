@@ -32,6 +32,7 @@ def _settings(database_url: str) -> Settings:
         environment="staging",
         database_url=database_url,
         auth_signing_secret="a" * 32,
+        allow_staging_filesystem_object_storage=True,
         llm_daily_request_limit=2,
         llm_daily_output_token_limit=2_400,
         llm_daily_cost_cap_usd=Decimal("0.25"),
@@ -63,7 +64,7 @@ def test_staging_password_session_and_governance_api(monkeypatch: pytest.MonkeyP
         monkeypatch.setattr(main, "get_identity_authentication_repository", lambda: repository)
         monkeypatch.setattr(main, "get_audit_reader", lambda: AuditReader(temporary_url))
         monkeypatch.setattr(tokens, "get_settings", lambda: settings)
-        client = TestClient(main.app)
+        client = TestClient(main.app, base_url="https://testserver")
 
         denied = client.post(
             "/api/v1/auth/login",

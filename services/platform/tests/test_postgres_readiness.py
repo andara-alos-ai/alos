@@ -17,6 +17,9 @@ pytestmark = [
 
 def test_readiness_reports_a_disposable_postgres_database() -> None:
     get_settings.cache_clear()
+    settings = get_settings()
+    if settings.object_storage_provider == "filesystem":
+        settings.object_storage_path.mkdir(parents=True, exist_ok=True)
     response = TestClient(app).get("/health/ready")
 
     assert response.status_code == 200

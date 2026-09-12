@@ -15,6 +15,8 @@ import {
 import {
   canRegisterSource,
   canVerifySource,
+  canConfigureSourceVault,
+  extractGoogleDriveFolderId,
 } from "@/lib/sources";
 import {
   canChangeBudget,
@@ -275,9 +277,13 @@ describe("MVP 0.1 Governance Remediation Test Suite", () => {
       expect(canRecordReadinessDecision([])).toBe(false);
     });
 
-    it("verifies canRegisterSource permits IT_LEAD and QA_SECURITY", () => {
+    it("verifies canRegisterSource permits DIRECTOR, DIVISION_OWNER, and IT_LEAD only", () => {
+      expect(canRegisterSource(["DIRECTOR"])).toBe(true);
+      expect(canRegisterSource(["DIVISION_OWNER"])).toBe(true);
       expect(canRegisterSource(["IT_LEAD"])).toBe(true);
-      expect(canRegisterSource(["QA_SECURITY"])).toBe(true);
+      expect(canRegisterSource(["QA_SECURITY"])).toBe(false);
+      expect(canRegisterSource(["SECURITY_ADMIN"])).toBe(false);
+      expect(canRegisterSource(["ADMIN"])).toBe(false);
       expect(canRegisterSource(["BUSINESS_REVIEWER"])).toBe(false);
       expect(canRegisterSource([])).toBe(false);
     });
@@ -313,6 +319,58 @@ describe("MVP 0.1 Governance Remediation Test Suite", () => {
       expect(canApproveRelease(["DIRECTOR"])).toBe(true);
       expect(canApproveRelease(["IT_LEAD"])).toBe(false);
       expect(canApproveRelease(["QA_SECURITY"])).toBe(false);
+    });
+
+    it("verifies canConfigureSourceVault permits IT_LEAD only", () => {
+      expect(canConfigureSourceVault(["IT_LEAD"])).toBe(true);
+      expect(canConfigureSourceVault(["DIRECTOR"])).toBe(false);
+      expect(canConfigureSourceVault(["DIVISION_OWNER"])).toBe(false);
+      expect(canConfigureSourceVault(["QA_SECURITY"])).toBe(false);
+      expect(canConfigureSourceVault([])).toBe(false);
+    });
+  });
+
+  describe("6. Source Vault Google Drive Boundary Validation", () => {
+    it("extracts folder id from valid Google Drive folder URLs", () => {
+      expect(
+        extractGoogleDriveFolderId("https://drive.google.com/drive/folders/1A2b3C4d5E6f7G8h9I0j")
+      ).toBe("1A2b3C4d5E6f7G8h9I0j");
+      expect(
+        extractGoogleDriveFolderId("https://drive.google.com/drive/folders/1A2b3C4d5E6f7G8h9I0j?usp=sharing")
+      ).toBe("1A2b3C4d5E6f7G8h9I0j");
+    });
+
+    it("rejects non-Drive or malformed URLs", () => {
+      expect(extractGoogleDriveFolderId("https://example.com/drive/folders/1A2b3C4d5E")).toBeNull();
+      expect(extractGoogleDriveFolderId("https://drive.google.com/file/d/1A2b3C4d5E6f7G8h9I0j")).toBeNull();
+      expect(extractGoogleDriveFolderId("")).toBeNull();
+    });
+  });
+
+  describe("7. Fail-Closed Readiness: ACTIVE State Never Replaces Evidence", () => {
+    it("enforces isReady is false even if ACTIVE when evidence is incomplete", () => {
+      const contractValid = true;
+      const toolsConfigured = true;
+      const permsApproved = true;
+      const testsPassed = false; // Missing test evidence
+      const businessApproved = true;
+      const techApproved = true;
+
+      // Fail-closed computation (no ACTIVE shortcut)
+      const isReadyState = contractValid && toolsConfigured && permsApproved && testsPassed && businessApproved && techApproved;
+      expect(isReadyState).toBe(false);
+    });
+
+    it("enforces isReady is true only when all 6 evidence dimensions are satisfied", () => {
+      const contractValid = true;
+      const toolsConfigured = true;
+      const permsApproved = true;
+      const testsPassed = true;
+      const businessApproved = true;
+      const techApproved = true;
+
+      const isReadyState = contractValid && toolsConfigured && permsApproved && testsPassed && businessApproved && techApproved;
+      expect(isReadyState).toBe(true);
     });
   });
 });

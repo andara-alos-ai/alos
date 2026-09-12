@@ -97,6 +97,27 @@ def test_portfolio_snapshots_are_derived_from_accessible_persisted_rows() -> Non
                     context.user_id,
                 ),
             )
+            for i in range(2):
+                connection.execute(
+                    """
+                    INSERT INTO operational.tasks (
+                        organization_id, workspace_id, division_id, project_id,
+                        title, status, priority, due_date, owner_user_id, created_by_user_id
+                    ) VALUES (
+                        %s, %s, %s, %s,
+                        %s, 'TODO', 'HIGH', '2026-01-01', %s, %s
+                    )
+                    """,
+                    (
+                        context.organization_id,
+                        context.workspace_id,
+                        division[0],
+                        project[0],
+                        f"Overdue task {i + 1}",
+                        context.user_id,
+                        context.user_id,
+                    ),
+                )
 
         repository = PortfolioRepository(temporary_url)
         projects = repository.project_portfolio(

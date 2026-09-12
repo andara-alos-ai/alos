@@ -333,7 +333,7 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
                 "maker@alos.test",
                 "IT_LEAD",
             )
-            requester_user_id = _add_workspace_actor(
+            _add_workspace_actor(
                 connection,
                 context.organization_id,
                 context.workspace_id,
@@ -387,7 +387,7 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
         assert release_repository.find_independent_release_maker(
             context.workspace_id,
             organization_id=context.organization_id,
-            requested_by_user_id=requester_user_id,
+            requested_by_user_id=context.user_id,
         ) == maker_user_id
         local_team = release_repository.bootstrap_local_release_team(context.workspace_id, uuid4())
         assert {participant.duty for participant in local_team.participants} == {

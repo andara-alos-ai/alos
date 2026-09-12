@@ -690,10 +690,16 @@ export function GovernanceDashboard() {
     const requiredPermissionKeys = snapshot?.permission_keys ?? [];
     const permsApproved = requiredPermissionKeys.length === 0 ? true : requiredPermissionKeys.every((pk) => realPermissions.some((p) => p.agent_version_id === latestVersion?.agent_version_id && p.permission_key === pk && p.lifecycle_status === "APPROVED"));
     const latestDetail = agentDetails[0];
-    const testsPassed = latestDetail ? releaseTestReadiness(latestDetail) : (latestVersion?.lifecycle_status === "ACTIVE");
-    const businessApproved = latestDetail ? latestDetail.reviews.some((rv) => rv.review_gate === "BUSINESS" && rv.decision === "APPROVED") : (latestVersion?.lifecycle_status === "ACTIVE");
-    const techApproved = latestDetail ? latestDetail.reviews.some((rv) => rv.review_gate === "TECHNICAL" && rv.decision === "APPROVED") : (latestVersion?.lifecycle_status === "ACTIVE");
-    const isReadyState = latestVersion?.lifecycle_status === "ACTIVE" || (contractValid && toolsConfigured && permsApproved && testsPassed && businessApproved && techApproved);
+    const testsPassed = Boolean(latestDetail && releaseTestReadiness(latestDetail));
+    const businessApproved = Boolean(
+      latestDetail &&
+      latestDetail.reviews.some((rv) => rv.review_gate === "BUSINESS" && rv.decision === "APPROVED")
+    );
+    const techApproved = Boolean(
+      latestDetail &&
+      latestDetail.reviews.some((rv) => rv.review_gate === "TECHNICAL" && rv.decision === "APPROVED")
+    );
+    const isReadyState = contractValid && toolsConfigured && permsApproved && testsPassed && businessApproved && techApproved;
 
     return {
       agentKey: ag.agent_key,

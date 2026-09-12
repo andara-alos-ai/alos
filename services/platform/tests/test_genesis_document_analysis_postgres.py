@@ -131,7 +131,7 @@ def test_director_document_analysis_binds_approved_source_to_a_draft() -> None:
             actor_user_id=director_id,
         )
         assert approved_source.content_sha256 in draft_detail.content
-        assert "Tidak ada kesimpulan substantif" in draft_detail.content
+        assert "Belum ada kesimpulan substantif" in draft_detail.content
         assert draft_detail.checklist == []
         with pytest.raises(DocumentConflictError, match="confirmed in the Genesis conversation"):
             documents.complete_checklist_item(
@@ -225,7 +225,7 @@ def test_director_document_analysis_binds_approved_source_to_a_draft() -> None:
                 "GENESIS_DOCUMENT_WORKFLOW_CHECKLIST_RECORDED",
                 "GENESIS_DOCUMENT_WORKFLOW_COMPLETION_RECORDED",
                 "GENESIS_DOCUMENT_WORKFLOW_AGENT_PROPOSAL_RECORDED",
-                "GENESIS_DOCUMENT_WORKFLOW_H4_HANDOFF_RECORDED",
+                "GENESIS_DOCUMENT_WORKFLOW_GOVERNANCE_HANDOFF_RECORDED",
             }
         )
     finally:

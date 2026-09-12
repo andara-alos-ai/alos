@@ -44,6 +44,7 @@ def _settings(
         environment=environment,
         database_url=database_url,
         auth_signing_secret="a" * 32,
+        allow_staging_filesystem_object_storage=(environment == "staging"),
         llm_provider="openai",
         llm_api_key="test-only-key",
         llm_model="gpt-5.6-luna",

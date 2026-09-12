@@ -258,7 +258,7 @@ def _settings(database_url: str) -> Settings:
         auth_signing_secret="a" * 32,
         llm_provider="openai",
         llm_api_key="test-only-key",
-        llm_model="test-model",
+        llm_model="gpt-5.6-luna",
         llm_max_output_tokens=512,
         llm_max_context_tokens=12_000,
         llm_daily_request_limit=20,
@@ -280,7 +280,7 @@ def _model_response() -> ModelResponse:
     )
     return ModelResponse(
         provider="openai",
-        model="test-model",
+        model="gpt-5.6-luna",
         output_text=answer,
         usage=ModelUsage(input_tokens=100, output_tokens=60),
         latency_milliseconds=15,
