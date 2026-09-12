@@ -25,11 +25,21 @@ def main() -> None:
         required=True,
     )
     parser.add_argument("--workspace-key", default="ALOS_GOVERNANCE")
+    parser.add_argument(
+        "--password",
+        default=None,
+        help="Optional non-interactive password (minimum 16 characters).",
+    )
     arguments = parser.parse_args()
-    password = getpass.getpass("Password (minimum 16 characters): ")
-    confirmation = getpass.getpass("Confirm password: ")
-    if password != confirmation:
-        parser.error("password confirmation does not match")
+    if arguments.password:
+        password = arguments.password
+        if len(password) < 16:
+            parser.error("password must be at least 16 characters")
+    else:
+        password = getpass.getpass("Password (minimum 16 characters): ")
+        confirmation = getpass.getpass("Confirm password: ")
+        if password != confirmation:
+            parser.error("password confirmation does not match")
     try:
         repository = IdentityAuthenticationRepository(get_settings().database_url)
         result = repository.bootstrap_release_participant(

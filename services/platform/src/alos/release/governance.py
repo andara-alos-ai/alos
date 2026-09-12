@@ -1420,8 +1420,6 @@ class ReleaseGovernanceRepository:
                 "DRAFT",
                 "TESTED",
                 "IN_REVIEW",
-                "RETURNED",
-                "REJECTED",
                 "APPROVED",
                 "RELEASED",
                 "ACTIVE",
