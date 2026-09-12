@@ -74,7 +74,7 @@ type DashboardData = {
   actor: SessionActor;
   workspaces: Workspace[];
   policy: ModelPolicy;
-  budget: Budget;
+  budget: Budget | null;
   usage: Usage;
   runs: Run[];
   audit: AuditEvent[];
@@ -311,7 +311,12 @@ export function GovernanceDashboard() {
   const loadWorkspace = useCallback(async (selectedWorkspaceId: string, base?: Foundation) => {
     const foundation = base ?? (await loadFoundation());
     const [budget, usage, runs, auditResult, releases, agents, permissions, tools] = await Promise.all([
-      api<Budget>(`/api/v1/workspaces/${selectedWorkspaceId}/budget`),
+      api<Budget>(`/api/v1/workspaces/${selectedWorkspaceId}/budget`).catch((err: unknown) => {
+        if (err instanceof ApiError && (err.status === 400 || err.status === 404)) {
+          return null;
+        }
+        throw err;
+      }),
       api<Usage>(`/api/v1/workspaces/${selectedWorkspaceId}/usage/daily`),
       api<Run[]>(`/api/v1/workspaces/${selectedWorkspaceId}/runs?limit=12`),
       loadAudit(selectedWorkspaceId),
@@ -320,6 +325,13 @@ export function GovernanceDashboard() {
       api<PermissionPolicy[]>(`/api/v1/permission-policies?workspace_id=${encodeURIComponent(selectedWorkspaceId)}`),
       api<ToolRecord[]>("/api/v1/tools"),
     ]);
+    if (!budget) {
+      setError(
+        normalizeGovernanceError(
+          new ApiError(400, "an active workspace cost limit was not found", null)
+        )
+      );
+    }
     setData({
       ...foundation,
       budget,
@@ -510,7 +522,7 @@ export function GovernanceDashboard() {
     ? "Technical Reviewer"
     : (data?.actor?.roles?.[0] ?? "User");
   const currentActiveUserName = userKnown?.name ?? (data?.actor?.roles?.includes("DIRECTOR") ? "Direktur Utama" : currentActiveRoleTitle);
-  const currentActiveUserAvatar = userKnown?.avatar ?? (data?.actor?.roles?.includes("DIRECTOR") ? "DU" : "AL");
+  const currentActiveUserAvatar = userKnown?.avatar ?? (data?.actor?.roles?.includes("DIRECTOR") ? "DU" : data?.actor?.roles?.includes("IT_LEAD") ? "IT" : "AL");
 
   const currentWorkspace = data?.workspaces.find((w) => w.workspace_id === workspaceId);
   const currentDivisionScope = currentWorkspace?.division_code ? `Divisi ${currentWorkspace.division_code}` : (currentWorkspace?.name ?? "Workspace");
@@ -1229,14 +1241,11 @@ export function GovernanceDashboard() {
     setSubmittingRelease(true);
     setError(null);
     try {
-      await api("/api/v1/release-requests", {
+      await api(`/api/v1/agents/${encodeURIComponent(newReleaseAgentKey)}/release-requests`, {
         method: "POST",
         body: JSON.stringify({
           workspace_id: workspaceId,
-          agent_key: newReleaseAgentKey,
-          semantic_version: version,
-          release_tier: "ENTERPRISE",
-          purpose: newReleaseRequirement.trim(),
+          requirement: newReleaseRequirement.trim(),
         }),
       });
       setNotice(`Release request untuk '${newReleaseAgentKey}' (${version}) berhasil dibuat.`);
