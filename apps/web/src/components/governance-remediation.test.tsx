@@ -7,6 +7,8 @@ import {
   canOperateKillSwitch,
   canReviewBusinessGate,
   canReviewTechnicalGate,
+  resolveActiveAgentVersion,
+  resolveRollbackTargets,
   type ReleaseRequestDetail,
   type TestCategory,
   type TestStatus,
@@ -391,6 +393,67 @@ describe("MVP 0.1 Governance Remediation Test Suite", () => {
 
       const isReadyState = contractValid && toolsConfigured && permsApproved && testsPassed && businessApproved && techApproved;
       expect(isReadyState).toBe(true);
+    });
+  });
+
+  describe("8. Active Agent Version & Rollback Target Resolution", () => {
+    const version1 = {
+      agent_version_id: "ver-1",
+      semantic_version: "0.1.0",
+      lifecycle_status: "ACTIVE",
+    };
+    const version2RolledBack = {
+      agent_version_id: "ver-2",
+      semantic_version: "0.2.0",
+      lifecycle_status: "ROLLED_BACK",
+    };
+    const version3Draft = {
+      agent_version_id: "ver-3",
+      semantic_version: "0.3.0",
+      lifecycle_status: "DRAFT",
+    };
+
+    it("resolves exact active version by active_version_id even when older than latest created", () => {
+      // Version 2 is latest created (index 0), but active_version_id points to Version 1
+      const agent = {
+        active_version_id: "ver-1",
+        versions: [version2RolledBack, version1],
+      };
+      const active = resolveActiveAgentVersion(agent);
+      expect(active?.agent_version_id).toBe("ver-1");
+      expect(active?.semantic_version).toBe("0.1.0");
+      expect(active?.lifecycle_status).toBe("ACTIVE");
+    });
+
+    it("resolves active version by lifecycle_status when active_version_id is absent", () => {
+      const agent = {
+        active_version_id: null,
+        versions: [version3Draft, version2RolledBack, version1],
+      };
+      const active = resolveActiveAgentVersion(agent);
+      expect(active?.semantic_version).toBe("0.1.0");
+    });
+
+    it("falls back to SUSPENDED, RELEASED, or versions[0] when no ACTIVE version exists", () => {
+      const suspended = { agent_version_id: "ver-s", semantic_version: "0.2.0", lifecycle_status: "SUSPENDED" };
+      const draft = { agent_version_id: "ver-d", semantic_version: "0.3.0", lifecycle_status: "DRAFT" };
+      const agentSuspended = { versions: [draft, suspended] };
+      expect(resolveActiveAgentVersion(agentSuspended)?.semantic_version).toBe("0.2.0");
+
+      const agentDraftOnly = { versions: [draft] };
+      expect(resolveActiveAgentVersion(agentDraftOnly)?.semantic_version).toBe("0.3.0");
+    });
+
+    it("resolves rollback targets excluding the active version and including ROLLED_BACK", () => {
+      const targets = resolveRollbackTargets("ver-1", [version2RolledBack, version1]);
+      expect(targets).toEqual(["0.2.0"]);
+      expect(targets).not.toContain("0.1.0");
+    });
+
+    it("prioritizes backend rollback targets when available", () => {
+      const backendTargets = ["0.2.0", "0.0.9"];
+      const targets = resolveRollbackTargets("ver-1", [version2RolledBack, version1], backendTargets);
+      expect(targets).toEqual(["0.2.0", "0.0.9"]);
     });
   });
 });

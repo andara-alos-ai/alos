@@ -59,8 +59,13 @@ import {
 import { SourcesView } from "@/components/governance/sources-view";
 import { ReadinessDecisionsPanel } from "@/components/governance/readiness-decisions-panel";
 import {
+  resolveActiveAgentVersion,
+  resolveRollbackTargets,
+} from "@/lib/release-governance";
+import {
   type KillSwitchAgent,
   type KillSwitchSystemState,
+  type RollbackLogItem,
   type AuditTrailRecord,
   type GovernanceMetricCard,
   type LifecycleDistributionItem,
@@ -404,43 +409,91 @@ export function GovernanceDashboard() {
     const wsScope = currentWs?.division_code ? `Divisi ${currentWs.division_code}` : (currentWs?.name ?? "Workspace");
 
     const mappedKsAgents: KillSwitchAgent[] = agents.map((ag) => {
-      const latest = ag.versions[0];
+      const activeVersion = resolveActiveAgentVersion(ag);
       const matchingRelease =
-        (latest?.agent_version_id
-          ? releases.find((r) => r.agent_key === ag.agent_key && r.agent_version_id === latest.agent_version_id)
+        (activeVersion?.agent_version_id
+          ? releases.find((r) => r.agent_key === ag.agent_key && r.agent_version_id === activeVersion.agent_version_id)
           : undefined)
         ?? releases.find((r) => r.agent_key === ag.agent_key && (r.state === "ACTIVE" || r.state === "RELEASED" || r.state === "SUSPENDED"))
         ?? releases.find((r) => r.agent_key === ag.agent_key);
       const relDetail = matchingRelease ? validDetailsMap[matchingRelease.change_request_id] : undefined;
       const isKillSwitchActive = Boolean(relDetail?.kill_switch_active || matchingRelease?.kill_switch_active);
-      const isSuspended = !isKillSwitchActive && (latest?.lifecycle_status === "SUSPENDED" || matchingRelease?.state === "SUSPENDED");
+      const isSuspended = !isKillSwitchActive && (activeVersion?.lifecycle_status === "SUSPENDED" || matchingRelease?.state === "SUSPENDED");
       const isHalted = isKillSwitchActive || isSuspended;
       const haltReason = isKillSwitchActive
         ? "Sirkuit runtime diputus oleh Kill Switch darurat"
         : isSuspended
         ? "Suspensi administratif rilis oleh Direktur"
         : undefined;
+
+      const rollbackTargets = resolveRollbackTargets(
+        activeVersion?.agent_version_id,
+        ag.versions,
+        relDetail?.rollback_targets
+      );
+
+      const previousStableVersion =
+        rollbackTargets[0] ??
+        ag.versions.find((v) => v.agent_version_id !== activeVersion?.agent_version_id)?.semantic_version ??
+        activeVersion?.semantic_version ??
+        "v1.0.0";
+
       return {
         agentKey: ag.agent_key,
         agentName: ag.name,
         scope: wsScope,
         status: (isHalted ? "HALTED" : "OPERATIONAL") as "OPERATIONAL" | "HALTED",
         circuitState: (isKillSwitchActive ? "OPEN" : "CLOSED") as "CLOSED" | "OPEN",
-        currentVersion: latest?.semantic_version ?? "v1.0.0",
-        previousStableVersion: ag.versions[1]?.semantic_version ?? latest?.semantic_version ?? "v1.0.0",
+        currentVersion: activeVersion?.semantic_version ?? "v1.0.0",
+        previousStableVersion,
         availableVersions: ag.versions.map((v) => v.semantic_version),
         changeRequestId: matchingRelease?.change_request_id,
-        rollbackTargets: relDetail?.rollback_targets ?? ag.versions.slice(1).map((v) => v.semantic_version),
+        rollbackTargets,
         killSwitchActive: isKillSwitchActive,
         isSuspended,
         haltReason,
       };
     });
+
+    const rollbackHistory: RollbackLogItem[] = auditResult.audit
+      .filter((ev) => ev.action === "AGENT_ROLLED_BACK")
+      .map((ev) => {
+        const matchingAgent = agents.find(
+          (ag) =>
+            ag.agent_contract_id === ev.entity_id ||
+            ag.agent_key === (ev.metadata?.agent_key as string | undefined)
+        );
+        const knownUser = ev.actor_user_id ? KNOWN_SYSTEM_USERS[ev.actor_user_id] : null;
+        const actorName =
+          knownUser?.name ??
+          (ev.actor_user_id ? `User (${ev.actor_user_id.slice(0, 8)})` : ev.system_actor ?? "Director");
+        const toVersion =
+          (ev.metadata?.to_semantic_version as string | undefined) ??
+          (ev.metadata?.target_semantic_version as string | undefined) ??
+          "v1.0.0";
+        const fromVersion =
+          (ev.metadata?.from_semantic_version as string | undefined) ??
+          matchingAgent?.versions.find((v) => v.semantic_version !== toVersion)?.semantic_version ??
+          "v1.1.0";
+        return {
+          id: ev.audit_event_id,
+          agentKey: matchingAgent?.agent_key ?? (ev.metadata?.agent_key as string | undefined) ?? "UNKNOWN",
+          agentName: matchingAgent?.name ?? (ev.metadata?.agent_key as string | undefined) ?? "Agent",
+          fromVersion,
+          toVersion,
+          reason: ev.reason || "Rollback operasional",
+          executedBy: actorName,
+          executedAt: formatDateTime(ev.occurred_at),
+          status: "VERIFIED",
+        };
+      });
+
     setKillSwitchSystem((prev) => ({
       ...prev,
       activeAgentsCount: mappedKsAgents.filter((a) => a.status === "OPERATIONAL").length,
       haltedAgentsCount: mappedKsAgents.filter((a) => a.status === "HALTED").length,
       agents: mappedKsAgents,
+      rollbackHistory,
     }));
   }, []);
 
@@ -626,7 +679,7 @@ export function GovernanceDashboard() {
     }));
 
   const agentControlList = realAgents.map((ag) => {
-    const latestVersion = ag.versions[0];
+    const latestVersion = resolveActiveAgentVersion(ag);
     const snapshot = latestVersion?.contract_snapshot;
     const agentReleases = realReleases.filter((r) => r.agent_key === ag.agent_key);
     const agentDetails = agentReleases.map((r) => releaseDetailsMap[r.change_request_id]).filter(Boolean) as ReleaseRequestDetail[];
@@ -791,7 +844,7 @@ export function GovernanceDashboard() {
   });
 
   const agentDirectoryList = realAgents.map((ag) => {
-    const latest = ag.versions[0];
+    const latest = resolveActiveAgentVersion(ag);
     const snap = latest?.contract_snapshot;
     return {
       id: ag.agent_contract_id,
@@ -1044,7 +1097,13 @@ export function GovernanceDashboard() {
   }
 
   async function handleConfirmRollback() {
-    if (!actionTargetAgent || !rollbackTargetVersion) return;
+    if (!actionTargetAgent) return;
+    const targetVersion = (
+      rollbackTargetVersion ||
+      actionTargetAgent.rollbackTargets?.[0] ||
+      actionTargetAgent.previousStableVersion
+    )?.trim();
+    if (!targetVersion) return;
     const changeRequestId = actionTargetAgent.changeRequestId;
     if (!changeRequestId) {
       setError({
@@ -1060,13 +1119,13 @@ export function GovernanceDashboard() {
     }
     const reason =
       modalReasonInput.trim() ||
-      `Rollback versi dari ${actionTargetAgent.currentVersion} ke ${rollbackTargetVersion}`;
+      `Rollback versi dari ${actionTargetAgent.currentVersion} ke ${targetVersion}`;
 
     setSubmittingSafetyAction(true);
     setError(null);
     try {
-      await rollbackAgent(changeRequestId, rollbackTargetVersion, reason);
-      setNotice(`Rollback agen ${actionTargetAgent.agentName} ke versi ${rollbackTargetVersion} berhasil.`);
+      await rollbackAgent(changeRequestId, targetVersion, reason);
+      setNotice(`Rollback agen ${actionTargetAgent.agentName} ke versi ${targetVersion} berhasil.`);
       setSafetyModal(null);
       setActionTargetAgent(null);
       setRollbackTargetVersion("");

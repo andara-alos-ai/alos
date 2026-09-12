@@ -141,6 +141,8 @@ class AgentRegistryRecord(BaseModel):
     risk_level: RiskLevel
     created_at: datetime
     updated_at: datetime
+    active_version_id: UUID | None = None
+    released_version_id: UUID | None = None
     versions: list[AgentVersionRecord]
 
 
@@ -748,7 +750,8 @@ class AgentRegistryRepository:
             """
             SELECT child.agent_contract_id, child.agent_key, child.name, child.workspace_id,
                    child.agent_level, child.risk_level, child.created_at,
-                   registry.updated_at, parent.agent_key AS parent_agent_key
+                   registry.updated_at, registry.active_version_id, registry.released_version_id,
+                   parent.agent_key AS parent_agent_key
             FROM agents.contracts AS child
             JOIN agents.registry AS registry
               ON registry.agent_contract_id = child.agent_contract_id
@@ -780,6 +783,8 @@ class AgentRegistryRepository:
             risk_level=agent["risk_level"],
             created_at=agent["created_at"],
             updated_at=agent["updated_at"],
+            active_version_id=agent["active_version_id"],
+            released_version_id=agent["released_version_id"],
             versions=[AgentVersionRecord(**version) for version in versions],
         )
 

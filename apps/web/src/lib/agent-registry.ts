@@ -40,6 +40,8 @@ export type AgentRecord = {
   risk_level: RiskLevel;
   created_at?: string;
   updated_at?: string;
+  active_version_id?: string | null;
+  released_version_id?: string | null;
   versions: AgentVersion[];
 };
 
@@ -188,7 +190,16 @@ export function runtimeBlockedMessage(detail?: string): string {
 }
 
 export function latestVersion(agent: AgentRecord): AgentVersion | undefined {
-  return agent.versions[0];
+  if (agent.active_version_id) {
+    const exact = agent.versions.find((v) => v.agent_version_id === agent.active_version_id);
+    if (exact) return exact;
+  }
+  return (
+    agent.versions.find((v) => v.lifecycle_status === "ACTIVE") ??
+    agent.versions.find((v) => v.lifecycle_status === "SUSPENDED") ??
+    agent.versions.find((v) => v.lifecycle_status === "RELEASED") ??
+    agent.versions[0]
+  );
 }
 
 export function eligibleParents(agents: AgentRecord[], editingAgentKey = ""): AgentRecord[] {

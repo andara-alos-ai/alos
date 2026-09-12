@@ -354,3 +354,42 @@ function parseJsonObject(value: string, label: string): Record<string, unknown> 
     throw new Error(`${label} harus berupa objek JSON yang valid.`);
   }
 }
+
+export interface VersionLike {
+  agent_version_id: string;
+  semantic_version: string;
+  lifecycle_status: string;
+}
+
+export function resolveActiveAgentVersion<T extends VersionLike>(agent: {
+  active_version_id?: string | null;
+  versions: T[];
+}): T | undefined {
+  if (agent.active_version_id) {
+    const exact = agent.versions.find((v) => v.agent_version_id === agent.active_version_id);
+    if (exact) return exact;
+  }
+  return (
+    agent.versions.find((v) => v.lifecycle_status === "ACTIVE") ??
+    agent.versions.find((v) => v.lifecycle_status === "SUSPENDED") ??
+    agent.versions.find((v) => v.lifecycle_status === "RELEASED") ??
+    agent.versions[0]
+  );
+}
+
+export function resolveRollbackTargets<T extends VersionLike>(
+  activeVersionId: string | undefined,
+  versions: T[],
+  backendTargets?: string[]
+): string[] {
+  if (backendTargets && backendTargets.length > 0) {
+    return backendTargets;
+  }
+  return versions
+    .filter(
+      (v) =>
+        v.agent_version_id !== activeVersionId &&
+        ["ACTIVE", "RELEASED", "ROLLED_BACK"].includes(v.lifecycle_status)
+    )
+    .map((v) => v.semantic_version);
+}

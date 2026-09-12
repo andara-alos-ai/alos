@@ -616,7 +616,7 @@ class ReleaseGovernanceRepository:
                 """
                 SELECT semantic_version FROM agents.versions
                 WHERE agent_contract_id = %s AND agent_version_id <> %s
-                  AND lifecycle_status IN ('ACTIVE', 'SUSPENDED', 'RELEASED')
+                  AND lifecycle_status IN ('ACTIVE', 'SUSPENDED', 'RELEASED', 'ROLLED_BACK')
                 ORDER BY created_at DESC, agent_version_id DESC
                 """,
                 (context["agent_contract_id"], context["agent_version_id"]),
@@ -1104,6 +1104,15 @@ class ReleaseGovernanceRepository:
                     context["agent_contract_id"],
                 ),
             )
+            connection.execute(
+                """
+                UPDATE agents.versions
+                SET lifecycle_status = 'RELEASED'
+                WHERE agent_contract_id = %s AND agent_version_id <> %s
+                  AND lifecycle_status = 'ACTIVE'
+                """,
+                (context["agent_contract_id"], context["agent_version_id"]),
+            )
             self._transition(
                 connection,
                 context,
@@ -1285,7 +1294,12 @@ class ReleaseGovernanceRepository:
                 raise LifecycleConflictError(
                     "rollback target must be a different version of the same agent"
                 )
-            if target["lifecycle_status"] not in {"ACTIVE", "SUSPENDED", "RELEASED"}:
+            if target["lifecycle_status"] not in {
+                "ACTIVE",
+                "SUSPENDED",
+                "RELEASED",
+                "ROLLED_BACK",
+            }:
                 raise LifecycleConflictError("rollback target must have been released previously")
             active_kill_switch = connection.execute(
                 """
@@ -1332,6 +1346,14 @@ class ReleaseGovernanceRepository:
                 """,
                 (target["agent_version_id"],),
             )
+            connection.execute(
+                """
+                UPDATE governance.agent_change_requests
+                SET state = 'ACTIVE'
+                WHERE agent_version_id = %s
+                """,
+                (target["agent_version_id"],),
+            )
             self._audit(
                 connection,
                 context["organization_id"],
@@ -1341,7 +1363,12 @@ class ReleaseGovernanceRepository:
                 context["agent_contract_id"],
                 correlation_id,
                 request.reason,
-                {"target_semantic_version": request.target_semantic_version},
+                {
+                    "target_semantic_version": request.target_semantic_version,
+                    "from_semantic_version": context["semantic_version"],
+                    "to_semantic_version": request.target_semantic_version,
+                    "agent_key": context["agent_key"],
+                },
             )
             return self._record_from_context(connection, change_request_id)
 
