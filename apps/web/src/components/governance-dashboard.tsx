@@ -104,6 +104,9 @@ type PermissionPolicy = {
   lifecycle_status: string;
   created_by_user_id?: string | null;
   approved_by_user_id: string | null;
+  agent_key?: string | null;
+  agent_name?: string | null;
+  semantic_version?: string | null;
 };
 
 type ToolRecord = {
@@ -349,11 +352,7 @@ export function GovernanceDashboard() {
       runs,
       releases,
       agents,
-      permissions: permissions.filter((permission) =>
-        permission.agent_version_id && agents.some((agent) =>
-          agent.versions.some((version) => version.agent_version_id === permission.agent_version_id)
-        )
-      ),
+      permissions: permissions.filter((p) => Boolean(p.agent_version_id || p.agent_key)),
       tools,
       ...auditResult,
     });
@@ -922,12 +921,24 @@ export function GovernanceDashboard() {
   });
 
   const permissionsList = realPermissions.map((pm) => {
-    const ag = realAgents.find((a) => a.versions.some((v) => v.agent_version_id === pm.agent_version_id));
+    const ag = realAgents.find(
+      (a) =>
+        (pm.agent_key && a.agent_key === pm.agent_key) ||
+        a.versions.some((v) => v.agent_version_id === pm.agent_version_id)
+    );
+    const agVersion = ag?.versions.find((v) => v.agent_version_id === pm.agent_version_id);
+    const resolvedAgentKey = pm.agent_key ?? ag?.agent_key ?? "UNKNOWN";
+    const resolvedAgentName = pm.agent_name ?? ag?.name ?? (resolvedAgentKey !== "UNKNOWN" ? resolvedAgentKey : "Agent");
+    const resolvedVersion =
+      pm.semantic_version ??
+      agVersion?.semantic_version ??
+      (ag ? (resolveActiveAgentVersion(ag)?.semantic_version || ag.versions[0]?.semantic_version) : "1.0.0");
+
     return {
       id: pm.permission_policy_id,
-      agentKey: ag?.agent_key ?? "UNKNOWN",
-      agentName: ag?.name ?? "Agent",
-      version: ag?.versions.find((v) => v.agent_version_id === pm.agent_version_id)?.semantic_version ?? "v1.0.0",
+      agentKey: resolvedAgentKey,
+      agentName: resolvedAgentName,
+      version: resolvedVersion,
       permission: pm.permission_key,
       capability: pm.capability_key ?? "—",
       accessMode: pm.access_mode,
@@ -937,14 +948,35 @@ export function GovernanceDashboard() {
       actionLabel: pm.lifecycle_status === "APPROVED" ? "Approved" : "Approve",
     };
   });
+
+  const filterPermAgentOptions = (() => {
+    const map = new Map<string, { key: string; name: string }>();
+    for (const ag of realAgents) {
+      map.set(ag.agent_key, { key: ag.agent_key, name: ag.name });
+    }
+    for (const pm of permissionsList) {
+      if (pm.agentKey && pm.agentKey !== "UNKNOWN" && !map.has(pm.agentKey)) {
+        map.set(pm.agentKey, { key: pm.agentKey, name: pm.agentName });
+      }
+    }
+    return Array.from(map.values());
+  })();
+
   const filteredPermissions = permissionsList.filter((item) => {
-    if (permFilterAgent !== "ALL" && item.agentName !== permFilterAgent) return false;
+    if (
+      permFilterAgent !== "ALL" &&
+      item.agentKey !== permFilterAgent &&
+      item.agentName !== permFilterAgent
+    ) {
+      return false;
+    }
     if (permFilterStatus !== "ALL" && item.status !== permFilterStatus) return false;
     if (
       permSearch &&
       !item.permission.toLowerCase().includes(permSearch.toLowerCase()) &&
       !item.capability.toLowerCase().includes(permSearch.toLowerCase()) &&
-      !item.agentName.toLowerCase().includes(permSearch.toLowerCase())
+      !item.agentName.toLowerCase().includes(permSearch.toLowerCase()) &&
+      !item.agentKey.toLowerCase().includes(permSearch.toLowerCase())
     ) {
       return false;
     }
@@ -968,7 +1000,7 @@ export function GovernanceDashboard() {
     };
   });
   const filteredRuntimeMonitoring = runtimeMonitoringList.filter((item) => {
-    if (runtimeFilterAgent !== "ALL" && item.agentName !== runtimeFilterAgent) return false;
+    if (runtimeFilterAgent !== "ALL" && item.agentName !== runtimeFilterAgent && item.agentKey !== runtimeFilterAgent) return false;
     if (runtimeFilterStatus !== "ALL" && item.status !== runtimeFilterStatus) return false;
     if (dateFilterRange !== "ALL" && !matchesDateFilter(item.rawTime, dateFilterRange)) return false;
     return true;
@@ -5537,9 +5569,9 @@ export function GovernanceDashboard() {
                       value={permFilterAgent}
                     >
                       <option value="ALL">Semua Agent</option>
-                      {realAgents.map((ag) => (
-                        <option key={ag.agent_key} value={ag.name}>
-                          {ag.name} ({ag.agent_key})
+                      {filterPermAgentOptions.map((ag) => (
+                        <option key={ag.key} value={ag.key}>
+                          {ag.name} ({ag.key})
                         </option>
                       ))}
                     </select>
@@ -5718,10 +5750,11 @@ export function GovernanceDashboard() {
                     value={runtimeFilterAgent}
                   >
                     <option value="ALL">Semua Agent</option>
-                    <option value="Evidence Checker">Evidence Checker</option>
-                    <option value="Daily Brief">Daily Brief</option>
-                    <option value="Permit Monitor">Permit Monitor</option>
-                    <option value="HR Advisor">HR Advisor</option>
+                    {realAgents.map((ag) => (
+                      <option key={ag.agent_key} value={ag.agent_key}>
+                        {ag.name} ({ag.agent_key})
+                      </option>
+                    ))}
                   </select>
                   <GovIcon name="chevron" />
                 </div>

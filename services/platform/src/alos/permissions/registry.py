@@ -95,6 +95,9 @@ class PermissionPolicyRecord(BaseModel):
     project_scope: UUID | None = None
     classification: str = "INTERNAL"
     conditions: dict[str, Any] = Field(default_factory=dict)
+    agent_key: str | None = None
+    agent_name: str | None = None
+    semantic_version: str | None = None
 
 
 class PermissionRegistryRepository:
@@ -168,7 +171,14 @@ class PermissionRegistryRepository:
                 "Human registered a version-bound permission policy draft",
                 {"permission_key": request.permission_key, "agent_key": request.agent_key},
             )
-            return PermissionPolicyRecord(**row)
+            agent_key, agent_name, semantic_version = self._agent_info(
+                connection, version["agent_version_id"]
+            )
+            record_data = dict(row)
+            record_data["agent_key"] = agent_key
+            record_data["agent_name"] = agent_name
+            record_data["semantic_version"] = semantic_version
+            return PermissionPolicyRecord(**record_data)
 
     def approve(
         self,
@@ -241,7 +251,14 @@ class PermissionRegistryRepository:
                 "Independent human approved a version-bound permission",
                 {"permission_key": row["permission_key"]},
             )
-            return PermissionPolicyRecord(**row)
+            agent_key, agent_name, semantic_version = self._agent_info(
+                connection, row["agent_version_id"]
+            )
+            record_data = dict(row)
+            record_data["agent_key"] = agent_key
+            record_data["agent_name"] = agent_name
+            record_data["semantic_version"] = semantic_version
+            return PermissionPolicyRecord(**record_data)
 
     def list_policies(
         self, organization_id: UUID, *, agent_key: str | None = None
@@ -261,7 +278,9 @@ class PermissionRegistryRepository:
                        policy.created_by_user_id, policy.approved_by_user_id, policy.created_at,
                        policy.capability_key, policy.tool_key, policy.access_mode,
                        policy.resource_type, policy.division_scope, policy.project_scope,
-                       policy.classification, policy.conditions
+                       policy.classification, policy.conditions,
+                       contract.agent_key, contract.name AS agent_name,
+                       version.semantic_version
                 FROM governance.permission_policies AS policy
                 JOIN agents.versions AS version
                   ON version.agent_version_id = policy.agent_version_id
@@ -292,6 +311,24 @@ class PermissionRegistryRepository:
         if row is None:
             raise PermissionNotFoundError("Agent Version was not found in this workspace")
         return dict(row)
+
+    @staticmethod
+    def _agent_info(
+        connection: psycopg.Connection[Any], agent_version_id: UUID
+    ) -> tuple[str, str, str]:
+        row = connection.execute(
+            """
+            SELECT contract.agent_key, contract.name, version.semantic_version
+            FROM agents.contracts AS contract
+            JOIN agents.versions AS version
+              ON version.agent_contract_id = contract.agent_contract_id
+            WHERE version.agent_version_id = %s
+            """,
+            (agent_version_id,),
+        ).fetchone()
+        if row is None:
+            raise PermissionNotFoundError("Agent Version was not found")
+        return str(row["agent_key"]), str(row["name"]), str(row["semantic_version"])
 
     @staticmethod
     def _agent_key(connection: psycopg.Connection[Any], agent_version_id: UUID) -> str:
