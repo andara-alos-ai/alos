@@ -41,7 +41,7 @@ class PermissionPolicyRequest(BaseModel):
     workspace_id: UUID
     agent_key: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
     semantic_version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
-    permission_key: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.]{2,119}$")
+    permission_key: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.:]{2,119}$")
     effect: PermissionEffect
     resource_scope: dict[str, Any] = Field(default_factory=dict)
     capability_key: str | None = Field(

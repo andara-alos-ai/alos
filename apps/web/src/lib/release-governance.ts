@@ -361,10 +361,11 @@ export interface VersionLike {
   lifecycle_status: string;
 }
 
-export function resolveActiveAgentVersion<T extends VersionLike>(agent: {
+export function resolveActiveAgentVersion<T extends VersionLike>(agent?: {
   active_version_id?: string | null;
   versions: T[];
-}): T | undefined {
+} | null): T | undefined {
+  if (!agent || !agent.versions) return undefined;
   if (agent.active_version_id) {
     const exact = agent.versions.find((v) => v.agent_version_id === agent.active_version_id);
     if (exact) return exact;

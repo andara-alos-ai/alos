@@ -102,6 +102,7 @@ type PermissionPolicy = {
   resource_type: string;
   division_scope: string | null;
   lifecycle_status: string;
+  created_by_user_id?: string | null;
   approved_by_user_id: string | null;
 };
 
@@ -258,9 +259,12 @@ export function GovernanceDashboard() {
   const [submittingRelease, setSubmittingRelease] = useState(false);
 
   const [newPermAgentKey, setNewPermAgentKey] = useState("");
+  const [newPermVersion, setNewPermVersion] = useState("");
   const [newPermKey, setNewPermKey] = useState("");
   const [newPermCapability, setNewPermCapability] = useState("");
-  const [newPermAccessMode, setNewPermAccessMode] = useState<"READ" | "WRITE" | "ADMIN">("READ");
+  const [newPermAccessMode, setNewPermAccessMode] = useState<
+    "READ" | "CREATE_DRAFT" | "UPDATE_SCOPED" | "REQUEST_APPROVAL" | "EXECUTE_APPROVED_ACTION"
+  >("READ");
   const [newPermResourceType, setNewPermResourceType] = useState("DATA");
   const [newPermClassification, setNewPermClassification] = useState<"INTERNAL" | "CONFIDENTIAL" | "RESTRICTED">("INTERNAL");
   const [submittingPerm, setSubmittingPerm] = useState(false);
@@ -754,7 +758,7 @@ export function GovernanceDashboard() {
     const requiredToolKeys = snapshot?.tool_keys ?? [];
     const toolsConfigured = requiredToolKeys.length === 0 ? true : requiredToolKeys.every((tk) => realTools.some((t) => t.tool_key === tk && t.lifecycle_status === "APPROVED"));
     const requiredPermissionKeys = snapshot?.permission_keys ?? [];
-    const permsApproved = requiredPermissionKeys.length === 0 ? true : requiredPermissionKeys.every((pk) => realPermissions.some((p) => p.agent_version_id === latestVersion?.agent_version_id && p.permission_key === pk && p.lifecycle_status === "APPROVED"));
+    const permsApproved = requiredPermissionKeys.length === 0 ? true : requiredPermissionKeys.every((pk) => realPermissions.some((p) => (p.agent_version_id === latestVersion?.agent_version_id || ag.versions.some((v) => v.agent_version_id === p.agent_version_id)) && p.permission_key === pk && p.lifecycle_status === "APPROVED"));
     const latestDetail = agentDetails[0];
     const testsPassed = Boolean(latestDetail && releaseTestReadiness(latestDetail));
     const businessApproved = Boolean(
@@ -928,8 +932,9 @@ export function GovernanceDashboard() {
       capability: pm.capability_key ?? "—",
       accessMode: pm.access_mode,
       status: pm.lifecycle_status,
+      createdBy: pm.created_by_user_id,
       approvedBy: pm.approved_by_user_id ? pm.approved_by_user_id.slice(0, 8) : "Belum disetujui",
-      actionLabel: pm.lifecycle_status === "ACTIVE" ? "Active" : "Approve",
+      actionLabel: pm.lifecycle_status === "APPROVED" ? "Approved" : "Approve",
     };
   });
   const filteredPermissions = permissionsList.filter((item) => {
@@ -1333,7 +1338,11 @@ export function GovernanceDashboard() {
     }
     if (!newPermAgentKey || !newPermKey.trim()) return;
     const ag = realAgents.find((a) => a.agent_key === newPermAgentKey);
-    const version = ag?.versions[0]?.semantic_version || "1.0.0";
+    const version =
+      newPermVersion.trim() ||
+      resolveActiveAgentVersion(ag)?.semantic_version ||
+      ag?.versions[0]?.semantic_version ||
+      "1.0.0";
     setSubmittingPerm(true);
     setError(null);
     try {
@@ -1351,10 +1360,11 @@ export function GovernanceDashboard() {
           effect: "ALLOW",
         }),
       });
-      setNotice(`Permission policy '${newPermKey}' berhasil didaftarkan untuk '${newPermAgentKey}'.`);
+      setNotice(`Permission policy '${newPermKey}' berhasil didaftarkan untuk '${newPermAgentKey}' (${version}).`);
       setSafetyModal(null);
       setNewPermKey("");
       setNewPermCapability("");
+      setNewPermVersion("");
       await loadWorkspace(workspaceId);
     } catch (err: unknown) {
       setError(normalizeGovernanceError(err));
@@ -1365,12 +1375,15 @@ export function GovernanceDashboard() {
 
   async function handleApprovePermission(permissionPolicyId: string, permKey: string) {
     setError(null);
+    setSubmittingPerm(true);
     try {
       await approvePermission(permissionPolicyId);
       setNotice(`Permission '${permKey}' berhasil disetujui.`);
       await loadWorkspace(workspaceId);
     } catch (err: unknown) {
       setError(normalizeGovernanceError(err));
+    } finally {
+      setSubmittingPerm(false);
     }
   }
 
@@ -2769,7 +2782,16 @@ export function GovernanceDashboard() {
                 <label htmlFor="modal-perm-agent">Pilih Target Agen:</label>
                 <select
                   id="modal-perm-agent"
-                  onChange={(e) => setNewPermAgentKey(e.target.value)}
+                  onChange={(e) => {
+                    const selectedKey = e.target.value;
+                    setNewPermAgentKey(selectedKey);
+                    const ag = realAgents.find((a) => a.agent_key === selectedKey);
+                    const defaultVer =
+                      resolveActiveAgentVersion(ag)?.semantic_version ||
+                      ag?.versions[0]?.semantic_version ||
+                      "1.0.0";
+                    setNewPermVersion(defaultVer);
+                  }}
                   value={newPermAgentKey}
                 >
                   <option value="">-- Pilih Agen --</option>
@@ -2781,8 +2803,29 @@ export function GovernanceDashboard() {
                 </select>
               </div>
 
+              {(() => {
+                const selectedAg = realAgents.find((a) => a.agent_key === newPermAgentKey);
+                if (!selectedAg || selectedAg.versions.length === 0) return null;
+                return (
+                  <div className="gov-modal-field">
+                    <label htmlFor="modal-perm-version">Target Versi Agen:</label>
+                    <select
+                      id="modal-perm-version"
+                      onChange={(e) => setNewPermVersion(e.target.value)}
+                      value={newPermVersion}
+                    >
+                      {selectedAg.versions.map((ver) => (
+                        <option key={ver.agent_version_id} value={ver.semantic_version}>
+                          {ver.semantic_version} ({ver.lifecycle_status})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })()}
+
               <div className="gov-modal-field">
-                <label htmlFor="modal-perm-key">Permission Key (Contoh: read:property:overdue):</label>
+                <label htmlFor="modal-perm-key">Permission Key (Contoh: crm.customer.read atau property.query):</label>
                 <input
                   id="modal-perm-key"
                   onChange={(e) => setNewPermKey(e.target.value.toLowerCase().replace(/[^a-z0-9_.:]/g, ""))}
@@ -2797,12 +2840,14 @@ export function GovernanceDashboard() {
                   <label htmlFor="modal-perm-mode">Access Mode:</label>
                   <select
                     id="modal-perm-mode"
-                    onChange={(e) => setNewPermAccessMode(e.target.value as "READ" | "WRITE" | "ADMIN")}
+                    onChange={(e) => setNewPermAccessMode(e.target.value as "READ" | "CREATE_DRAFT" | "UPDATE_SCOPED" | "REQUEST_APPROVAL" | "EXECUTE_APPROVED_ACTION")}
                     value={newPermAccessMode}
                   >
                     <option value="READ">READ (Read-only)</option>
-                    <option value="WRITE">WRITE (Write-controlled)</option>
-                    <option value="ADMIN">ADMIN (Full Scope)</option>
+                    <option value="CREATE_DRAFT">CREATE_DRAFT (Draft Creation)</option>
+                    <option value="UPDATE_SCOPED">UPDATE_SCOPED (Scoped Update)</option>
+                    <option value="REQUEST_APPROVAL">REQUEST_APPROVAL (Approval Required)</option>
+                    <option value="EXECUTE_APPROVED_ACTION">EXECUTE_APPROVED_ACTION (Direct Execution)</option>
                   </select>
                 </div>
                 <div className="gov-modal-field">
@@ -5492,9 +5537,11 @@ export function GovernanceDashboard() {
                       value={permFilterAgent}
                     >
                       <option value="ALL">Semua Agent</option>
-                      <option value="Evidence Checker">Evidence Checker</option>
-                      <option value="Daily Brief">Daily Brief</option>
-                      <option value="Permit Monitor">Permit Monitor</option>
+                      {realAgents.map((ag) => (
+                        <option key={ag.agent_key} value={ag.name}>
+                          {ag.name} ({ag.agent_key})
+                        </option>
+                      ))}
                     </select>
                     <GovIcon name="chevron" />
                   </div>
@@ -5507,8 +5554,9 @@ export function GovernanceDashboard() {
                     >
                       <option value="ALL">Semua Status</option>
                       <option value="APPROVED">Approved</option>
-                      <option value="PENDING">Pending</option>
-                      <option value="REJECTED">Rejected</option>
+                      <option value="DRAFT">Draft</option>
+                      <option value="IN_REVIEW">In Review</option>
+                      <option value="REVOKED">Revoked</option>
                     </select>
                     <GovIcon name="chevron" />
                   </div>
@@ -5532,7 +5580,14 @@ export function GovernanceDashboard() {
                     }
                     style={!canEditAgentRegistry(actorRoles) ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                     onClick={() => {
-                      setNewPermAgentKey(realAgents[0]?.agent_key || "");
+                      const firstAg = realAgents[0];
+                      const firstKey = firstAg?.agent_key || "";
+                      setNewPermAgentKey(firstKey);
+                      setNewPermVersion(
+                        resolveActiveAgentVersion(firstAg)?.semantic_version ||
+                        firstAg?.versions[0]?.semantic_version ||
+                        "1.0.0"
+                      );
                       setNewPermKey("");
                       setNewPermCapability("");
                       setSafetyModal("NEW_PERMISSION");
@@ -5574,22 +5629,31 @@ export function GovernanceDashboard() {
                           </td>
                           <td><span style={{ color: "#4b5563" }}>{pm.approvedBy}</span></td>
                           <td style={{ textAlign: "right", paddingRight: "28px" }}>
-                            {pm.status === "ACTIVE" ? (
-                              <span style={{ color: "#15803d", fontWeight: 600, fontSize: "0.76rem" }}>Active</span>
+                            {pm.status === "APPROVED" ? (
+                              <span style={{ color: "#15803d", fontWeight: 600, fontSize: "0.76rem" }}>✓ Approved</span>
+                            ) : pm.status === "REVOKED" ? (
+                              <span style={{ color: "#b91c1c", fontWeight: 600, fontSize: "0.76rem" }}>Revoked</span>
                             ) : (
-                              <button
-                                className="gov-perm-action-btn"
-                                disabled={!canApprovePermission(actorRoles)}
-                                onClick={() => void handleApprovePermission(pm.id, pm.permission)}
-                                title={
-                                  !canApprovePermission(actorRoles)
-                                    ? "Hanya DIRECTOR atau QA_SECURITY yang berwenang menyetujui permission policy."
-                                    : undefined
-                                }
-                                type="button"
-                              >
-                                Approve
-                              </button>
+                              (() => {
+                                const isMaker = Boolean(data?.actor?.user_id && pm.createdBy && data.actor.user_id === pm.createdBy);
+                                return (
+                                  <button
+                                    className="gov-perm-action-btn"
+                                    disabled={!canApprovePermission(actorRoles) || isMaker || submittingPerm}
+                                    onClick={() => void handleApprovePermission(pm.id, pm.permission)}
+                                    title={
+                                      !canApprovePermission(actorRoles)
+                                        ? "Hanya DIRECTOR atau QA_SECURITY yang berwenang menyetujui permission policy."
+                                        : isMaker
+                                        ? "Maker tidak dapat menyetujui permission policy yang dibuat sendiri (Maker-Checker policy)."
+                                        : undefined
+                                    }
+                                    type="button"
+                                  >
+                                    {submittingPerm ? "Memproses..." : "Approve"}
+                                  </button>
+                                );
+                              })()
                             )}
                           </td>
                         </tr>
