@@ -20,7 +20,8 @@ import {
   canCheckRelease,
   canMakeRelease,
   canOperateKillSwitch,
-  canReviewGate,
+  canReviewBusinessGate,
+  canReviewTechnicalGate,
   releaseTestReadiness,
 } from "@/lib/release-governance";
 import {
@@ -412,7 +413,7 @@ export function GovernanceDashboard() {
         ?? releases.find((r) => r.agent_key === ag.agent_key);
       const relDetail = matchingRelease ? validDetailsMap[matchingRelease.change_request_id] : undefined;
       const isKillSwitchActive = Boolean(relDetail?.kill_switch_active || matchingRelease?.kill_switch_active);
-      const isSuspended = latest?.lifecycle_status === "SUSPENDED" || matchingRelease?.state === "SUSPENDED";
+      const isSuspended = !isKillSwitchActive && (latest?.lifecycle_status === "SUSPENDED" || matchingRelease?.state === "SUSPENDED");
       const isHalted = isKillSwitchActive || isSuspended;
       const haltReason = isKillSwitchActive
         ? "Sirkuit runtime diputus oleh Kill Switch darurat"
@@ -3293,7 +3294,7 @@ export function GovernanceDashboard() {
                           Evaluasi independen dua arah: Gate Bisnis memverifikasi kesesuaian SOP, Gate Teknis memverifikasi integritas arsitektur &amp; guardrail.
                         </p>
                       </div>
-                      <span className={`gov-test-status-badge ${dualGateApproved ? "passed" : isRejected ? "failed" : isInReview ? "blocked" : "not-run"}`}>
+                      <span className={`gov-test-status-badge ${dualGateApproved ? "passed" : isRejected ? "failed" : isInReview ? "pending" : "not-run"}`}>
                         {dualGateApproved ? "KEDUA GATE APPROVED" : isRejected ? "REVIEW DITOLAK" : isInReview ? "MENUNGGU EVALUASI" : "BELUM DIBUKA"}
                       </span>
                     </div>
@@ -3314,9 +3315,9 @@ export function GovernanceDashboard() {
                           <div className="gov-gate-actions">
                             <button
                               className="gov-modal-btn-confirm success"
-                              disabled={submittingReviewGate === "BUSINESS" || canReviewGate(actorRoles) !== "BUSINESS"}
-                              title={canReviewGate(actorRoles) !== "BUSINESS" ? "Evaluasi Business Gate memerlukan peran BUSINESS_REVIEWER" : undefined}
-                              style={canReviewGate(actorRoles) !== "BUSINESS" ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
+                              disabled={submittingReviewGate === "BUSINESS" || !canReviewBusinessGate(actorRoles)}
+                              title={!canReviewBusinessGate(actorRoles) ? "Evaluasi Business Gate memerlukan peran BUSINESS_REVIEWER" : undefined}
+                              style={!canReviewBusinessGate(actorRoles) ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
                               onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "BUSINESS", "APPROVED")}
                               type="button"
                             >
@@ -3324,9 +3325,9 @@ export function GovernanceDashboard() {
                             </button>
                             <button
                               className="gov-modal-btn-cancel"
-                              disabled={submittingReviewGate === "BUSINESS" || canReviewGate(actorRoles) !== "BUSINESS"}
-                              title={canReviewGate(actorRoles) !== "BUSINESS" ? "Evaluasi Business Gate memerlukan peran BUSINESS_REVIEWER" : undefined}
-                              style={canReviewGate(actorRoles) !== "BUSINESS" ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
+                              disabled={submittingReviewGate === "BUSINESS" || !canReviewBusinessGate(actorRoles)}
+                              title={!canReviewBusinessGate(actorRoles) ? "Evaluasi Business Gate memerlukan peran BUSINESS_REVIEWER" : undefined}
+                              style={!canReviewBusinessGate(actorRoles) ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
                               onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "BUSINESS", "REJECTED")}
                               type="button"
                             >
@@ -3351,9 +3352,9 @@ export function GovernanceDashboard() {
                           <div className="gov-gate-actions">
                             <button
                               className="gov-modal-btn-confirm success"
-                              disabled={submittingReviewGate === "TECHNICAL" || canReviewGate(actorRoles) !== "TECHNICAL"}
-                              title={canReviewGate(actorRoles) !== "TECHNICAL" ? "Evaluasi Technical Gate memerlukan peran TECHNICAL_REVIEWER" : undefined}
-                              style={canReviewGate(actorRoles) !== "TECHNICAL" ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
+                              disabled={submittingReviewGate === "TECHNICAL" || !canReviewTechnicalGate(actorRoles)}
+                              title={!canReviewTechnicalGate(actorRoles) ? "Evaluasi Technical Gate memerlukan peran TECHNICAL_REVIEWER" : undefined}
+                              style={!canReviewTechnicalGate(actorRoles) ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
                               onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "TECHNICAL", "APPROVED")}
                               type="button"
                             >
@@ -3361,9 +3362,9 @@ export function GovernanceDashboard() {
                             </button>
                             <button
                               className="gov-modal-btn-cancel"
-                              disabled={submittingReviewGate === "TECHNICAL" || canReviewGate(actorRoles) !== "TECHNICAL"}
-                              title={canReviewGate(actorRoles) !== "TECHNICAL" ? "Evaluasi Technical Gate memerlukan peran TECHNICAL_REVIEWER" : undefined}
-                              style={canReviewGate(actorRoles) !== "TECHNICAL" ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
+                              disabled={submittingReviewGate === "TECHNICAL" || !canReviewTechnicalGate(actorRoles)}
+                              title={!canReviewTechnicalGate(actorRoles) ? "Evaluasi Technical Gate memerlukan peran TECHNICAL_REVIEWER" : undefined}
+                              style={!canReviewTechnicalGate(actorRoles) ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
                               onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "TECHNICAL", "REJECTED")}
                               type="button"
                             >

@@ -5,6 +5,8 @@ import {
   releaseTestReadiness,
   canApproveRelease,
   canOperateKillSwitch,
+  canReviewBusinessGate,
+  canReviewTechnicalGate,
   type ReleaseRequestDetail,
   type TestCategory,
   type TestStatus,
@@ -327,6 +329,24 @@ describe("MVP 0.1 Governance Remediation Test Suite", () => {
       expect(canConfigureSourceVault(["DIVISION_OWNER"])).toBe(false);
       expect(canConfigureSourceVault(["QA_SECURITY"])).toBe(false);
       expect(canConfigureSourceVault([])).toBe(false);
+    });
+
+    it("verifies canReviewBusinessGate permits BUSINESS_REVIEWER independently", () => {
+      expect(canReviewBusinessGate(["BUSINESS_REVIEWER"])).toBe(true);
+      expect(canReviewBusinessGate(["BUSINESS_REVIEWER", "DIRECTOR"])).toBe(true);
+      expect(canReviewBusinessGate(["TECHNICAL_REVIEWER"])).toBe(false);
+      expect(canReviewBusinessGate(["DIRECTOR"])).toBe(false);
+      expect(canReviewBusinessGate(["QA_SECURITY"])).toBe(false);
+      expect(canReviewBusinessGate([])).toBe(false);
+    });
+
+    it("verifies canReviewTechnicalGate permits TECHNICAL_REVIEWER independently", () => {
+      expect(canReviewTechnicalGate(["TECHNICAL_REVIEWER"])).toBe(true);
+      expect(canReviewTechnicalGate(["TECHNICAL_REVIEWER", "BUSINESS_REVIEWER"])).toBe(true);
+      expect(canReviewTechnicalGate(["BUSINESS_REVIEWER"])).toBe(false);
+      expect(canReviewTechnicalGate(["DIRECTOR"])).toBe(false);
+      expect(canReviewTechnicalGate(["QA_SECURITY"])).toBe(false);
+      expect(canReviewTechnicalGate([])).toBe(false);
     });
   });
 

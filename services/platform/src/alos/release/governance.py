@@ -1366,8 +1366,19 @@ class ReleaseGovernanceRepository:
                 """,
                 (context["organization_id"], context["agent_contract_id"]),
             ).fetchone()
-            if cleared is None:
+            if cleared is None and context["state"] != "SUSPENDED":
                 raise LifecycleConflictError("there is no active kill switch to clear")
+            connection.execute(
+                """
+                UPDATE agents.registry
+                SET active_version_id = %s, updated_at = now()
+                WHERE agent_contract_id = %s
+                """,
+                (context["agent_version_id"], context["agent_contract_id"]),
+            )
+            self._transition(
+                connection, context, "ACTIVE", actor_user_id, reason, correlation_id
+            )
             self._audit(
                 connection,
                 context["organization_id"],
@@ -1409,6 +1420,8 @@ class ReleaseGovernanceRepository:
                 "DRAFT",
                 "TESTED",
                 "IN_REVIEW",
+                "RETURNED",
+                "REJECTED",
                 "APPROVED",
                 "RELEASED",
                 "ACTIVE",
@@ -1481,7 +1494,11 @@ class ReleaseGovernanceRepository:
                 SELECT 1
                 FROM workspace.workspaces AS workspace
                 JOIN identity.role_assignments AS assignment
-                  ON assignment.division_id IS NOT DISTINCT FROM workspace.division_id
+                  ON (
+                      assignment.division_id IS NULL
+                      OR workspace.division_id IS NULL
+                      OR assignment.division_id = workspace.division_id
+                  )
                  AND assignment.user_id = %s
                  AND assignment.role_code = 'BUSINESS_REVIEWER'
                  AND assignment.revoked_at IS NULL

@@ -136,6 +136,14 @@ export function canReviewGate(roles: string[]): ReviewGate | null {
   return null;
 }
 
+export function canReviewBusinessGate(roles: string[]): boolean {
+  return roles.includes("BUSINESS_REVIEWER");
+}
+
+export function canReviewTechnicalGate(roles: string[]): boolean {
+  return roles.includes("TECHNICAL_REVIEWER");
+}
+
 export function canApproveRelease(roles: string[]): boolean {
   return roles.includes("DIRECTOR");
 }

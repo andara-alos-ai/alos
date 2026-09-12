@@ -500,7 +500,7 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
                 reason="Remediation verification completed.",
                 correlation_id=uuid4(),
             ).state
-            == "SUSPENDED"
+            == "ACTIVE"
         )
         assert (
             release_repository.rollback(
