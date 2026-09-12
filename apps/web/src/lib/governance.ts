@@ -77,6 +77,10 @@ export function canChangeBudget(roles: string[]): boolean {
   return roles.includes("DIRECTOR") || roles.includes("IT_LEAD");
 }
 
+export function canApprovePermission(roles: string[]): boolean {
+  return roles.includes("DIRECTOR") || roles.includes("QA_SECURITY");
+}
+
 export function remainingBudget(budget: Budget, usage: Usage) {
   return {
     requests: Math.max(0, budget.daily_request_limit - usage.request_count),

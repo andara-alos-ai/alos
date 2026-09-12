@@ -7,6 +7,7 @@ import {
   designerPayload,
   releaseErrorMessage,
   testCasePayload,
+  formatReleaseState,
   latestRunByTestCase,
   mayAmendReleaseDraft,
   releaseNextAction,
@@ -103,5 +104,55 @@ describe("H4 Release Governance helpers", () => {
     expect(mayAmendReleaseDraft(detail, "maker-1")).toBe(true);
     expect(mayAmendReleaseDraft(detail, "checker-1")).toBe(false);
     expect(mayAmendReleaseDraft({ ...detail, state: "IN_REVIEW" }, "maker-1")).toBe(false);
+  });
+
+  it("supports all 10 authoritative backend release states", () => {
+    const states = [
+      "DRAFT",
+      "TESTED",
+      "IN_REVIEW",
+      "RETURNED",
+      "REJECTED",
+      "APPROVED",
+      "RELEASED",
+      "ACTIVE",
+      "SUSPENDED",
+      "ROLLED_BACK",
+    ];
+    for (const st of states) {
+      expect(formatReleaseState(st)).toBeTruthy();
+      if (st !== "DRAFT") {
+        expect(formatReleaseState(st)).not.toBe("Draft");
+      }
+    }
+    expect(formatReleaseState("TESTED")).toBe("Tested");
+    expect(formatReleaseState("RETURNED")).toBe("Returned");
+    expect(formatReleaseState("REJECTED")).toBe("Rejected");
+    expect(formatReleaseState("ACTIVE")).toBe("Active");
+    expect(formatReleaseState("SUSPENDED")).toBe("Suspended");
+    expect(formatReleaseState("ROLLED_BACK")).toBe("Rolled Back");
+  });
+
+  it("generates 5 distinct test fixture categories testing different aspects", () => {
+    const positive = defaultTestForm("POSITIVE", "EVIDENCE_CHECKER");
+    const negative = defaultTestForm("NEGATIVE", "EVIDENCE_CHECKER");
+    const regression = defaultTestForm("REGRESSION", "EVIDENCE_CHECKER");
+    const security = defaultTestForm("SECURITY", "EVIDENCE_CHECKER");
+    const recovery = defaultTestForm("RECOVERY", "EVIDENCE_CHECKER");
+
+    expect(positive.expectedStatus).toBe("SUCCEEDED");
+    expect(positive.fixture).toContain("SOURCE_REGISTRY_SEARCH");
+
+    expect(negative.expectedStatus).toBe("BLOCKED");
+    expect(negative.fixture).toContain("malformed_schema_payload");
+
+    expect(regression.expectedStatus).toBe("SUCCEEDED");
+    expect(regression.fixture).toContain("deterministic_stable_baseline");
+
+    expect(security.expectedStatus).toBe("BLOCKED");
+    expect(security.fixture).toContain("UNAUTHORIZED_TOOL");
+
+    expect(recovery.expectedStatus).toBe("SUCCEEDED");
+    expect(recovery.fixture).toContain("simulate_fallback_retry");
   });
 });

@@ -4,6 +4,8 @@ export const releaseStates = [
   "DRAFT",
   "TESTED",
   "IN_REVIEW",
+  "RETURNED",
+  "REJECTED",
   "APPROVED",
   "RELEASED",
   "ACTIVE",
@@ -11,12 +13,28 @@ export const releaseStates = [
   "ROLLED_BACK",
 ] as const;
 
-export type ReleaseState = (typeof releaseStates)[number] | "RETURNED" | "REJECTED";
+export type ReleaseState = (typeof releaseStates)[number];
 export type TestCategory = "POSITIVE" | "NEGATIVE" | "REGRESSION" | "SECURITY" | "RECOVERY";
 export type TestStatus = "PASSED" | "FAILED" | "BLOCKED" | "ERROR";
 export type ReviewGate = "BUSINESS" | "TECHNICAL";
 export type ReviewDecision = "APPROVED" | "REJECTED" | "RETURNED";
 export type ReleaseWorkspaceView = "request" | "tests" | "reviews" | "safety" | "history";
+
+export function formatReleaseState(state: ReleaseState | string): string {
+  const labels: Record<string, string> = {
+    DRAFT: "Draft",
+    TESTED: "Tested",
+    IN_REVIEW: "In Review",
+    RETURNED: "Returned",
+    REJECTED: "Rejected",
+    APPROVED: "Approved",
+    RELEASED: "Released",
+    ACTIVE: "Active",
+    SUSPENDED: "Suspended",
+    ROLLED_BACK: "Rolled Back",
+  };
+  return labels[state] ?? state;
+}
 
 export type ReleaseRequest = {
   change_request_id: string;
@@ -131,19 +149,65 @@ export function draftAgents(agents: AgentRecord[]): AgentRecord[] {
 }
 
 export function defaultTestForm(category: TestCategory = "POSITIVE", agentKey?: string) {
-  const blocked = category !== "POSITIVE";
-  const positiveFixture = validationPositiveFixture(agentKey);
+  const positive = validationPositiveFixture(agentKey);
+
+  let fixtureObj: Record<string, unknown>;
+  let expectedStatus: "SUCCEEDED" | "FAILED" | "BLOCKED";
+
+  switch (category) {
+    case "POSITIVE":
+      fixtureObj = {
+        input: positive.input,
+        ...(positive.requested_tool_keys ? { requested_tool_keys: positive.requested_tool_keys } : {}),
+      };
+      expectedStatus = "SUCCEEDED";
+      break;
+    case "NEGATIVE":
+      // Input deliberately missing contract's required schema fields
+      fixtureObj = {
+        input: {
+          malformed_schema_payload: true,
+          missing_required_fields: true,
+          test_category: "negative_input_validation",
+        },
+      };
+      expectedStatus = "BLOCKED";
+      break;
+    case "REGRESSION":
+      // Deterministic known stable baseline input
+      fixtureObj = {
+        input: positive.input,
+        ...(positive.requested_tool_keys ? { requested_tool_keys: positive.requested_tool_keys } : {}),
+        baseline_check: "deterministic_stable_baseline",
+      };
+      expectedStatus = "SUCCEEDED";
+      break;
+    case "SECURITY":
+      // Forbidden action / unauthorized tool
+      fixtureObj = {
+        input: positive.input,
+        requested_tool_keys: ["UNAUTHORIZED_TOOL"],
+      };
+      expectedStatus = "BLOCKED";
+      break;
+    case "RECOVERY":
+      // Resilient execution and simulated fallback recovery
+      fixtureObj = {
+        input: {
+          ...(typeof positive.input === "object" && positive.input !== null ? (positive.input as Record<string, unknown>) : {}),
+          simulate_fallback_retry: true,
+        },
+        ...(positive.requested_tool_keys ? { requested_tool_keys: positive.requested_tool_keys } : {}),
+      };
+      expectedStatus = "SUCCEEDED";
+      break;
+  }
+
   return {
     category,
     testKey: `RELEASE_${category}_FIXTURE`,
-    fixture: JSON.stringify(
-      blocked
-        ? { input: { query: `${category.toLowerCase()} fixture` }, requested_tool_keys: ["UNAUTHORIZED_TOOL"] }
-        : positiveFixture,
-      null,
-      2,
-    ),
-    expectedStatus: blocked ? "BLOCKED" : "SUCCEEDED",
+    fixture: JSON.stringify(fixtureObj, null, 2),
+    expectedStatus,
   };
 }
 

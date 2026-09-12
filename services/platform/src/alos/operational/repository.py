@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from math import ceil
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import psycopg
@@ -1780,7 +1780,7 @@ class OperationalRepository:
                 ).fetchall()
                 results.extend(
                     SearchResult(
-                        entity_type=entity_type,
+                        entity_type=cast(Any, entity_type),
                         entity_id=row["entity_id"],
                         title=row["title"],
                         subtitle=row["subtitle"],

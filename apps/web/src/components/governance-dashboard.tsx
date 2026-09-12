@@ -10,15 +10,26 @@ import { normalizeGovernanceError, type GovernanceUiError } from "@/lib/governan
 import {
   type ReleaseRequest,
   type ReleaseRequestDetail,
+  releaseStates,
   releaseTestCategories,
   defaultTestForm,
   testCasePayload,
   latestRunByTestCase,
+  formatReleaseState,
+  canApproveRelease,
+  canCheckRelease,
+  canMakeRelease,
+  canOperateKillSwitch,
+  canReviewGate,
 } from "@/lib/release-governance";
-import type { AgentRecord } from "@/lib/agent-registry";
+import {
+  type AgentRecord,
+  canEditAgentRegistry,
+} from "@/lib/agent-registry";
 import {
   type AuditEvent,
   type Budget,
+  canApprovePermission,
   canChangeBudget,
   formatCurrency,
   formatDateTime,
@@ -30,10 +41,18 @@ import {
   type Workspace,
 } from "@/lib/governance";
 import {
+  mapRuntimeStatus,
+  killAgent,
+  clearKillSwitch,
+  rollbackAgent,
+  deleteAgentDraft,
+  retireAgent,
+  approvePermission,
+} from "@/lib/governance-actions";
+import {
   type KillSwitchAgent,
   type KillSwitchSystemState,
   type AuditTrailRecord,
-  type RollbackLogItem,
   type GovernanceMetricCard,
   type LifecycleDistributionItem,
   type GovernanceActivity,
@@ -117,6 +136,20 @@ const KNOWN_SYSTEM_USERS: Record<string, { name: string; role: string; avatar: s
   "563b8375-3844-4c98-90ec-121dd00386d7": { name: "Technical Reviewer", role: "Technical Reviewer", avatar: "TR" },
 };
 
+function matchesDateFilter(isoTimestamp?: string | null, filter: "ALL" | "TODAY" | "7D" | "30D" = "ALL"): boolean {
+  if (filter === "ALL" || !isoTimestamp) return true;
+  const itemDate = new Date(isoTimestamp);
+  if (isNaN(itemDate.getTime())) return true;
+  const now = new Date();
+  if (filter === "TODAY") {
+    return itemDate.toDateString() === now.toDateString();
+  }
+  const diffDays = (now.getTime() - itemDate.getTime()) / (1000 * 60 * 60 * 24);
+  if (filter === "7D") return diffDays <= 7;
+  if (filter === "30D") return diffDays <= 30;
+  return true;
+}
+
 export function GovernanceDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -149,12 +182,10 @@ export function GovernanceDashboard() {
   const [testFilterAgent, setTestFilterAgent] = useState<string>("ALL");
   const [testFilterCategory, setTestFilterCategory] = useState<string>("ALL");
   const [testFilterStatus, setTestFilterStatus] = useState<string>("ALL");
-  const [testDateRange] = useState<string>("09 Sep 2025 - 09 Sep 2025");
+  const [dateFilterRange, setDateFilterRange] = useState<"ALL" | "TODAY" | "7D" | "30D">("ALL");
   const [budgetSubTab, setBudgetSubTab] = useState<"budget" | "killswitch" | "audit">("budget");
-  const [budgetDateRange] = useState<string>("09 Sep 2025 - 09 Sep 2025");
   const [runtimeFilterAgent, setRuntimeFilterAgent] = useState<string>("ALL");
   const [runtimeFilterStatus, setRuntimeFilterStatus] = useState<string>("ALL");
-  const [runtimeDateRange] = useState<string>("09 Sep 2025 - 09 Sep 2025");
   const [permSearch, setPermSearch] = useState<string>("");
   const [permFilterAgent, setPermFilterAgent] = useState<string>("ALL");
   const [permFilterStatus, setPermFilterStatus] = useState<string>("ALL");
@@ -196,6 +227,7 @@ export function GovernanceDashboard() {
   const [actionTargetAgent, setActionTargetAgent] = useState<KillSwitchAgent | null>(null);
   const [rollbackTargetVersion, setRollbackTargetVersion] = useState<string>("");
   const [modalReasonInput, setModalReasonInput] = useState<string>("");
+  const [submittingSafetyAction, setSubmittingSafetyAction] = useState(false);
   const [inspectAuditItem, setInspectAuditItem] = useState<AuditTrailRecord | null>(null);
 
   // Form states for New Interactive Modals
@@ -299,7 +331,7 @@ export function GovernanceDashboard() {
     });
 
     const detailsList = await Promise.all(
-      releases.slice(0, 10).map((r) =>
+      releases.map((r) =>
         api<ReleaseRequestDetail>(`/api/v1/release-requests/${r.change_request_id}`).catch(() => null)
       )
     );
@@ -324,9 +356,7 @@ export function GovernanceDashboard() {
 
       return {
         id: ev.audit_event_id,
-        hash: ev.correlation_id
-          ? `sha256:${ev.correlation_id.replace(/-/g, "").slice(0, 16)}...`
-          : `sha256:${ev.audit_event_id.replace(/-/g, "").slice(0, 16)}...`,
+        hash: ev.correlation_id ?? ev.audit_event_id,
         action: ev.action,
         actionTitle: ev.action.replace(/_/g, " "),
         severity,
@@ -340,6 +370,7 @@ export function GovernanceDashboard() {
         entityId: ev.entity_id ? (ev.entity_id.length > 20 ? `${ev.entity_id.slice(0, 8)}...${ev.entity_id.slice(-4)}` : ev.entity_id) : "—",
         reason: ev.reason,
         occurredAt: formatDateTime(ev.occurred_at),
+        rawOccurredAt: ev.occurred_at,
         metadata: {
           ...(ev.metadata ?? {}),
           correlationId: ev.correlation_id,
@@ -350,17 +381,27 @@ export function GovernanceDashboard() {
     });
     setAuditLogsList(mappedAudit);
 
+    const currentWs = foundation.workspaces.find((w) => w.workspace_id === selectedWorkspaceId);
+    const wsScope = currentWs?.division_code ? `Divisi ${currentWs.division_code}` : (currentWs?.name ?? "Workspace");
+
     const mappedKsAgents: KillSwitchAgent[] = agents.map((ag) => {
       const latest = ag.versions[0];
+      const matchingRelease = releases.find((r) => r.agent_key === ag.agent_key && (r.state === "ACTIVE" || r.state === "RELEASED" || r.state === "SUSPENDED"))
+        ?? releases.find((r) => r.agent_key === ag.agent_key);
+      const relDetail = matchingRelease ? validDetailsMap[matchingRelease.change_request_id] : undefined;
+      const isHalted = relDetail?.kill_switch_active ?? matchingRelease?.kill_switch_active ?? (latest?.lifecycle_status === "SUSPENDED");
       return {
         agentKey: ag.agent_key,
         agentName: ag.name,
-        scope: "Divisi IT",
-        status: (latest?.lifecycle_status === "SUSPENDED" ? "HALTED" : "OPERATIONAL") as "OPERATIONAL" | "HALTED",
-        circuitState: (latest?.lifecycle_status === "SUSPENDED" ? "OPEN" : "CLOSED") as "CLOSED" | "OPEN",
+        scope: wsScope,
+        status: (isHalted ? "HALTED" : "OPERATIONAL") as "OPERATIONAL" | "HALTED",
+        circuitState: (isHalted ? "OPEN" : "CLOSED") as "CLOSED" | "OPEN",
         currentVersion: latest?.semantic_version ?? "v1.0.0",
         previousStableVersion: ag.versions[1]?.semantic_version ?? latest?.semantic_version ?? "v1.0.0",
         availableVersions: ag.versions.map((v) => v.semantic_version),
+        changeRequestId: matchingRelease?.change_request_id,
+        rollbackTargets: relDetail?.rollback_targets ?? ag.versions.slice(1).map((v) => v.semantic_version),
+        killSwitchActive: isHalted,
       };
     });
     setKillSwitchSystem((prev) => ({
@@ -465,6 +506,8 @@ export function GovernanceDashboard() {
   const realAudit = data?.audit ?? [];
   const realBudget = data?.budget;
   const realUsage = data?.usage;
+  const realTools = data?.tools ?? [];
+  const actorRoles = data?.actor?.roles ?? [];
 
   const userKnown = data?.actor?.user_id ? KNOWN_SYSTEM_USERS[data.actor.user_id] : null;
   const currentActiveRoleTitle = data?.actor?.roles?.includes("DIRECTOR")
@@ -481,8 +524,11 @@ export function GovernanceDashboard() {
   const currentActiveUserName = userKnown?.name ?? (data?.actor?.roles?.includes("DIRECTOR") ? "Direktur Utama" : currentActiveRoleTitle);
   const currentActiveUserAvatar = userKnown?.avatar ?? (data?.actor?.roles?.includes("DIRECTOR") ? "DU" : "AL");
 
+  const currentWorkspace = data?.workspaces.find((w) => w.workspace_id === workspaceId);
+  const currentDivisionScope = currentWorkspace?.division_code ? `Divisi ${currentWorkspace.division_code}` : (currentWorkspace?.name ?? "Workspace");
+
   const pendingReviewCount = realReleases.filter((r) => r.state === "IN_REVIEW").length;
-  const blockedViolationCount = realRuns.filter((r) => r.status === "FAILED" || r.status === "BLOCKED").length;
+  const blockedViolationCount = realRuns.filter((r) => mapRuntimeStatus(r.status) === "FAILED" || mapRuntimeStatus(r.status) === "BLOCKED").length;
   const activeTokensStr = realUsage ? `${(realUsage.output_tokens / 1000).toFixed(0)}k` : "0k";
 
   const metrics: GovernanceMetricCard[] = [
@@ -569,7 +615,7 @@ export function GovernanceDashboard() {
     }));
 
   const riskBlockers: RiskBlockerItem[] = realRuns
-    .filter((r) => r.status === "FAILED" || r.status === "BLOCKED")
+    .filter((r) => mapRuntimeStatus(r.status) === "FAILED" || mapRuntimeStatus(r.status) === "BLOCKED")
     .map((r) => ({
       id: r.agent_run_id,
       title: `Run Blocked: ${r.agent_key}`,
@@ -581,29 +627,108 @@ export function GovernanceDashboard() {
   const agentControlList = realAgents.map((ag) => {
     const latestVersion = ag.versions[0];
     const snapshot = latestVersion?.contract_snapshot;
+    const agentReleases = realReleases.filter((r) => r.agent_key === ag.agent_key);
+    const agentDetails = agentReleases.map((r) => releaseDetailsMap[r.change_request_id]).filter(Boolean) as ReleaseRequestDetail[];
+
+    const agentTests: AgentTestItem[] = [];
+    for (const detail of agentDetails) {
+      for (const tr of detail.test_runs) {
+        const matchingTc = detail.test_cases.find((tc) => tc.test_case_id === tr.test_case_id);
+        agentTests.push({
+          testName: matchingTc ? `${matchingTc.category}: ${matchingTc.test_key}` : tr.test_case_id.slice(0, 8),
+          category: matchingTc?.category ?? "POSITIVE",
+          result: tr.status === "PASSED" ? "PASSED" : tr.status === "BLOCKED" ? "BLOCKED" : "FAILED",
+          score: tr.status === "PASSED" ? "100%" : "0%",
+          date: formatDateTime(tr.completed_at ?? ""),
+        });
+      }
+    }
+
+    const agentRuns = realRuns.filter((r) => r.agent_key === ag.agent_key);
+    const totalRuns = agentRuns.length;
+    const totalTokens = agentRuns.reduce((sum, r) => sum + (r.output_tokens || 0), 0);
+    const failedOrBlocked = agentRuns.filter((r) => mapRuntimeStatus(r.status) !== "SUCCESS").length;
+    const errorRate = totalRuns > 0 ? `${((failedOrBlocked / totalRuns) * 100).toFixed(1)}%` : "0.0%";
+    const avgLatency = totalRuns > 0 ? Math.round(agentRuns.reduce((sum, r) => sum + (r.latency_milliseconds || 0), 0) / totalRuns) : 0;
+    const lastRunAt = agentRuns[0]?.created_at ? formatDateTime(agentRuns[0].created_at) : "—";
+    const recentRuns: AgentRecentRunItem[] = agentRuns.slice(0, 10).map((r) => ({
+      runId: r.agent_run_id.length > 12 ? `${r.agent_run_id.slice(0, 8)}...` : r.agent_run_id,
+      status: mapRuntimeStatus(r.status),
+      tokens: r.output_tokens || 0,
+      latencyMs: r.latency_milliseconds || 0,
+      timestamp: r.created_at ? formatDateTime(r.created_at) : "—",
+    }));
+
+    const agentAuditHistory: AgentAuditHistoryItem[] = realAudit
+      .filter((ev) =>
+        ev.entity_id === ag.agent_key ||
+        ev.metadata?.agent_key === ag.agent_key ||
+        ag.agent_contract_id === ev.entity_id ||
+        ag.versions.some((v) => v.agent_version_id === ev.entity_id) ||
+        ev.action.includes(ag.agent_key)
+      )
+      .slice(0, 10)
+      .map((ev) => {
+        const knownUser = ev.actor_user_id ? KNOWN_SYSTEM_USERS[ev.actor_user_id] : null;
+        const actorName = knownUser?.name ?? (ev.actor_user_id ? `User (${ev.actor_user_id.slice(0, 8)})` : ev.system_actor ?? "System");
+        return {
+          version: latestVersion?.semantic_version ?? "v1.0.0",
+          event: ev.action.replace(/_/g, " "),
+          actor: actorName,
+          date: formatDateTime(ev.occurred_at),
+          hash: ev.correlation_id ? ev.correlation_id.slice(0, 12) : ev.audit_event_id.slice(0, 12),
+        };
+      });
+
+    const agentTools = (snapshot?.tool_keys ?? []).map((tk) => {
+      const toolDef = realTools.find((t) => t.tool_key === tk);
+      const isReadOnly = toolDef?.manifest?.read_only === true || (typeof toolDef?.manifest?.access_mode === "string" && toolDef.manifest.access_mode === "READ");
+      return {
+        key: tk,
+        toolKey: tk,
+        name: toolDef?.name ?? tk,
+        permission: tk,
+        description: (toolDef?.manifest?.description as string) ?? "Registered deterministic tool",
+        risk: toolDef?.risk_level ?? "LOW",
+        status: toolDef?.lifecycle_status ?? "APPROVED",
+        accessMode: isReadOnly ? "READ" : "EXECUTE",
+        timeout: `${snapshot?.timeout_seconds ?? 30}s`,
+      };
+    });
+
+    const contractValid = Boolean(snapshot?.input_schema && snapshot?.output_schema);
+    const toolsConfigured = (snapshot?.tool_keys?.length ?? 0) > 0;
+    const agentPerms = realPermissions.filter((p) => ag.versions.some((v) => v.agent_version_id === p.agent_version_id));
+    const permsApproved = agentPerms.length > 0 ? agentPerms.every((p) => p.lifecycle_status === "APPROVED") : true;
+    const latestDetail = agentDetails[0];
+    const testsPassed = latestDetail ? latestDetail.test_runs.length > 0 && latestDetail.test_runs.every((tr) => tr.status === "PASSED") : (latestVersion?.lifecycle_status === "ACTIVE");
+    const businessApproved = latestDetail ? latestDetail.reviews.some((rv) => rv.review_gate === "BUSINESS" && rv.decision === "APPROVED") : (latestVersion?.lifecycle_status === "ACTIVE");
+    const techApproved = latestDetail ? latestDetail.reviews.some((rv) => rv.review_gate === "TECHNICAL" && rv.decision === "APPROVED") : (latestVersion?.lifecycle_status === "ACTIVE");
+    const isReadyState = latestVersion?.lifecycle_status === "ACTIVE" || (contractValid && toolsConfigured && permsApproved && testsPassed && businessApproved && techApproved);
+
     return {
       agentKey: ag.agent_key,
       name: ag.name,
       version: latestVersion?.semantic_version ?? "v1.0.0",
       lifecycleStatus: latestVersion?.lifecycle_status ?? "DRAFT",
       purpose: snapshot?.purpose ?? "Agen operasional terdaftar",
-      scope: "Divisi IT",
+      scope: currentDivisionScope,
       riskLevel: ag.risk_level ?? "LOW",
       owner: snapshot?.owner_user_id ? snapshot.owner_user_id.slice(0, 8) : "System",
       createdAt: ag.created_at ? formatDateTime(ag.created_at) : "—",
       lastUpdatedAt: ag.updated_at ? formatDateTime(ag.updated_at) : "—",
       capabilities: snapshot?.permission_keys ?? [],
       readinessChecklist: [
-        { label: "Contract Valid", status: "Valid", passed: true },
-        { label: "Tools Configured", status: (snapshot?.tool_keys?.length ?? 0) > 0 ? "Completed" : "Pending", passed: (snapshot?.tool_keys?.length ?? 0) > 0 },
-        { label: "Permissions Approved", status: latestVersion?.lifecycle_status === "ACTIVE" ? "Approved" : "Pending", passed: latestVersion?.lifecycle_status === "ACTIVE" },
-        { label: "All Tests Passed", status: latestVersion?.lifecycle_status === "ACTIVE" ? "Passed" : "Pending", passed: latestVersion?.lifecycle_status === "ACTIVE" },
-        { label: "Business Review Approved", status: latestVersion?.lifecycle_status === "ACTIVE" ? "Approved" : "Pending", passed: latestVersion?.lifecycle_status === "ACTIVE" },
-        { label: "Technical Review Approved", status: latestVersion?.lifecycle_status === "ACTIVE" ? "Approved" : "Pending", passed: latestVersion?.lifecycle_status === "ACTIVE" },
+        { label: "Contract Valid", status: contractValid ? "Valid" : "Pending", passed: contractValid },
+        { label: "Tools Configured", status: toolsConfigured ? "Completed" : "Pending", passed: toolsConfigured },
+        { label: "Permissions Approved", status: permsApproved ? "Approved" : "Pending", passed: permsApproved },
+        { label: "All Tests Passed", status: testsPassed ? "Passed" : "Pending", passed: testsPassed },
+        { label: "Business Review Approved", status: businessApproved ? "Approved" : "Pending", passed: businessApproved },
+        { label: "Technical Review Approved", status: techApproved ? "Approved" : "Pending", passed: techApproved },
       ],
-      isReady: latestVersion?.lifecycle_status === "ACTIVE",
-      readyMessageTitle: latestVersion?.lifecycle_status === "ACTIVE" ? "Agent siap digunakan" : "Menunggu review & release",
-      readyMessageSubtitle: latestVersion?.lifecycle_status === "ACTIVE" ? "Semua persyaratan governance terpenuhi." : "Lengkapi pengujian dan persetujuan release.",
+      isReady: isReadyState,
+      readyMessageTitle: isReadyState ? "Agent siap digunakan" : "Menunggu review & release",
+      readyMessageSubtitle: isReadyState ? "Semua persyaratan governance terpenuhi." : "Lengkapi pengujian dan persetujuan release.",
       contract: {
         inputSchema: snapshot?.input_schema ? JSON.stringify(snapshot.input_schema, null, 2) : "{}",
         outputSchema: snapshot?.output_schema ? JSON.stringify(snapshot.output_schema, null, 2) : "{}",
@@ -613,29 +738,19 @@ export function GovernanceDashboard() {
         modelBinding: snapshot?.model_policy && typeof snapshot.model_policy === "object" ? String((snapshot.model_policy as Record<string, unknown>).provider ?? "Standard Gateway") : "Standard Gateway",
         riskClassification: ag.risk_level ?? "LOW",
         maker: snapshot?.owner_user_id ? snapshot.owner_user_id.slice(0, 8) : "System",
-        contractHash: latestVersion?.digest ? `sha256:${latestVersion.digest.slice(0, 16)}...` : "—",
+        contractHash: latestVersion?.digest ? latestVersion.digest.slice(0, 16) : "—",
       },
-      tools: (snapshot?.tool_keys ?? []).map((tk) => ({
-        key: tk,
-        toolKey: tk,
-        name: tk,
-        permission: tk,
-        description: "Registered deterministic tool",
-        risk: "LOW",
-        status: "APPROVED",
-        accessMode: "READ",
-        timeout: "30s",
-      })),
-      tests: [] as AgentTestItem[],
+      tools: agentTools,
+      tests: agentTests,
       runtime: {
-        totalRuns: 0,
-        totalInvocations: 0,
-        errorRate: "0.0%",
-        avgLatencyMs: 0,
-        lastRunAt: "—",
-        recentRuns: [] as AgentRecentRunItem[],
+        totalRuns,
+        totalInvocations: totalTokens,
+        errorRate,
+        avgLatencyMs: avgLatency,
+        lastRunAt,
+        recentRuns,
       },
-      auditHistory: [] as AgentAuditHistoryItem[],
+      auditHistory: agentAuditHistory,
     };
   });
   const currentAgent = agentControlList.find((a) => a.agentKey === selectedAgentKey) || agentControlList[0] || null;
@@ -649,7 +764,7 @@ export function GovernanceDashboard() {
     iconBg: "rgba(16, 185, 129, 0.12)",
     version: r.semantic_version,
     requester: r.requested_by_user_id ? r.requested_by_user_id.slice(0, 8) : "System",
-    status: (["IN_REVIEW", "APPROVED", "REJECTED", "DRAFT", "RELEASED"].includes(r.state) ? r.state : "DRAFT") as ReleaseRequestItem["status"],
+    status: r.state,
     submitted: "—",
     updated: "—",
     actionLabel: r.state === "IN_REVIEW" ? "Release" : "View",
@@ -676,7 +791,7 @@ export function GovernanceDashboard() {
       agentName: ag.name,
       iconName: "bot",
       purpose: snap?.purpose ?? "Agen operasional terdaftar",
-      scope: "Divisi IT",
+      scope: currentDivisionScope,
       version: latest?.semantic_version ?? "v1.0.0",
       risk: ag.risk_level ?? "LOW",
       status: latest?.lifecycle_status ?? "DRAFT",
@@ -711,6 +826,7 @@ export function GovernanceDashboard() {
     actual: string;
     status: string;
     lastRun: string;
+    rawLastRun?: string | null;
   }[] = Object.values(releaseDetailsMap).flatMap((detail) => {
     const latest = latestRunByTestCase(detail.test_runs);
     return detail.test_cases.map((tc) => {
@@ -728,6 +844,7 @@ export function GovernanceDashboard() {
         actual: run?.actual_status ?? (run?.status === "PASSED" ? expStatus : "PENDING"),
         status: run?.status ?? "NOT RUN",
         lastRun: run?.completed_at ? formatDateTime(run.completed_at) : "Belum diuji",
+        rawLastRun: run?.completed_at ?? null,
       };
     });
   });
@@ -735,6 +852,7 @@ export function GovernanceDashboard() {
     if (testFilterAgent !== "ALL" && item.agentKey !== testFilterAgent) return false;
     if (testFilterCategory !== "ALL" && item.category !== testFilterCategory) return false;
     if (testFilterStatus !== "ALL" && item.status !== testFilterStatus) return false;
+    if (dateFilterRange !== "ALL" && !matchesDateFilter(item.rawLastRun, dateFilterRange)) return false;
     return true;
   });
 
@@ -750,7 +868,7 @@ export function GovernanceDashboard() {
       accessMode: pm.access_mode,
       status: pm.lifecycle_status,
       approvedBy: pm.approved_by_user_id ? pm.approved_by_user_id.slice(0, 8) : "Belum disetujui",
-      actionLabel: pm.lifecycle_status === "ACTIVE" ? "Revoke" : "Approve",
+      actionLabel: pm.lifecycle_status === "ACTIVE" ? "Active" : "Approve",
     };
   });
   const filteredPermissions = permissionsList.filter((item) => {
@@ -775,16 +893,18 @@ export function GovernanceDashboard() {
       agentKey: rn.agent_key,
       agentName: ag?.name ?? rn.agent_key,
       version: rn.semantic_version,
-      status: (rn.status === "COMPLETED" ? "SUCCESS" : rn.status === "FAILED" ? "FAILED" : "BLOCKED") as "SUCCESS" | "FAILED" | "BLOCKED",
+      status: mapRuntimeStatus(rn.status),
       tokens: formatInteger(rn.output_tokens ?? 0),
       costUsd: rn.estimated_cost_usd ? formatCurrency(rn.estimated_cost_usd) : "$0.00",
       latency: rn.latency_milliseconds ? `${rn.latency_milliseconds}ms` : "—",
       time: formatDateTime(rn.created_at),
+      rawTime: rn.created_at,
     };
   });
   const filteredRuntimeMonitoring = runtimeMonitoringList.filter((item) => {
     if (runtimeFilterAgent !== "ALL" && item.agentName !== runtimeFilterAgent) return false;
     if (runtimeFilterStatus !== "ALL" && item.status !== runtimeFilterStatus) return false;
+    if (dateFilterRange !== "ALL" && !matchesDateFilter(item.rawTime, dateFilterRange)) return false;
     return true;
   });
 
@@ -840,6 +960,7 @@ export function GovernanceDashboard() {
     if (auditFilterSeverity !== "ALL" && item.severity !== auditFilterSeverity) return false;
     if (auditFilterActor !== "ALL" && item.actor.name !== auditFilterActor) return false;
     if (auditFilterEntity !== "ALL" && item.entityType !== auditFilterEntity) return false;
+    if (dateFilterRange !== "ALL" && !matchesDateFilter(item.rawOccurredAt, dateFilterRange)) return false;
     if (auditSearch) {
       const q = auditSearch.toLowerCase();
       if (
@@ -857,200 +978,127 @@ export function GovernanceDashboard() {
   });
 
   function handleConfirmGlobalKillSwitch() {
-    const isNowHalted = !killSwitchSystem.globalHalted;
-    const reason =
-      modalReasonInput.trim() ||
-      (isNowHalted
-        ? `Aktivasi darurat manual oleh ${currentActiveUserName}`
-        : `Pemulihan operasional manual oleh ${currentActiveUserName}`);
-    const now = formatDateTime(new Date().toISOString());
-    const randomHash =
-      "sha256:" +
-      Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("") +
-      "...";
-
-    setKillSwitchSystem((prev) => ({
-      ...prev,
-      globalHalted: isNowHalted,
-      globalHaltReason: isNowHalted ? reason : "",
-      globalHaltedAt: isNowHalted ? now : undefined,
-      globalHaltedBy: isNowHalted ? currentActiveUserName : undefined,
-      haltedAgentsCount: isNowHalted ? prev.agents.length : 1,
-      agents: prev.agents.map((ag) => ({
-        ...ag,
-        status: isNowHalted
-          ? "HALTED"
-          : ag.agentKey === "FINANCE_RECONCILIATION"
-          ? "HALTED"
-          : "OPERATIONAL",
-        circuitState: isNowHalted
-          ? "OPEN"
-          : ag.agentKey === "FINANCE_RECONCILIATION"
-          ? "OPEN"
-          : "CLOSED",
-      })),
-    }));
-
-    const newAuditRecord: AuditTrailRecord = {
-      id: "aud-" + Date.now(),
-      hash: randomHash,
-      action: isNowHalted ? "GLOBAL_KILL_SWITCH_ENGAGED" : "GLOBAL_KILL_SWITCH_RESTORED",
-      actionTitle: isNowHalted ? "Global Kill Switch Diaktifkan" : "Global Operasional Dipulihkan",
-      severity: isNowHalted ? "CRITICAL" : "SUCCESS",
-      actor: { name: currentActiveUserName, role: currentActiveRoleTitle, kind: "HUMAN", avatar: currentActiveUserAvatar },
-      entityType: "GLOBAL_WORKSPACE",
-      entityId: "GLOBAL_WORKSPACE",
-      reason: reason,
-      occurredAt: now,
-      metadata: {
-        ipAddress: "127.0.0.1",
-        correlationId: "corr-gks-" + Date.now().toString().slice(-4),
-        prevValue: isNowHalted ? "NORMAL" : "EMERGENCY_HALTED",
-        newValue: isNowHalted ? "EMERGENCY_HALTED" : "NORMAL",
-        signature: "ed25519:" + Math.random().toString(36).substring(2, 15),
-        details: isNowHalted
-          ? "All workspace agent instances suspended immediately."
-          : "Workspace operational circuits restored to standard policies.",
-      },
-    };
-
-    setAuditLogsList((prev) => [newAuditRecord, ...prev]);
+    setError({
+      title: "Fitur Belum Tersedia",
+      reason: "Global Kill Switch belum tersedia pada MVP 0.1 backend.",
+      nextAction: "Silakan gunakan Per-Agent Kill Switch pada tabel di bawah.",
+      severity: "warning",
+      status: null,
+      correlationId: null,
+    });
     setSafetyModal(null);
     setModalReasonInput("");
   }
 
-  function handleConfirmAgentHalt() {
+  async function handleConfirmAgentHalt() {
     if (!actionTargetAgent) return;
-    const isCurrentlyHalted = actionTargetAgent.status === "HALTED";
-    const now = formatDateTime(new Date().toISOString());
+    const changeRequestId = actionTargetAgent.changeRequestId;
+    if (!changeRequestId) {
+      setError({
+        title: "Change Request Tidak Ditemukan",
+        reason: `Tidak ditemukan Change Request ID untuk agen ${actionTargetAgent.agentName}.`,
+        nextAction: "Pastikan agen memiliki rilis aktif atau tersuspensi.",
+        severity: "warning",
+        status: null,
+        correlationId: null,
+      });
+      setSafetyModal(null);
+      return;
+    }
+    const isCurrentlyHalted = actionTargetAgent.status === "HALTED" || actionTargetAgent.killSwitchActive;
     const reason =
       modalReasonInput.trim() ||
       (isCurrentlyHalted
         ? `Pemulihan sirkuit operasional agen oleh ${currentActiveUserName}`
         : `Penghentian darurat / isolasi agen oleh ${currentActiveUserName}`);
-    const randomHash =
-      "sha256:" +
-      Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("") +
-      "...";
 
-    setKillSwitchSystem((prev) => {
-      const nextAgents = prev.agents.map((ag) => {
-        if (ag.agentKey === actionTargetAgent.agentKey) {
-          return {
-            ...ag,
-            status: (isCurrentlyHalted ? "OPERATIONAL" : "HALTED") as "OPERATIONAL" | "HALTED",
-            circuitState: (isCurrentlyHalted ? "CLOSED" : "OPEN") as "CLOSED" | "OPEN",
-            lastHaltedAt: isCurrentlyHalted ? undefined : now,
-            haltReason: isCurrentlyHalted ? undefined : reason,
-          };
-        }
-        return ag;
-      });
-      const haltedCount = nextAgents.filter((a) => a.status === "HALTED").length;
-      return {
-        ...prev,
-        haltedAgentsCount: haltedCount,
-        activeAgentsCount: nextAgents.length - haltedCount,
-        agents: nextAgents,
-      };
-    });
-
-    const newAuditRecord: AuditTrailRecord = {
-      id: "aud-" + Date.now(),
-      hash: randomHash,
-      action: isCurrentlyHalted ? "AGENT_CIRCUIT_RESTORED" : "AGENT_CIRCUIT_HALTED",
-      actionTitle: isCurrentlyHalted
-        ? `Pemulihan Operasional: ${actionTargetAgent.agentName}`
-        : `Isolasi Darurat: ${actionTargetAgent.agentName}`,
-      severity: isCurrentlyHalted ? "SUCCESS" : "CRITICAL",
-      actor: { name: currentActiveUserName, role: currentActiveRoleTitle, kind: "HUMAN", avatar: currentActiveUserAvatar },
-      entityType: "AGENT",
-      entityId: actionTargetAgent.agentKey,
-      reason: reason,
-      occurredAt: now,
-      metadata: {
-        ipAddress: "127.0.0.1",
-        correlationId: "corr-ag-" + Date.now().toString().slice(-4),
-        prevValue: actionTargetAgent.status,
-        newValue: isCurrentlyHalted ? "OPERATIONAL" : "HALTED",
-        signature: "ed25519:" + Math.random().toString(36).substring(2, 15),
-        details: isCurrentlyHalted
-          ? "Circuit breaker reset to CLOSED state."
-          : "Circuit breaker opened for quarantine.",
-      },
-    };
-
-    setAuditLogsList((prev) => [newAuditRecord, ...prev]);
-    setSafetyModal(null);
-    setActionTargetAgent(null);
-    setModalReasonInput("");
+    setSubmittingSafetyAction(true);
+    setError(null);
+    try {
+      if (isCurrentlyHalted) {
+        await clearKillSwitch(changeRequestId, reason);
+        setNotice(`Kill switch untuk agen ${actionTargetAgent.agentName} berhasil dinonaktifkan.`);
+      } else {
+        await killAgent(changeRequestId, reason);
+        setNotice(`Kill switch untuk agen ${actionTargetAgent.agentName} berhasil diaktifkan.`);
+      }
+      setSafetyModal(null);
+      setActionTargetAgent(null);
+      setModalReasonInput("");
+      if (workspaceId) {
+        await loadWorkspace(workspaceId);
+      }
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    } finally {
+      setSubmittingSafetyAction(false);
+    }
   }
 
-  function handleConfirmRollback() {
+  async function handleConfirmRollback() {
     if (!actionTargetAgent || !rollbackTargetVersion) return;
-    const now = formatDateTime(new Date().toISOString());
+    const changeRequestId = actionTargetAgent.changeRequestId;
+    if (!changeRequestId) {
+      setError({
+        title: "Change Request Tidak Ditemukan",
+        reason: `Tidak ditemukan Change Request ID untuk agen ${actionTargetAgent.agentName}.`,
+        nextAction: "Rollback hanya dapat dilakukan pada release yang valid.",
+        severity: "warning",
+        status: null,
+        correlationId: null,
+      });
+      setSafetyModal(null);
+      return;
+    }
     const reason =
       modalReasonInput.trim() ||
       `Rollback versi dari ${actionTargetAgent.currentVersion} ke ${rollbackTargetVersion}`;
-    const randomHash =
-      "sha256:" +
-      Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("") +
-      "...";
 
-    const newRollbackItem: RollbackLogItem = {
-      id: "rb-" + Date.now(),
-      agentKey: actionTargetAgent.agentKey,
-      agentName: actionTargetAgent.agentName,
-      fromVersion: actionTargetAgent.currentVersion,
-      toVersion: rollbackTargetVersion,
-      reason: reason,
-      executedBy: currentActiveUserName,
-      executedAt: now,
-      status: "VERIFIED",
-    };
+    setSubmittingSafetyAction(true);
+    setError(null);
+    try {
+      await rollbackAgent(changeRequestId, rollbackTargetVersion, reason);
+      setNotice(`Rollback agen ${actionTargetAgent.agentName} ke versi ${rollbackTargetVersion} berhasil.`);
+      setSafetyModal(null);
+      setActionTargetAgent(null);
+      setRollbackTargetVersion("");
+      setModalReasonInput("");
+      if (workspaceId) {
+        await loadWorkspace(workspaceId);
+      }
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    } finally {
+      setSubmittingSafetyAction(false);
+    }
+  }
 
-    setKillSwitchSystem((prev) => ({
-      ...prev,
-      agents: prev.agents.map((ag) => {
-        if (ag.agentKey === actionTargetAgent.agentKey) {
-          return {
-            ...ag,
-            currentVersion: rollbackTargetVersion,
-            status: "OPERATIONAL",
-            circuitState: "CLOSED",
-          };
-        }
-        return ag;
-      }),
-      rollbackHistory: [newRollbackItem, ...prev.rollbackHistory],
-    }));
+  async function handleDeleteAgentDraft(agentKey: string) {
+    if (!confirm(`Hapus draft agent '${agentKey}'? Tindakan ini tidak dapat dibatalkan.`)) return;
+    setError(null);
+    try {
+      await deleteAgentDraft(agentKey);
+      setNotice(`Draft agen '${agentKey}' berhasil dihapus.`);
+      if (workspaceId) {
+        await loadWorkspace(workspaceId);
+      }
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    }
+  }
 
-    const newAuditRecord: AuditTrailRecord = {
-      id: "aud-" + Date.now(),
-      hash: randomHash,
-      action: "AGENT_ROLLBACK_EXECUTED",
-      actionTitle: `Rollback Versi: ${actionTargetAgent.agentName}`,
-      severity: "WARNING",
-      actor: { name: currentActiveUserName, role: currentActiveRoleTitle, kind: "HUMAN", avatar: currentActiveUserAvatar },
-      entityType: "AGENT",
-      entityId: actionTargetAgent.agentKey,
-      reason: reason,
-      occurredAt: now,
-      metadata: {
-        ipAddress: "127.0.0.1",
-        correlationId: "corr-rb-" + Date.now().toString().slice(-4),
-        prevValue: actionTargetAgent.currentVersion,
-        newValue: rollbackTargetVersion,
-        signature: "ed25519:" + Math.random().toString(36).substring(2, 15),
-        details: `Rolled back from release ${actionTargetAgent.currentVersion} to verified stable ${rollbackTargetVersion}.`,
-      },
-    };
-
-    setAuditLogsList((prev) => [newAuditRecord, ...prev]);
-    setSafetyModal(null);
-    setActionTargetAgent(null);
-    setRollbackTargetVersion("");
-    setModalReasonInput("");
+  async function handleRetireAgent(agentKey: string) {
+    if (!confirm(`Pensiunkan agent '${agentKey}'? Agent tidak akan lagi melayani permintaan runtime.`)) return;
+    setError(null);
+    try {
+      await retireAgent(agentKey);
+      setNotice(`Agent '${agentKey}' berhasil dipensiunkan.`);
+      if (workspaceId) {
+        await loadWorkspace(workspaceId);
+      }
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    }
   }
 
   function handleExportAudit(format: "csv" | "json") {
@@ -1168,9 +1216,7 @@ export function GovernanceDashboard() {
   async function handleApprovePermission(permissionPolicyId: string, permKey: string) {
     setError(null);
     try {
-      await api(`/api/v1/permission-policies/${encodeURIComponent(permissionPolicyId)}/approve`, {
-        method: "POST",
-      });
+      await approvePermission(permissionPolicyId);
       setNotice(`Permission '${permKey}' berhasil disetujui.`);
       await loadWorkspace(workspaceId);
     } catch (err: unknown) {
@@ -1445,31 +1491,19 @@ export function GovernanceDashboard() {
                 : "Global Agent Kill Switch (Standby)"}
             </h3>
             <p>
-              {killSwitchSystem.globalHalted
-                ? `Seluruh eksekusi runtime agen pada workspace ini sedang dihentikan. Alasan: "${killSwitchSystem.globalHaltReason}". Otorisasi pemulihan oleh Direktur Utama.`
-                : "Seluruh sirkuit runtime berjalan dalam toleransi operasional normal. Jika terjadi anomali kritis lintas-sistem atau pelanggaran keamanan berat, aktifkan saklar darurat untuk menghentikan seluruh agen seketika."}
+              Seluruh sirkuit runtime berjalan dalam toleransi operasional normal. Penghentian darurat pada MVP 0.1 dilakukan melalui granular per-agent circuit breaker di bawah ini.
             </p>
           </div>
 
           <button
-            className={`gov-emergency-trigger-btn ${killSwitchSystem.globalHalted ? "resume-btn" : "halt-btn"}`}
-            onClick={() => {
-              setModalReasonInput("");
-              setSafetyModal("GLOBAL_KILL");
-            }}
+            className="gov-emergency-trigger-btn halt-btn"
+            disabled
+            title="Global Kill Switch belum tersedia pada backend MVP 0.1. Gunakan tombol Halt/Resume pada masing-masing agen."
+            style={{ opacity: 0.6, cursor: "not-allowed" }}
             type="button"
           >
-            {killSwitchSystem.globalHalted ? (
-              <>
-                <GovIcon name="check" />
-                <span>Pulihkan Operasional Global</span>
-              </>
-            ) : (
-              <>
-                <GovIcon name="warning_triangle" />
-                <span>Aktifkan Global Kill Switch</span>
-              </>
-            )}
+            <GovIcon name="warning_triangle" />
+            <span>Global Kill Switch (Belum tersedia di MVP 0.1)</span>
           </button>
         </div>
 
@@ -1574,6 +1608,13 @@ export function GovernanceDashboard() {
                         {ag.status === "OPERATIONAL" ? (
                           <button
                             className="gov-btn-halt"
+                            disabled={!canOperateKillSwitch(actorRoles)}
+                            title={
+                              canOperateKillSwitch(actorRoles)
+                                ? "Halt Agent"
+                                : "Pengoperasian Kill Switch memerlukan peran IT_LEAD atau DIRECTOR"
+                            }
+                            style={!canOperateKillSwitch(actorRoles) ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                             onClick={() => {
                               setActionTargetAgent(ag);
                               setModalReasonInput("");
@@ -1586,6 +1627,13 @@ export function GovernanceDashboard() {
                         ) : (
                           <button
                             className="gov-btn-resume"
+                            disabled={!canOperateKillSwitch(actorRoles)}
+                            title={
+                              canOperateKillSwitch(actorRoles)
+                                ? "Resume Agent"
+                                : "Pengoperasian Kill Switch memerlukan peran IT_LEAD atau DIRECTOR"
+                            }
+                            style={!canOperateKillSwitch(actorRoles) ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                             onClick={() => {
                               setActionTargetAgent(ag);
                               setModalReasonInput("");
@@ -1598,9 +1646,22 @@ export function GovernanceDashboard() {
                         )}
                         <button
                           className="gov-btn-rollback"
+                          disabled={!canApproveRelease(actorRoles) || (ag.rollbackTargets?.length ?? 0) === 0}
+                          title={
+                            !canApproveRelease(actorRoles)
+                              ? "Rollback memerlukan peran DIRECTOR"
+                              : (ag.rollbackTargets?.length ?? 0) === 0
+                              ? "Tidak ada target rollback versi stabil untuk agen ini"
+                              : "Rollback ke versi stabil"
+                          }
+                          style={
+                            !canApproveRelease(actorRoles) || (ag.rollbackTargets?.length ?? 0) === 0
+                              ? { opacity: 0.5, cursor: "not-allowed" }
+                              : undefined
+                          }
                           onClick={() => {
                             setActionTargetAgent(ag);
-                            setRollbackTargetVersion(ag.previousStableVersion);
+                            setRollbackTargetVersion(ag.rollbackTargets?.[0] ?? ag.previousStableVersion);
                             setModalReasonInput("");
                             setSafetyModal("AGENT_ROLLBACK");
                           }}
@@ -1704,23 +1765,23 @@ export function GovernanceDashboard() {
             <div className="gov-breadcrumb">
               Controls / <span>Audit Trail</span>
             </div>
-            <h2>Append-Only Cryptographic Audit Trail</h2>
-            <p>Log catatan permanen yang tidak dapat diubah (immutable) terverifikasi SHA-256 Merkle root.</p>
+            <h2>Append-Only Audit Trail</h2>
+            <p>Log catatan audit operasional dan perubahan status governance yang dicatat secara permanen.</p>
           </div>
         </div>
 
-        {/* Cryptographic Ledger Banner */}
+        {/* Audit Trail Banner */}
         <div className="gov-audit-banner">
           <div className="gov-audit-banner-left">
             <div className="gov-audit-shield-icon">
               <GovIcon name="shield" />
             </div>
             <div className="gov-audit-banner-meta">
-              <h3>ALOS Cryptographic Ledger Anchor</h3>
-              <p>Setiap tindakan otorisasi, modifikasi budget, dan eksekusi darurat dicatat secara terantai (hash-chained).</p>
+              <h3>ALOS Operational Audit Trail</h3>
+              <p>Setiap tindakan otorisasi, modifikasi budget, dan eksekusi darurat dicatat secara berurutan.</p>
               <div className="badges">
-                <span className="gov-audit-chip">🔒 Append-Only Ledger</span>
-                <span className="gov-audit-chip">✓ SHA-256 Chained</span>
+                <span className="gov-audit-chip">🔒 Append-Only Log</span>
+                <span className="gov-audit-chip">✓ Authoritative State</span>
                 <span className="gov-audit-chip">🏛 Event Count: {auditLogsList.length}</span>
               </div>
             </div>
@@ -2023,10 +2084,15 @@ export function GovernanceDashboard() {
               </button>
               <button
                 className={`gov-modal-btn-confirm ${isCurrentlyHalted ? "success" : "danger"}`}
+                disabled={submittingSafetyAction}
                 onClick={handleConfirmAgentHalt}
                 type="button"
               >
-                {isCurrentlyHalted ? "Konfirmasi Pulihkan Agen" : "Konfirmasi Isolasi Agen"}
+                {submittingSafetyAction
+                  ? "Memproses..."
+                  : isCurrentlyHalted
+                  ? "Konfirmasi Pulihkan Agen"
+                  : "Konfirmasi Isolasi Agen"}
               </button>
             </div>
           </div>
@@ -2035,9 +2101,10 @@ export function GovernanceDashboard() {
     }
 
     if (safetyModal === "AGENT_ROLLBACK" && actionTargetAgent) {
-      const candidates = actionTargetAgent.availableVersions.filter(
-        (v) => v !== actionTargetAgent.currentVersion
-      );
+      const candidates =
+        actionTargetAgent.rollbackTargets && actionTargetAgent.rollbackTargets.length > 0
+          ? actionTargetAgent.rollbackTargets
+          : actionTargetAgent.availableVersions.filter((v) => v !== actionTargetAgent.currentVersion);
       return (
         <div className="gov-modal-backdrop" onClick={() => setSafetyModal(null)}>
           <div className="gov-modal-box" onClick={(e) => e.stopPropagation()}>
@@ -2055,25 +2122,32 @@ export function GovernanceDashboard() {
                   <strong>Rollback Versi Rilis</strong>
                   <p>
                     Versi aktif ({actionTargetAgent.currentVersion}) akan dikembalikan ke versi target sebelumnya.
-                    Seluruh kontrak, tools, dan konfigurasi rilis akan disinkronkan kembali.
+                    Seluruh kontrak, tools, dan konfigurasi rilis akan disinkronkan kembali dari backend.
                   </p>
                 </div>
               </div>
 
-              <div className="gov-modal-field">
-                <label htmlFor="rollback-version-select">Pilih Versi Target Stabil:</label>
-                <select
-                  id="rollback-version-select"
-                  onChange={(e) => setRollbackTargetVersion(e.target.value)}
-                  value={rollbackTargetVersion}
-                >
-                  {candidates.map((ver) => (
-                    <option key={ver} value={ver}>
-                      {ver} (Stabil Terverifikasi)
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {candidates.length === 0 ? (
+                <div className="gov-modal-alert danger">
+                  <GovIcon name="warning_triangle" />
+                  <p>Tidak ada target versi stabil sebelumnya yang valid untuk di-rollback pada agen ini.</p>
+                </div>
+              ) : (
+                <div className="gov-modal-field">
+                  <label htmlFor="rollback-version-select">Pilih Versi Target Stabil:</label>
+                  <select
+                    id="rollback-version-select"
+                    onChange={(e) => setRollbackTargetVersion(e.target.value)}
+                    value={rollbackTargetVersion || candidates[0] || ""}
+                  >
+                    {candidates.map((ver) => (
+                      <option key={ver} value={ver}>
+                        {ver} (Stabil Terverifikasi)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="gov-modal-field">
                 <label htmlFor="rollback-reason">Alasan Rollback &amp; Referensi Tiket Masalah:</label>
@@ -2092,10 +2166,11 @@ export function GovernanceDashboard() {
               </button>
               <button
                 className="gov-modal-btn-confirm warning"
+                disabled={submittingSafetyAction || candidates.length === 0}
                 onClick={handleConfirmRollback}
                 type="button"
               >
-                Eksekusi Rollback Versi
+                {submittingSafetyAction ? "Memproses..." : "Eksekusi Rollback Versi"}
               </button>
             </div>
           </div>
@@ -2164,7 +2239,7 @@ export function GovernanceDashboard() {
               <div className="gov-modal-alert info" style={{ margin: 0 }}>
                 <GovIcon name="check" />
                 <div>
-                  <strong>Cryptographic Integrity Verified</strong>
+                  <strong>Recorded Audit Evidence</strong>
                   <div
                     style={{
                       fontFamily: "ui-monospace, monospace",
@@ -2172,7 +2247,7 @@ export function GovernanceDashboard() {
                       wordBreak: "break-all",
                     }}
                   >
-                    Hash: {inspectAuditItem.hash}
+                    Correlation ID / Event ID: {inspectAuditItem.hash}
                   </div>
                 </div>
               </div>
@@ -2209,9 +2284,9 @@ export function GovernanceDashboard() {
               <div className="gov-modal-alert info" style={{ margin: 0 }}>
                 <GovIcon name="info_circle" />
                 <div>
-                  <strong>Natural Language Agent Creation</strong>
+                  <strong>Requirement-based Agent Draft Generation</strong>
                   <p>
-                    Agen baru akan dibuat sebagai <code>DRAFT</code> berdasar requirement bahasa natural.
+                    Agen baru akan dibuat sebagai <code>DRAFT</code> berdasar requirement kebutuhan bisnis.
                     Kontrak aman deterministik, policy LLM, dan kriteria pengujian awal digenerate otomatis.
                   </p>
                 </div>
@@ -2887,7 +2962,9 @@ export function GovernanceDashboard() {
                       <div className="gov-pipe-btn-group" style={{ marginTop: "6px" }}>
                         <button
                           className="gov-modal-btn-confirm primary"
-                          disabled={pipelineWorking}
+                          disabled={pipelineWorking || !canMakeRelease(actorRoles)}
+                          title={!canMakeRelease(actorRoles) ? "Pendaftaran test suite memerlukan otorisasi Maker (IT_LEAD)" : undefined}
+                          style={!canMakeRelease(actorRoles) ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                           onClick={() => handleGenerateDefaultTests(inspectReleaseItem.id, inspectReleaseItem.agentKey)}
                           type="button"
                         >
@@ -2917,9 +2994,10 @@ export function GovernanceDashboard() {
                       <div className="gov-pipe-btn-group" style={{ marginTop: "6px" }}>
                         <button
                           className="gov-modal-btn-confirm"
-                          disabled={batchRunningTests || pipelineWorking}
+                          disabled={batchRunningTests || pipelineWorking || !canCheckRelease(actorRoles)}
+                          title={!canCheckRelease(actorRoles) ? "Eksekusi test memerlukan otorisasi Checker (QA_SECURITY atau TECHNICAL_REVIEWER)" : undefined}
+                          style={!canCheckRelease(actorRoles) ? { opacity: 0.5, cursor: "not-allowed", background: "#0c3b2f", color: "#ffffff" } : { background: "#0c3b2f", color: "#ffffff" }}
                           onClick={() => handleExecuteAllTests(inspectReleaseItem.id)}
-                          style={{ background: "#0c3b2f", color: "#ffffff" }}
                           type="button"
                         >
                           {batchRunningTests ? "Mengeksekusi 5 Test..." : "Jalankan Semua 5 Test Cases (QA Run)"}
@@ -2927,7 +3005,15 @@ export function GovernanceDashboard() {
 
                         <button
                           className="gov-modal-btn-confirm primary"
-                          disabled={pipelineWorking || batchRunningTests || !all5TestsPassed}
+                          disabled={pipelineWorking || batchRunningTests || !all5TestsPassed || !canCheckRelease(actorRoles)}
+                          title={
+                            !canCheckRelease(actorRoles)
+                              ? "Penyerahan hasil review memerlukan otorisasi Checker (QA_SECURITY atau TECHNICAL_REVIEWER)"
+                              : !all5TestsPassed
+                              ? "Semua 5 test cases harus lulus sebelum diserahkan ke Review Gate"
+                              : undefined
+                          }
+                          style={!canCheckRelease(actorRoles) || !all5TestsPassed ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                           onClick={() => handleSubmitForReview(inspectReleaseItem.id)}
                           type="button"
                         >
@@ -2969,18 +3055,20 @@ export function GovernanceDashboard() {
                           <div className="gov-gate-actions">
                             <button
                               className="gov-modal-btn-confirm success"
-                              disabled={submittingReviewGate === "BUSINESS"}
+                              disabled={submittingReviewGate === "BUSINESS" || canReviewGate(actorRoles) !== "BUSINESS"}
+                              title={canReviewGate(actorRoles) !== "BUSINESS" ? "Evaluasi Business Gate memerlukan peran BUSINESS_REVIEWER" : undefined}
+                              style={canReviewGate(actorRoles) !== "BUSINESS" ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
                               onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "BUSINESS", "APPROVED")}
-                              style={{ padding: "6px 12px", fontSize: "0.74rem" }}
                               type="button"
                             >
                               Approve Bisnis
                             </button>
                             <button
                               className="gov-modal-btn-cancel"
-                              disabled={submittingReviewGate === "BUSINESS"}
+                              disabled={submittingReviewGate === "BUSINESS" || canReviewGate(actorRoles) !== "BUSINESS"}
+                              title={canReviewGate(actorRoles) !== "BUSINESS" ? "Evaluasi Business Gate memerlukan peran BUSINESS_REVIEWER" : undefined}
+                              style={canReviewGate(actorRoles) !== "BUSINESS" ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
                               onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "BUSINESS", "REJECTED")}
-                              style={{ padding: "6px 12px", fontSize: "0.74rem" }}
                               type="button"
                             >
                               Reject Bisnis
@@ -3004,18 +3092,20 @@ export function GovernanceDashboard() {
                           <div className="gov-gate-actions">
                             <button
                               className="gov-modal-btn-confirm success"
-                              disabled={submittingReviewGate === "TECHNICAL"}
+                              disabled={submittingReviewGate === "TECHNICAL" || canReviewGate(actorRoles) !== "TECHNICAL"}
+                              title={canReviewGate(actorRoles) !== "TECHNICAL" ? "Evaluasi Technical Gate memerlukan peran TECHNICAL_REVIEWER" : undefined}
+                              style={canReviewGate(actorRoles) !== "TECHNICAL" ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
                               onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "TECHNICAL", "APPROVED")}
-                              style={{ padding: "6px 12px", fontSize: "0.74rem" }}
                               type="button"
                             >
                               Approve Teknis
                             </button>
                             <button
                               className="gov-modal-btn-cancel"
-                              disabled={submittingReviewGate === "TECHNICAL"}
+                              disabled={submittingReviewGate === "TECHNICAL" || canReviewGate(actorRoles) !== "TECHNICAL"}
+                              title={canReviewGate(actorRoles) !== "TECHNICAL" ? "Evaluasi Technical Gate memerlukan peran TECHNICAL_REVIEWER" : undefined}
+                              style={canReviewGate(actorRoles) !== "TECHNICAL" ? { opacity: 0.5, cursor: "not-allowed", padding: "6px 12px", fontSize: "0.74rem" } : { padding: "6px 12px", fontSize: "0.74rem" }}
                               onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "TECHNICAL", "REJECTED")}
-                              style={{ padding: "6px 12px", fontSize: "0.74rem" }}
                               type="button"
                             >
                               Reject Teknis
@@ -3046,7 +3136,15 @@ export function GovernanceDashboard() {
                       {isInReview && (
                         <button
                           className="gov-modal-btn-confirm primary"
-                          disabled={pipelineWorking || !dualGateApproved}
+                          disabled={pipelineWorking || !dualGateApproved || !canApproveRelease(actorRoles)}
+                          title={
+                            !canApproveRelease(actorRoles)
+                              ? "Persetujuan rilis memerlukan peran DIRECTOR"
+                              : !dualGateApproved
+                              ? "Kedua gate (Business & Technical) harus disetujui terlebih dahulu"
+                              : undefined
+                          }
+                          style={!canApproveRelease(actorRoles) || !dualGateApproved ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                           onClick={() => handleReleasePipelineAction(inspectReleaseItem.id, "approve")}
                           type="button"
                         >
@@ -3057,7 +3155,9 @@ export function GovernanceDashboard() {
                       {isApproved && (
                         <button
                           className="gov-modal-btn-confirm primary"
-                          disabled={pipelineWorking}
+                          disabled={pipelineWorking || !canApproveRelease(actorRoles)}
+                          title={!canApproveRelease(actorRoles) ? "Deployment rilis memerlukan peran DIRECTOR" : undefined}
+                          style={!canApproveRelease(actorRoles) ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                           onClick={() => handleReleasePipelineAction(inspectReleaseItem.id, "release")}
                           type="button"
                         >
@@ -3068,7 +3168,9 @@ export function GovernanceDashboard() {
                       {isReleased && (
                         <button
                           className="gov-modal-btn-confirm success"
-                          disabled={pipelineWorking}
+                          disabled={pipelineWorking || !canApproveRelease(actorRoles)}
+                          title={!canApproveRelease(actorRoles) ? "Aktivasi produksi memerlukan peran DIRECTOR" : undefined}
+                          style={!canApproveRelease(actorRoles) ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                           onClick={() => handleReleasePipelineAction(inspectReleaseItem.id, "activate")}
                           type="button"
                         >
@@ -3215,16 +3317,18 @@ export function GovernanceDashboard() {
                         <div className="gov-gate-actions" style={{ marginTop: "8px" }}>
                           <button
                             className="gov-modal-btn-confirm success"
-                            disabled={submittingReviewGate === "BUSINESS" || !isInReview}
+                            disabled={submittingReviewGate === "BUSINESS" || !isInReview || !actorRoles.includes("BUSINESS_REVIEWER")}
                             onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "BUSINESS", "APPROVED")}
+                            title={!actorRoles.includes("BUSINESS_REVIEWER") ? "Hanya role BUSINESS_REVIEWER yang berwenang menyetujui gate ini." : undefined}
                             type="button"
                           >
                             {submittingReviewGate === "BUSINESS" ? "Menyimpan..." : "Approve Business Gate"}
                           </button>
                           <button
                             className="gov-modal-btn-cancel"
-                            disabled={submittingReviewGate === "BUSINESS" || !isInReview}
+                            disabled={submittingReviewGate === "BUSINESS" || !isInReview || !actorRoles.includes("BUSINESS_REVIEWER")}
                             onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "BUSINESS", "REJECTED")}
+                            title={!actorRoles.includes("BUSINESS_REVIEWER") ? "Hanya role BUSINESS_REVIEWER yang berwenang menolak gate ini." : undefined}
                             type="button"
                           >
                             Reject Business Gate
@@ -3267,16 +3371,18 @@ export function GovernanceDashboard() {
                         <div className="gov-gate-actions" style={{ marginTop: "8px" }}>
                           <button
                             className="gov-modal-btn-confirm success"
-                            disabled={submittingReviewGate === "TECHNICAL" || !isInReview}
+                            disabled={submittingReviewGate === "TECHNICAL" || !isInReview || !actorRoles.includes("TECHNICAL_REVIEWER")}
                             onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "TECHNICAL", "APPROVED")}
+                            title={!actorRoles.includes("TECHNICAL_REVIEWER") ? "Hanya role TECHNICAL_REVIEWER yang berwenang menyetujui gate ini." : undefined}
                             type="button"
                           >
                             {submittingReviewGate === "TECHNICAL" ? "Menyimpan..." : "Approve Technical Gate"}
                           </button>
                           <button
                             className="gov-modal-btn-cancel"
-                            disabled={submittingReviewGate === "TECHNICAL" || !isInReview}
+                            disabled={submittingReviewGate === "TECHNICAL" || !isInReview || !actorRoles.includes("TECHNICAL_REVIEWER")}
                             onClick={() => handleSubmitReviewGate(inspectReleaseItem.id, "TECHNICAL", "REJECTED")}
+                            title={!actorRoles.includes("TECHNICAL_REVIEWER") ? "Hanya role TECHNICAL_REVIEWER yang berwenang menolak gate ini." : undefined}
                             type="button"
                           >
                             Reject Technical Gate
@@ -3312,7 +3418,7 @@ export function GovernanceDashboard() {
                   </div>
 
                   <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "#374151", display: "block", marginBottom: "4px" }}>
-                    Raw Release Detail JSON (Cryptographic Audit):
+                    Raw Release Detail JSON (Audit Trail):
                   </span>
                   <pre className="gov-json-viewer" style={{ maxHeight: "240px" }}>
                     {JSON.stringify(detail ?? inspectReleaseItem, null, 2)}
@@ -3786,11 +3892,11 @@ export function GovernanceDashboard() {
                     value={releaseFilterStatus}
                   >
                     <option value="ALL">Semua Status</option>
-                    <option value="IN_REVIEW">In Review</option>
-                    <option value="DRAFT">Draft</option>
-                    <option value="APPROVED">Approved</option>
-                    <option value="RELEASED">Released</option>
-                    <option value="RETURNED">Returned</option>
+                    {releaseStates.map((st) => (
+                      <option key={st} value={st}>
+                        {formatReleaseState(st)}
+                      </option>
+                    ))}
                   </select>
 
                   <select
@@ -3867,20 +3973,8 @@ export function GovernanceDashboard() {
                             <span className="gov-rel-requester">{row.requester}</span>
                           </td>
                           <td>
-                            <span
-                              className={`gov-rel-status ${
-                                row.status === "IN_REVIEW"
-                                  ? "in_review"
-                                  : row.status === "DRAFT"
-                                  ? "draft"
-                                  : row.status === "APPROVED"
-                                  ? "approved"
-                                  : row.status === "RELEASED"
-                                  ? "released"
-                                  : "returned"
-                              }`}
-                            >
-                              {row.status.replace("_", " ")}
+                            <span className={`gov-rel-status ${row.status.toLowerCase()}`}>
+                              {formatReleaseState(row.status)}
                             </span>
                           </td>
                           <td>
@@ -4010,12 +4104,14 @@ export function GovernanceDashboard() {
 
                   <button
                     className="gov-ag-request-btn"
+                    disabled={!canEditAgentRegistry(actorRoles)}
                     onClick={() => {
                       setNewAgentName("");
                       setNewAgentKey("");
                       setNewAgentRequirement("");
                       setSafetyModal("REQUEST_NEW_AGENT");
                     }}
+                    title={!canEditAgentRegistry(actorRoles) ? "Hanya peran IT_LEAD (Maker) yang dapat membuat agen." : undefined}
                     type="button"
                   >
                     <GovIcon name="plus" />
@@ -4277,6 +4373,32 @@ export function GovernanceDashboard() {
                     <GovIcon name="open" />
                     <span>Open in GENESIS</span>
                   </Link>
+
+                  {canEditAgentRegistry(actorRoles) &&
+                    (currentAgent.lifecycleStatus === "DRAFT" || currentAgent.lifecycleStatus === "RETURNED") && (
+                      <button
+                        className="gov-agent-btn-outline danger"
+                        onClick={() => void handleDeleteAgentDraft(currentAgent.agentKey)}
+                        title="Hapus draft agent ini dari registri"
+                        type="button"
+                      >
+                        <GovIcon name="ban" />
+                        <span>Hapus Draft</span>
+                      </button>
+                    )}
+
+                  {canEditAgentRegistry(actorRoles) &&
+                    (currentAgent.lifecycleStatus === "ACTIVE" || currentAgent.lifecycleStatus === "SUSPENDED") && (
+                      <button
+                        className="gov-agent-btn-outline danger"
+                        onClick={() => void handleRetireAgent(currentAgent.agentKey)}
+                        title="Pensiunkan agent ini dari operasional"
+                        type="button"
+                      >
+                        <GovIcon name="pause" />
+                        <span>Pensiunkan</span>
+                      </button>
+                    )}
 
                   <button
                     className="gov-agent-btn-more"
@@ -4671,7 +4793,7 @@ export function GovernanceDashboard() {
               {agentSubTab === "history" && (
                 <article className="gov-panel">
                   <div className="gov-panel-header">
-                    <h3>Cryptographic Immutable Release Trail</h3>
+                    <h3>Immutable Release Audit Trail</h3>
                   </div>
                   <div className="gov-table-wrap">
                     <table className="gov-actions-table">
@@ -4681,7 +4803,7 @@ export function GovernanceDashboard() {
                           <th>Peristiwa / Keputusan</th>
                           <th>Aktor / Penandatangan</th>
                           <th>Waktu</th>
-                          <th>Cryptographic Hash</th>
+                          <th>Correlation ID / Event ID</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -4778,8 +4900,18 @@ export function GovernanceDashboard() {
                   <label>Rentang Tanggal</label>
                   <div className="gov-test-date-picker">
                     <GovIcon name="calendar" />
-                    <span>{testDateRange}</span>
-                    <GovIcon name="chevron" />
+                    <select
+                      aria-label="Rentang Tanggal"
+                      className="gov-date-select"
+                      onChange={(e) => setDateFilterRange(e.target.value as "ALL" | "TODAY" | "7D" | "30D")}
+                      style={{ background: "transparent", border: "none", color: "inherit", font: "inherit", cursor: "pointer", outline: "none" }}
+                      value={dateFilterRange}
+                    >
+                      <option value="ALL">Semua Waktu</option>
+                      <option value="TODAY">Hari Ini</option>
+                      <option value="7D">7 Hari Terakhir</option>
+                      <option value="30D">30 Hari Terakhir</option>
+                    </select>
                   </div>
                 </div>
 
@@ -5070,7 +5202,13 @@ export function GovernanceDashboard() {
                             ) : (
                               <button
                                 className="gov-perm-action-btn"
+                                disabled={!canApprovePermission(actorRoles)}
                                 onClick={() => void handleApprovePermission(pm.id, pm.permission)}
+                                title={
+                                  !canApprovePermission(actorRoles)
+                                    ? "Hanya DIRECTOR atau QA_SECURITY yang berwenang menyetujui permission policy."
+                                    : undefined
+                                }
                                 type="button"
                               >
                                 Approve
@@ -5163,8 +5301,18 @@ export function GovernanceDashboard() {
 
                 <div className="gov-test-date-picker">
                   <GovIcon name="calendar" />
-                  <span>{runtimeDateRange}</span>
-                  <GovIcon name="chevron" />
+                  <select
+                    aria-label="Rentang Tanggal"
+                    className="gov-date-select"
+                    onChange={(e) => setDateFilterRange(e.target.value as "ALL" | "TODAY" | "7D" | "30D")}
+                    style={{ background: "transparent", border: "none", color: "inherit", font: "inherit", cursor: "pointer", outline: "none" }}
+                    value={dateFilterRange}
+                  >
+                    <option value="ALL">Semua Waktu</option>
+                    <option value="TODAY">Hari Ini</option>
+                    <option value="7D">7 Hari Terakhir</option>
+                    <option value="30D">30 Hari Terakhir</option>
+                  </select>
                 </div>
 
                 <button
@@ -5256,8 +5404,18 @@ export function GovernanceDashboard() {
                 <div className="gov-page-controls">
                   <div className="gov-test-date-picker">
                     <GovIcon name="calendar" />
-                    <span>{budgetDateRange}</span>
-                    <GovIcon name="chevron" />
+                    <select
+                      aria-label="Rentang Tanggal"
+                      className="gov-date-select"
+                      onChange={(e) => setDateFilterRange(e.target.value as "ALL" | "TODAY" | "7D" | "30D")}
+                      style={{ background: "transparent", border: "none", color: "inherit", font: "inherit", cursor: "pointer", outline: "none" }}
+                      value={dateFilterRange}
+                    >
+                      <option value="ALL">Semua Waktu</option>
+                      <option value="TODAY">Hari Ini</option>
+                      <option value="7D">7 Hari Terakhir</option>
+                      <option value="30D">30 Hari Terakhir</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -5791,17 +5949,7 @@ async function loadAudit(workspaceId?: string): Promise<Pick<DashboardData, "aud
     const url = workspaceId
       ? `/api/v1/audit-events?workspace_id=${workspaceId}&limit=50`
       : `/api/v1/audit-events?limit=50`;
-    let audit = await api<AuditEvent[]>(url);
-    if (workspaceId && audit.length <= 1) {
-      try {
-        const orgAudit = await api<AuditEvent[]>("/api/v1/audit-events?limit=50");
-        if (orgAudit.length > audit.length) {
-          audit = orgAudit;
-        }
-      } catch {
-        // keep workspace audit
-      }
-    }
+    const audit = await api<AuditEvent[]>(url);
     return {
       audit,
       auditRestricted: false,

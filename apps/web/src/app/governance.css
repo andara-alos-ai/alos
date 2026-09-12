@@ -1683,6 +1683,31 @@
   color: #b91c1c;
 }
 
+.gov-rel-status.tested {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.gov-rel-status.active {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.gov-rel-status.rejected {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.gov-rel-status.suspended {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.gov-rel-status.rolled_back {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
 .gov-rel-timestamp {
   color: #4a6358;
   font-size: 0.78rem;
@@ -1866,6 +1891,22 @@
 
 .gov-ag-request-btn:hover {
   background: #092e24;
+}
+
+.gov-ag-request-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #526e64;
+}
+
+.gov-agent-btn-outline.danger {
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.gov-agent-btn-outline.danger:hover {
+  background: #fef2f2;
+  border-color: #f87171;
 }
 
 .gov-ag-request-btn svg {
@@ -2715,6 +2756,14 @@
 .gov-perm-action-btn:hover {
   background: #f4f8f6;
   border-color: #b3c5bc;
+}
+
+.gov-perm-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f1f5f3;
+  border-color: #d1dcd6;
+  color: #8fa59b;
 }
 
 /* --------------------------------------------------------------------------
