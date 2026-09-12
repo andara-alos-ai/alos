@@ -411,9 +411,12 @@ def get_permission_registry_repository() -> PermissionRegistryRepository:
 
 
 def require_registry_editor(actor: ActorContext) -> None:
-    if not {HumanRole.DIRECTOR, HumanRole.DIVISION_OWNER, HumanRole.IT_LEAD}.intersection(
-        actor.roles
-    ):
+    if not {
+        HumanRole.DIRECTOR,
+        HumanRole.DIVISION_OWNER,
+        HumanRole.IT_LEAD,
+        HumanRole.QA_SECURITY,
+    }.intersection(actor.roles):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="registry editor role required"
         )
@@ -1571,14 +1574,9 @@ def list_permission_policies(
         )
     if workspace_id is not None:
         require_workspace_access(actor, workspace_id)
-    policies = get_permission_registry_repository().list_policies(
-        actor.organization_id, agent_key=agent_key
+    return get_permission_registry_repository().list_policies(
+        actor.organization_id, workspace_id=workspace_id, agent_key=agent_key
     )
-    return [
-        policy
-        for policy in policies
-        if workspace_id is None or policy.workspace_id == workspace_id
-    ]
 
 
 @app.post(

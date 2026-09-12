@@ -35,6 +35,7 @@ import {
   type AuditEvent,
   type Budget,
   canApprovePermission,
+  canRegisterPermission,
   canChangeBudget,
   formatCurrency,
   formatDateTime,
@@ -1357,11 +1358,11 @@ export function GovernanceDashboard() {
   }
 
   async function handleCreatePermissionPolicy() {
-    if (!canEditAgentRegistry(actorRoles)) {
+    if (!canRegisterPermission(actorRoles)) {
       setError({
         title: "Akses Ditolak",
-        reason: "Pembuatan permission policy memerlukan peran IT_LEAD (Maker).",
-        nextAction: "Gunakan akun dengan peran IT_LEAD untuk mendaftarkan permission policy.",
+        reason: "Pembuatan permission policy memerlukan peran IT_LEAD, DIRECTOR, atau QA_SECURITY.",
+        nextAction: "Gunakan akun dengan peran yang berwenang untuk mendaftarkan permission policy.",
         severity: "warning",
         status: null,
         correlationId: null,
@@ -2926,7 +2927,7 @@ export function GovernanceDashboard() {
               </button>
               <button
                 className="gov-modal-btn-confirm primary"
-                disabled={submittingPerm || !canEditAgentRegistry(actorRoles) || !newPermAgentKey || !newPermKey.trim()}
+                disabled={submittingPerm || !canRegisterPermission(actorRoles) || !newPermAgentKey || !newPermKey.trim()}
                 onClick={handleCreatePermissionPolicy}
                 type="button"
               >
@@ -5604,13 +5605,13 @@ export function GovernanceDashboard() {
 
                   <button
                     className="gov-ag-request-btn"
-                    disabled={!canEditAgentRegistry(actorRoles)}
+                    disabled={!canRegisterPermission(actorRoles)}
                     title={
-                      canEditAgentRegistry(actorRoles)
+                      canRegisterPermission(actorRoles)
                         ? "Daftarkan permission policy baru"
-                        : "Pendaftaran permission policy memerlukan peran IT_LEAD (Maker)"
+                        : "Pendaftaran permission policy memerlukan peran IT_LEAD, DIRECTOR, atau QA_SECURITY"
                     }
-                    style={!canEditAgentRegistry(actorRoles) ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                    style={!canRegisterPermission(actorRoles) ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                     onClick={() => {
                       const firstAg = realAgents[0];
                       const firstKey = firstAg?.agent_key || "";

@@ -81,6 +81,12 @@ export function canApprovePermission(roles: string[]): boolean {
   return roles.includes("DIRECTOR") || roles.includes("QA_SECURITY");
 }
 
+export function canRegisterPermission(roles: string[]): boolean {
+  return roles.some((role) =>
+    ["DIRECTOR", "IT_LEAD", "QA_SECURITY", "DIVISION_OWNER"].includes(role)
+  );
+}
+
 export function remainingBudget(budget: Budget, usage: Usage) {
   return {
     requests: Math.max(0, budget.daily_request_limit - usage.request_count),

@@ -260,19 +260,77 @@ class PermissionRegistryRepository:
             record_data["semantic_version"] = semantic_version
             return PermissionPolicyRecord(**record_data)
 
+    def sync_contract_permissions(
+        self, connection: psycopg.Connection[Any], organization_id: UUID
+    ) -> None:
+        """Ensure all permission_keys defined in Agent Contract snapshots have a DRAFT record."""
+        agent_versions = connection.execute(
+            """
+            SELECT contract.workspace_id, contract.owner_user_id,
+                   version.agent_version_id, version.contract_snapshot
+            FROM agents.contracts AS contract
+            JOIN agents.versions AS version
+              ON version.agent_contract_id = contract.agent_contract_id
+            WHERE contract.organization_id = %s
+            """,
+            (organization_id,),
+        ).fetchall()
+        for row in agent_versions:
+            snapshot = row["contract_snapshot"] or {}
+            permission_keys = snapshot.get("permission_keys") or []
+            for perm_key in permission_keys:
+                if not perm_key or not isinstance(perm_key, str):
+                    continue
+                try:
+                    with connection.transaction():
+                        connection.execute(
+                            """
+                            INSERT INTO governance.permission_policies (
+                                organization_id, workspace_id, agent_version_id, permission_key,
+                                effect, resource_scope, approval_required, lifecycle_status,
+                                created_by_user_id, access_mode, resource_type, classification
+                            ) VALUES (
+                                %s, %s, %s, %s, 'ALLOW',
+                                '{"access_mode": "READ_ONLY", "classification": "INTERNAL"}'::jsonb,
+                                true, 'DRAFT', %s, 'READ', 'GENERIC', 'INTERNAL'
+                            )
+                            ON CONFLICT (agent_version_id, permission_key) DO NOTHING
+                            """,
+                            (
+                                organization_id,
+                                row["workspace_id"],
+                                row["agent_version_id"],
+                                perm_key,
+                                row["owner_user_id"],
+                            ),
+                        )
+                except Exception:
+                    continue
+
     def list_policies(
-        self, organization_id: UUID, *, agent_key: str | None = None
+        self,
+        organization_id: UUID,
+        *,
+        workspace_id: UUID | None = None,
+        agent_key: str | None = None,
     ) -> list[PermissionPolicyRecord]:
         with self._connection() as connection:
+            self.sync_contract_permissions(connection, organization_id)
             conditions = ["policy.organization_id = %s"]
             parameters: list[Any] = [organization_id]
+            if workspace_id is not None:
+                conditions.append(
+                    "COALESCE(policy.workspace_id, contract.workspace_id) = %s"
+                )
+                parameters.append(workspace_id)
             if agent_key is not None:
                 conditions.append("contract.agent_key = %s")
                 parameters.append(agent_key)
             where = " AND ".join(conditions)
             rows = connection.execute(
                 f"""
-                SELECT policy.permission_policy_id, policy.organization_id, policy.workspace_id,
+                SELECT policy.permission_policy_id, policy.organization_id,
+                       COALESCE(policy.workspace_id, contract.workspace_id) AS workspace_id,
                        policy.agent_version_id, policy.permission_key, policy.effect,
                        policy.resource_scope, policy.approval_required, policy.lifecycle_status,
                        policy.created_by_user_id, policy.approved_by_user_id, policy.created_at,
