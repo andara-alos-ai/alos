@@ -163,9 +163,12 @@ export function defaultTestForm(category: TestCategory = "POSITIVE", agentKey?: 
       expectedStatus = "SUCCEEDED";
       break;
     case "NEGATIVE":
-      // Input deliberately missing contract's required schema fields
+      // Input deliberately violating schema types and required fields to guarantee fail-closed BLOCKED
       fixtureObj = {
         input: {
+          as_of_date: 12345,
+          query: 12345,
+          claim: 12345,
           malformed_schema_payload: true,
           missing_required_fields: true,
           test_category: "negative_input_validation",
