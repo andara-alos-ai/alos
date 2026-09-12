@@ -35,12 +35,14 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: services/platform/pyproject.toml
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+          run_install: false
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: pnpm
-      - name: Enable pnpm
-        run: corepack enable
       - name: Install web dependencies
         run: pnpm install --frozen-lockfile
       - name: Install platform dependencies

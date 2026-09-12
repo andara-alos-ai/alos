@@ -3885,4 +3885,30 @@
   align-items: center;
 }
 
+/* Sources & Readiness Decision enhancements */
+.gov-perm-status-badge.verified {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.gov-ag-risk-pill.restricted {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.gov-ag-risk-pill.confidential {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.gov-ag-risk-pill.internal {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.gov-ag-risk-pill.public {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
 

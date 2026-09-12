@@ -140,6 +140,7 @@ export type KillSwitchAgent = {
   rollbackTargets?: string[];
   circuitState: "CLOSED" | "OPEN" | "HALF_OPEN";
   killSwitchActive?: boolean;
+  isSuspended?: boolean;
   lastHaltedAt?: string;
   haltReason?: string;
   latencyAnomaly?: string;

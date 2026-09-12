@@ -191,10 +191,11 @@ export function defaultTestForm(category: TestCategory = "POSITIVE", agentKey?: 
       expectedStatus = "BLOCKED";
       break;
     case "RECOVERY":
-      // Resilient execution and simulated fallback recovery
+      // Validates recovery-safe input contract path without claiming real external provider outage
       fixtureObj = {
         input: {
           ...(typeof positive.input === "object" && positive.input !== null ? (positive.input as Record<string, unknown>) : {}),
+          recovery_contract_safe: true,
           simulate_fallback_retry: true,
         },
         ...(positive.requested_tool_keys ? { requested_tool_keys: positive.requested_tool_keys } : {}),
@@ -316,6 +317,21 @@ export function releaseNextAction(detail: ReleaseRequestDetail, roles: string[])
 
 export function mayAmendReleaseDraft(detail: ReleaseRequestDetail, actorId: string): boolean {
   return ["DRAFT", "RETURNED"].includes(detail.state) && detail.maker_user_id === actorId;
+}
+
+export function releaseTestReadiness(detail?: ReleaseRequestDetail | null): boolean {
+  if (!detail || !detail.test_cases || !detail.test_runs) return false;
+  const latestRuns = latestRunByTestCase(detail.test_runs);
+  for (const cat of releaseTestCategories) {
+    const matchingCases = detail.test_cases.filter((tc) => tc.category === cat);
+    if (matchingCases.length === 0) return false;
+    const allPassed = matchingCases.every((tc) => {
+      const run = latestRuns.get(tc.test_case_id);
+      return Boolean(run && run.status === "PASSED");
+    });
+    if (!allPassed) return false;
+  }
+  return true;
 }
 
 function parseJsonObject(value: string, label: string): Record<string, unknown> {

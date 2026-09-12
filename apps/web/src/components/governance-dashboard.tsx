@@ -21,10 +21,14 @@ import {
   canMakeRelease,
   canOperateKillSwitch,
   canReviewGate,
+  releaseTestReadiness,
 } from "@/lib/release-governance";
 import {
   type AgentRecord,
   canEditAgentRegistry,
+  formFromAgent,
+  draftPayloadFromForm,
+  type AgentDraftForm,
 } from "@/lib/agent-registry";
 import {
   type AuditEvent,
@@ -44,11 +48,15 @@ import {
   mapRuntimeStatus,
   killAgent,
   clearKillSwitch,
+  suspendAgent,
   rollbackAgent,
+  updateAgentDraft,
   deleteAgentDraft,
   retireAgent,
   approvePermission,
 } from "@/lib/governance-actions";
+import { SourcesView } from "@/components/governance/sources-view";
+import { ReadinessDecisionsPanel } from "@/components/governance/readiness-decisions-panel";
 import {
   type KillSwitchAgent,
   type KillSwitchSystemState,
@@ -126,7 +134,7 @@ type AgentAuditHistoryItem = {
 
 type Foundation = Pick<DashboardData, "actor" | "workspaces" | "policy">;
 
-type NavView = "overview" | "agents" | "permissions" | "runtime" | "budget" | "safety" | "audit";
+type NavView = "overview" | "agents" | "permissions" | "runtime" | "budget" | "safety" | "audit" | "sources";
 
 const KNOWN_SYSTEM_USERS: Record<string, { name: string; role: string; avatar: string }> = {
   "0565dabd-8063-4626-ae58-a72a013ea0b0": { name: "Direktur Utama", role: "Executive Director", avatar: "DU" },
@@ -161,16 +169,13 @@ export function GovernanceDashboard() {
   const [error, setError] = useState<GovernanceUiError | null>(null);
   const [notice, setNotice] = useState("");
   const [view, setView] = useState<NavView>(() => {
-    if (requestedView && ["overview", "agents", "permissions", "runtime", "budget", "safety", "audit"].includes(requestedView)) {
+    if (requestedView && ["overview", "agents", "permissions", "runtime", "budget", "safety", "audit", "sources"].includes(requestedView)) {
       return requestedView as NavView;
     }
     return "overview";
   });
   const [, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [timeRange, setTimeRange] = useState("7 Hari Terakhir");
-  const [form, setForm] = useState({ requests: "1000", tokens: "2500000", cost: "50.00" });
   const [agentSubTab, setAgentSubTab] = useState<"overview" | "contract" | "tools" | "tests" | "runtime" | "history">("overview");
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>("EVIDENCE_CHECKER");
   const [showAgentPicker, setShowAgentPicker] = useState<boolean>(false);
@@ -214,6 +219,8 @@ export function GovernanceDashboard() {
     | "GLOBAL_KILL"
     | "AGENT_KILL"
     | "AGENT_ROLLBACK"
+    | "SUSPEND_AGENT"
+    | "EDIT_AGENT_DRAFT"
     | "AUDIT_INSPECT"
     | "REQUEST_NEW_AGENT"
     | "NEW_RELEASE"
@@ -229,6 +236,10 @@ export function GovernanceDashboard() {
   const [modalReasonInput, setModalReasonInput] = useState<string>("");
   const [submittingSafetyAction, setSubmittingSafetyAction] = useState(false);
   const [inspectAuditItem, setInspectAuditItem] = useState<AuditTrailRecord | null>(null);
+
+  // Agent draft edit state
+  const [editingAgentDraft, setEditingAgentDraft] = useState<AgentRecord | null>(null);
+  const [agentDraftForm, setAgentDraftForm] = useState<AgentDraftForm | null>(null);
 
   // Form states for New Interactive Modals
   const [newAgentName, setNewAgentName] = useState("");
@@ -324,11 +335,6 @@ export function GovernanceDashboard() {
       tools,
       ...auditResult,
     });
-    setForm({
-      requests: String(budget.daily_request_limit || 1000),
-      tokens: String(budget.daily_output_token_limit || 2500000),
-      cost: String(budget.daily_cost_cap_usd || "50.00"),
-    });
 
     const detailsList = await Promise.all(
       releases.map((r) =>
@@ -386,22 +392,35 @@ export function GovernanceDashboard() {
 
     const mappedKsAgents: KillSwitchAgent[] = agents.map((ag) => {
       const latest = ag.versions[0];
-      const matchingRelease = releases.find((r) => r.agent_key === ag.agent_key && (r.state === "ACTIVE" || r.state === "RELEASED" || r.state === "SUSPENDED"))
+      const matchingRelease =
+        (latest?.agent_version_id
+          ? releases.find((r) => r.agent_key === ag.agent_key && r.agent_version_id === latest.agent_version_id)
+          : undefined)
+        ?? releases.find((r) => r.agent_key === ag.agent_key && (r.state === "ACTIVE" || r.state === "RELEASED" || r.state === "SUSPENDED"))
         ?? releases.find((r) => r.agent_key === ag.agent_key);
       const relDetail = matchingRelease ? validDetailsMap[matchingRelease.change_request_id] : undefined;
-      const isHalted = relDetail?.kill_switch_active ?? matchingRelease?.kill_switch_active ?? (latest?.lifecycle_status === "SUSPENDED");
+      const isKillSwitchActive = Boolean(relDetail?.kill_switch_active || matchingRelease?.kill_switch_active);
+      const isSuspended = latest?.lifecycle_status === "SUSPENDED" || matchingRelease?.state === "SUSPENDED";
+      const isHalted = isKillSwitchActive || isSuspended;
+      const haltReason = isKillSwitchActive
+        ? "Sirkuit runtime diputus oleh Kill Switch darurat"
+        : isSuspended
+        ? "Suspensi administratif rilis oleh Direktur"
+        : undefined;
       return {
         agentKey: ag.agent_key,
         agentName: ag.name,
         scope: wsScope,
         status: (isHalted ? "HALTED" : "OPERATIONAL") as "OPERATIONAL" | "HALTED",
-        circuitState: (isHalted ? "OPEN" : "CLOSED") as "CLOSED" | "OPEN",
+        circuitState: (isKillSwitchActive ? "OPEN" : "CLOSED") as "CLOSED" | "OPEN",
         currentVersion: latest?.semantic_version ?? "v1.0.0",
         previousStableVersion: ag.versions[1]?.semantic_version ?? latest?.semantic_version ?? "v1.0.0",
         availableVersions: ag.versions.map((v) => v.semantic_version),
         changeRequestId: matchingRelease?.change_request_id,
         rollbackTargets: relDetail?.rollback_targets ?? ag.versions.slice(1).map((v) => v.semantic_version),
-        killSwitchActive: isHalted,
+        killSwitchActive: isKillSwitchActive,
+        isSuspended,
+        haltReason,
       };
     });
     setKillSwitchSystem((prev) => ({
@@ -465,38 +484,7 @@ export function GovernanceDashboard() {
     }
   }
 
-  async function saveBudget() {
-    if (!data || !canChangeBudget(data.actor.roles)) return;
-    setSaving(true);
-    setError(null);
-    setNotice("");
-    try {
-      await api<Budget>(`/api/v1/workspaces/${workspaceId}/budget`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          daily_request_limit: Number(form.requests),
-          daily_output_token_limit: Number(form.tokens),
-          daily_cost_cap_usd: form.cost,
-        }),
-      });
-      await loadWorkspace(workspaceId, foundationOf(data));
-      setNotice("Limit workspace tersimpan dan perubahan dicatat pada audit trail.");
-    } catch (saveError: unknown) {
-      if (saveError instanceof ApiError && saveError.status === 401) {
-        router.replace("/login");
-      } else {
-        setError(normalizeGovernanceError(saveError));
-      }
-    } finally {
-      setSaving(false);
-    }
-  }
-  void saving;
-  void saveBudget;
   void selectWorkspace;
-  void searchQuery;
-  void setSearchQuery;
 
   // Live metrics and records derived directly from backend database
   const realAgents = data?.agents ?? [];
@@ -688,20 +676,21 @@ export function GovernanceDashboard() {
         toolKey: tk,
         name: toolDef?.name ?? tk,
         permission: tk,
-        description: (toolDef?.manifest?.description as string) ?? "Registered deterministic tool",
-        risk: toolDef?.risk_level ?? "LOW",
-        status: toolDef?.lifecycle_status ?? "APPROVED",
+        description: (toolDef?.manifest?.description as string) ?? (toolDef ? "Registered deterministic tool" : "Tool not registered in workspace registry"),
+        risk: toolDef?.risk_level ?? "UNKNOWN",
+        status: toolDef?.lifecycle_status ?? "NOT_REGISTERED",
         accessMode: isReadOnly ? "READ" : "EXECUTE",
         timeout: `${snapshot?.timeout_seconds ?? 30}s`,
       };
     });
 
     const contractValid = Boolean(snapshot?.input_schema && snapshot?.output_schema);
-    const toolsConfigured = (snapshot?.tool_keys?.length ?? 0) > 0;
-    const agentPerms = realPermissions.filter((p) => ag.versions.some((v) => v.agent_version_id === p.agent_version_id));
-    const permsApproved = agentPerms.length > 0 ? agentPerms.every((p) => p.lifecycle_status === "APPROVED") : true;
+    const requiredToolKeys = snapshot?.tool_keys ?? [];
+    const toolsConfigured = requiredToolKeys.length === 0 ? true : requiredToolKeys.every((tk) => realTools.some((t) => t.tool_key === tk && t.lifecycle_status === "APPROVED"));
+    const requiredPermissionKeys = snapshot?.permission_keys ?? [];
+    const permsApproved = requiredPermissionKeys.length === 0 ? true : requiredPermissionKeys.every((pk) => realPermissions.some((p) => p.agent_version_id === latestVersion?.agent_version_id && p.permission_key === pk && p.lifecycle_status === "APPROVED"));
     const latestDetail = agentDetails[0];
-    const testsPassed = latestDetail ? latestDetail.test_runs.length > 0 && latestDetail.test_runs.every((tr) => tr.status === "PASSED") : (latestVersion?.lifecycle_status === "ACTIVE");
+    const testsPassed = latestDetail ? releaseTestReadiness(latestDetail) : (latestVersion?.lifecycle_status === "ACTIVE");
     const businessApproved = latestDetail ? latestDetail.reviews.some((rv) => rv.review_gate === "BUSINESS" && rv.decision === "APPROVED") : (latestVersion?.lifecycle_status === "ACTIVE");
     const techApproved = latestDetail ? latestDetail.reviews.some((rv) => rv.review_gate === "TECHNICAL" && rv.decision === "APPROVED") : (latestVersion?.lifecycle_status === "ACTIVE");
     const isReadyState = latestVersion?.lifecycle_status === "ACTIVE" || (contractValid && toolsConfigured && permsApproved && testsPassed && businessApproved && techApproved);
@@ -1073,6 +1062,87 @@ export function GovernanceDashboard() {
     }
   }
 
+  function handleSuspendAgent(agentKey: string) {
+    const ksAgent = killSwitchSystem.agents.find((a) => a.agentKey === agentKey);
+    const changeRequestId = ksAgent?.changeRequestId;
+    if (!changeRequestId) {
+      setError({
+        title: "Change Request Tidak Ditemukan",
+        reason: `Tidak ditemukan Change Request aktif untuk agen '${agentKey}'.`,
+        nextAction: "Penangguhan agen memerlukan Change Request release yang valid.",
+        severity: "warning",
+        status: null,
+        correlationId: null,
+      });
+      return;
+    }
+    setActionTargetAgent(ksAgent);
+    setSafetyModal("SUSPEND_AGENT");
+    setModalReasonInput("");
+  }
+
+  async function handleConfirmSuspend() {
+    if (!actionTargetAgent) return;
+    const changeRequestId = actionTargetAgent.changeRequestId;
+    if (!changeRequestId) return;
+    const reason = modalReasonInput.trim();
+    if (!reason) {
+      setError({
+        title: "Alasan Penangguhan Wajib Diisi",
+        reason: "Penangguhan agen memerlukan alasan audit yang jelas dari Direktur.",
+        nextAction: "Masukkan alasan penangguhan pada formulir.",
+        severity: "warning",
+        status: null,
+        correlationId: null,
+      });
+      return;
+    }
+
+    setSubmittingSafetyAction(true);
+    setError(null);
+    try {
+      await suspendAgent(changeRequestId, reason);
+      setNotice(`Agen ${actionTargetAgent.agentName} berhasil ditangguhkan oleh Direktur.`);
+      setSafetyModal(null);
+      setActionTargetAgent(null);
+      setModalReasonInput("");
+      if (workspaceId) {
+        await loadWorkspace(workspaceId);
+      }
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    } finally {
+      setSubmittingSafetyAction(false);
+    }
+  }
+
+  function handleOpenEditAgentDraft(agentKey: string) {
+    const ag = realAgents.find((a) => a.agent_key === agentKey);
+    if (!ag) return;
+    setEditingAgentDraft(ag);
+    setAgentDraftForm(formFromAgent(ag));
+    setSafetyModal("EDIT_AGENT_DRAFT");
+  }
+
+  async function handleSaveEditAgentDraft() {
+    if (!editingAgentDraft || !agentDraftForm || !workspaceId) return;
+    setSubmittingSafetyAction(true);
+    setError(null);
+    try {
+      const payload = draftPayloadFromForm(agentDraftForm, workspaceId);
+      await updateAgentDraft(editingAgentDraft.agent_key, payload);
+      setNotice(`Draft agen '${editingAgentDraft.name}' berhasil diperbarui.`);
+      setSafetyModal(null);
+      setEditingAgentDraft(null);
+      setAgentDraftForm(null);
+      await loadWorkspace(workspaceId);
+    } catch (err) {
+      setError(normalizeGovernanceError(err));
+    } finally {
+      setSubmittingSafetyAction(false);
+    }
+  }
+
   async function handleDeleteAgentDraft(agentKey: string) {
     if (!confirm(`Hapus draft agent '${agentKey}'? Tindakan ini tidak dapat dibatalkan.`)) return;
     setError(null);
@@ -1129,11 +1199,11 @@ export function GovernanceDashboard() {
         body: JSON.stringify({
           workspace_id: workspaceId,
           agent_key: generatedKey,
-          name: newAgentName.trim() || generatedKey,
+          name: newAgentName.trim() || "Genesis Operational Agent",
           requirement: newAgentRequirement.trim(),
         }),
       });
-      setNotice(`Agent DRAFT '${generatedKey}' berhasil dibuat via Genesis Designer.`);
+      setNotice(`Draft agent baru '${newAgentName || generatedKey}' berhasil dibuat.`);
       setSafetyModal(null);
       setNewAgentName("");
       setNewAgentKey("");
@@ -1147,29 +1217,23 @@ export function GovernanceDashboard() {
   }
 
   async function handleCreateReleaseRequest() {
-    if (!newReleaseAgentKey) return;
-    if (!newReleaseRequirement.trim() || newReleaseRequirement.trim().length < 20) {
-      setError({
-        title: "Requirement release belum lengkap",
-        reason: "Requirement release minimal 20 karakter.",
-        nextAction: "Lengkapi penjelasan cakupan dan batasan rilis agen.",
-        severity: "warning",
-        status: null,
-        correlationId: null,
-      });
-      return;
-    }
+    if (!newReleaseAgentKey || !newReleaseRequirement.trim()) return;
+    const ag = realAgents.find((a) => a.agent_key === newReleaseAgentKey);
+    const version = ag?.versions[0]?.semantic_version || "1.0.0";
     setSubmittingRelease(true);
     setError(null);
     try {
-      await api(`/api/v1/agents/${encodeURIComponent(newReleaseAgentKey)}/release-requests`, {
+      await api("/api/v1/release-requests", {
         method: "POST",
         body: JSON.stringify({
           workspace_id: workspaceId,
-          requirement: newReleaseRequirement.trim(),
+          agent_key: newReleaseAgentKey,
+          semantic_version: version,
+          release_tier: "ENTERPRISE",
+          purpose: newReleaseRequirement.trim(),
         }),
       });
-      setNotice(`Release request untuk '${newReleaseAgentKey}' berhasil diajukan.`);
+      setNotice(`Release request untuk '${newReleaseAgentKey}' (${version}) berhasil dibuat.`);
       setSafetyModal(null);
       setNewReleaseRequirement("");
       await loadWorkspace(workspaceId);
@@ -1181,6 +1245,17 @@ export function GovernanceDashboard() {
   }
 
   async function handleCreatePermissionPolicy() {
+    if (!canEditAgentRegistry(actorRoles)) {
+      setError({
+        title: "Akses Ditolak",
+        reason: "Pembuatan permission policy memerlukan peran IT_LEAD (Maker).",
+        nextAction: "Gunakan akun dengan peran IT_LEAD untuk mendaftarkan permission policy.",
+        severity: "warning",
+        status: null,
+        correlationId: null,
+      });
+      return;
+    }
     if (!newPermAgentKey || !newPermKey.trim()) return;
     const ag = realAgents.find((a) => a.agent_key === newPermAgentKey);
     const version = ag?.versions[0]?.semantic_version || "1.0.0";
@@ -1225,6 +1300,17 @@ export function GovernanceDashboard() {
   }
 
   async function handleUpdateBudget() {
+    if (!canChangeBudget(actorRoles)) {
+      setError({
+        title: "Akses Ditolak",
+        reason: "Pengubahan budget memerlukan peran IT_LEAD atau DIRECTOR.",
+        nextAction: "Minta IT Lead atau Direktur untuk memperbarui alokasi budget workspace.",
+        severity: "warning",
+        status: null,
+        correlationId: null,
+      });
+      return;
+    }
     setSubmittingBudget(true);
     setError(null);
     try {
@@ -1283,7 +1369,7 @@ export function GovernanceDashboard() {
       setReleaseDetailsMap((prev) => ({ ...prev, [releaseId]: detail }));
       setInspectReleaseItem((prev) => prev ? {
         ...prev,
-        status: (["IN_REVIEW", "APPROVED", "REJECTED", "DRAFT", "RELEASED"].includes(detail.state) ? detail.state : "DRAFT") as ReleaseRequestItem["status"],
+        status: detail.state,
       } : null);
     } catch (err) {
       setError(normalizeGovernanceError(err));
@@ -1317,7 +1403,7 @@ export function GovernanceDashboard() {
           iconBg: "rgba(16, 185, 129, 0.12)",
           version: detail.semantic_version,
           requester: detail.requested_by_user_id ? detail.requested_by_user_id.slice(0, 8) : "System",
-          status: (["IN_REVIEW", "APPROVED", "REJECTED", "DRAFT", "RELEASED"].includes(detail.state) ? detail.state : "DRAFT") as ReleaseRequestItem["status"],
+          status: detail.state,
           submitted: "—",
           updated: "—",
           actionLabel: detail.state === "IN_REVIEW" ? "Release" : "View",
@@ -1669,6 +1755,21 @@ export function GovernanceDashboard() {
                         >
                           Rollback
                         </button>
+                        {actorRoles.includes("DIRECTOR") && !ag.isSuspended && ag.changeRequestId && (
+                          <button
+                            className="gov-btn-halt"
+                            style={{ background: "#78350f", borderColor: "#92400e" }}
+                            title="Tangguhkan rilis agen administratif (Direktur)"
+                            onClick={() => {
+                              setActionTargetAgent(ag);
+                              setModalReasonInput("");
+                              setSafetyModal("SUSPEND_AGENT");
+                            }}
+                            type="button"
+                          >
+                            Suspend
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -2178,6 +2279,149 @@ export function GovernanceDashboard() {
       );
     }
 
+    if (safetyModal === "SUSPEND_AGENT" && actionTargetAgent) {
+      return (
+        <div className="gov-modal-backdrop" onClick={() => setSafetyModal(null)}>
+          <div className="gov-modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="gov-modal-header">
+              <h3>
+                <GovIcon name="pause" />
+                <span>Tangguhkan Agen: {actionTargetAgent.agentName}</span>
+              </h3>
+              <button className="gov-modal-close-btn" onClick={() => setSafetyModal(null)} type="button">✕</button>
+            </div>
+            <div className="gov-modal-body">
+              <div className="gov-modal-alert warning">
+                <GovIcon name="warning_triangle" />
+                <div>
+                  <strong>Penangguhan Administratif oleh Direktur</strong>
+                  <p>
+                    Agen {actionTargetAgent.agentName} ({actionTargetAgent.currentVersion}) akan dialihkan ke status SUSPENDED.
+                    Eksekusi runtime akan dihentikan hingga dilakukan review atau release baru.
+                  </p>
+                </div>
+              </div>
+
+              <div className="gov-modal-field">
+                <label htmlFor="suspend-reason-input">Alasan Penangguhan (Wajib):</label>
+                <textarea
+                  id="suspend-reason-input"
+                  onChange={(e) => setModalReasonInput(e.target.value)}
+                  placeholder="Masukkan alasan penangguhan agen..."
+                  rows={3}
+                  value={modalReasonInput}
+                />
+              </div>
+            </div>
+            <div className="gov-modal-footer">
+              <button className="gov-modal-btn-cancel" onClick={() => setSafetyModal(null)} type="button">
+                Batal
+              </button>
+              <button
+                className="gov-modal-btn-confirm danger"
+                disabled={submittingSafetyAction || !modalReasonInput.trim()}
+                onClick={handleConfirmSuspend}
+                type="button"
+              >
+                {submittingSafetyAction ? "Memproses..." : "Konfirmasi Penangguhan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (safetyModal === "EDIT_AGENT_DRAFT" && editingAgentDraft && agentDraftForm) {
+      return (
+        <div className="gov-modal-backdrop" onClick={() => setSafetyModal(null)}>
+          <div className="gov-modal-box" style={{ maxWidth: "680px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="gov-modal-header">
+              <h3>
+                <GovIcon name="gear" />
+                <span>Edit Draft Agent: {editingAgentDraft.name}</span>
+              </h3>
+              <button className="gov-modal-close-btn" onClick={() => setSafetyModal(null)} type="button">✕</button>
+            </div>
+            <div className="gov-modal-body" style={{ maxHeight: "70vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div className="gov-modal-field">
+                <label htmlFor="edit-agent-name">Nama Agent:</label>
+                <input
+                  id="edit-agent-name"
+                  type="text"
+                  value={agentDraftForm.name}
+                  onChange={(e) => setAgentDraftForm({ ...agentDraftForm, name: e.target.value })}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d8e2dc", borderRadius: "8px" }}
+                />
+              </div>
+              <div className="gov-modal-field">
+                <label htmlFor="edit-agent-objective">Tujuan / Objective:</label>
+                <textarea
+                  id="edit-agent-objective"
+                  rows={2}
+                  value={agentDraftForm.objective}
+                  onChange={(e) => setAgentDraftForm({ ...agentDraftForm, objective: e.target.value })}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d8e2dc", borderRadius: "8px" }}
+                />
+              </div>
+              <div className="gov-modal-field">
+                <label htmlFor="edit-agent-input-schema">Input Schema (JSON):</label>
+                <textarea
+                  id="edit-agent-input-schema"
+                  rows={3}
+                  value={agentDraftForm.inputSchema}
+                  onChange={(e) => setAgentDraftForm({ ...agentDraftForm, inputSchema: e.target.value })}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d8e2dc", borderRadius: "8px", fontFamily: "monospace", fontSize: "0.85rem" }}
+                />
+              </div>
+              <div className="gov-modal-field">
+                <label htmlFor="edit-agent-output-schema">Output Schema (JSON):</label>
+                <textarea
+                  id="edit-agent-output-schema"
+                  rows={3}
+                  value={agentDraftForm.outputSchema}
+                  onChange={(e) => setAgentDraftForm({ ...agentDraftForm, outputSchema: e.target.value })}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d8e2dc", borderRadius: "8px", fontFamily: "monospace", fontSize: "0.85rem" }}
+                />
+              </div>
+              <div className="gov-modal-field">
+                <label htmlFor="edit-agent-forbidden-actions">Forbidden Actions (satu per baris):</label>
+                <textarea
+                  id="edit-agent-forbidden-actions"
+                  rows={2}
+                  value={agentDraftForm.forbiddenActions}
+                  onChange={(e) => setAgentDraftForm({ ...agentDraftForm, forbiddenActions: e.target.value })}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d8e2dc", borderRadius: "8px", fontFamily: "monospace", fontSize: "0.85rem" }}
+                />
+              </div>
+              <div className="gov-modal-field">
+                <label htmlFor="edit-agent-timeout">Timeout (detik):</label>
+                <input
+                  id="edit-agent-timeout"
+                  type="number"
+                  value={agentDraftForm.timeoutSeconds}
+                  onChange={(e) => setAgentDraftForm({ ...agentDraftForm, timeoutSeconds: e.target.value })}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d8e2dc", borderRadius: "8px" }}
+                />
+              </div>
+            </div>
+            <div className="gov-modal-footer">
+              <button className="gov-modal-btn-cancel" onClick={() => setSafetyModal(null)} type="button">
+                Batal
+              </button>
+              <button
+                className="gov-modal-btn-confirm"
+                disabled={submittingSafetyAction || !agentDraftForm.name.trim()}
+                onClick={handleSaveEditAgentDraft}
+                type="button"
+              >
+                {submittingSafetyAction ? "Menyimpan..." : "Simpan Perubahan Draft"}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     if (safetyModal === "AUDIT_INSPECT" && inspectAuditItem) {
       return (
         <div className="gov-modal-backdrop" onClick={() => setSafetyModal(null)}>
@@ -2530,7 +2774,7 @@ export function GovernanceDashboard() {
               </button>
               <button
                 className="gov-modal-btn-confirm primary"
-                disabled={submittingPerm || !newPermAgentKey || !newPermKey.trim()}
+                disabled={submittingPerm || !canEditAgentRegistry(actorRoles) || !newPermAgentKey || !newPermKey.trim()}
                 onClick={handleCreatePermissionPolicy}
                 type="button"
               >
@@ -2608,7 +2852,7 @@ export function GovernanceDashboard() {
               </button>
               <button
                 className="gov-modal-btn-confirm primary"
-                disabled={submittingBudget}
+                disabled={submittingBudget || !canChangeBudget(actorRoles)}
                 onClick={handleUpdateBudget}
                 type="button"
               >
@@ -3178,6 +3422,16 @@ export function GovernanceDashboard() {
                         </button>
                       )}
                     </div>
+
+                    <div style={{ marginTop: "16px" }}>
+                      <ReadinessDecisionsPanel
+                        actorRoles={actorRoles}
+                        onError={setError}
+                        onNotice={setNotice}
+                        selectedReleaseId={inspectReleaseItem.id}
+                        workspaceId={workspaceId}
+                      />
+                    </div>
                   </div>
                 </>
               )}
@@ -3591,6 +3845,15 @@ export function GovernanceDashboard() {
           >
             <GovIcon name="audit" />
             <span>Audit Trail</span>
+          </button>
+
+          <button
+            className={`gov-nav-btn ${view === "sources" ? "active" : ""}`}
+            onClick={() => changeView("sources")}
+            type="button"
+          >
+            <GovIcon name="file" />
+            <span>Sources &amp; Vault</span>
           </button>
         </nav>
 
@@ -4022,6 +4285,15 @@ export function GovernanceDashboard() {
                     </button>
                   </div>
                 </div>
+
+                <div style={{ marginTop: "24px" }}>
+                  <ReadinessDecisionsPanel
+                    actorRoles={actorRoles}
+                    onError={setError}
+                    onNotice={setNotice}
+                    workspaceId={workspaceId}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -4376,16 +4648,39 @@ export function GovernanceDashboard() {
 
                   {canEditAgentRegistry(actorRoles) &&
                     (currentAgent.lifecycleStatus === "DRAFT" || currentAgent.lifecycleStatus === "RETURNED") && (
-                      <button
-                        className="gov-agent-btn-outline danger"
-                        onClick={() => void handleDeleteAgentDraft(currentAgent.agentKey)}
-                        title="Hapus draft agent ini dari registri"
-                        type="button"
-                      >
-                        <GovIcon name="ban" />
-                        <span>Hapus Draft</span>
-                      </button>
+                      <>
+                        <button
+                          className="gov-agent-btn-outline"
+                          onClick={() => handleOpenEditAgentDraft(currentAgent.agentKey)}
+                          title="Edit spesifikasi draft agent ini"
+                          type="button"
+                        >
+                          <GovIcon name="gear" />
+                          <span>Edit Draft</span>
+                        </button>
+                        <button
+                          className="gov-agent-btn-outline danger"
+                          onClick={() => void handleDeleteAgentDraft(currentAgent.agentKey)}
+                          title="Hapus draft agent ini dari registri"
+                          type="button"
+                        >
+                          <GovIcon name="ban" />
+                          <span>Hapus Draft</span>
+                        </button>
+                      </>
                     )}
+
+                  {actorRoles.includes("DIRECTOR") && currentAgent.lifecycleStatus === "ACTIVE" && (
+                    <button
+                      className="gov-agent-btn-outline danger"
+                      onClick={() => handleSuspendAgent(currentAgent.agentKey)}
+                      title="Tangguhkan rilis agen administratif (Direktur)"
+                      type="button"
+                    >
+                      <GovIcon name="pause" />
+                      <span>Suspend</span>
+                    </button>
+                  )}
 
                   {canEditAgentRegistry(actorRoles) &&
                     (currentAgent.lifecycleStatus === "ACTIVE" || currentAgent.lifecycleStatus === "SUSPENDED") && (
@@ -5154,6 +5449,13 @@ export function GovernanceDashboard() {
 
                   <button
                     className="gov-ag-request-btn"
+                    disabled={!canEditAgentRegistry(actorRoles)}
+                    title={
+                      canEditAgentRegistry(actorRoles)
+                        ? "Daftarkan permission policy baru"
+                        : "Pendaftaran permission policy memerlukan peran IT_LEAD (Maker)"
+                    }
+                    style={!canEditAgentRegistry(actorRoles) ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                     onClick={() => {
                       setNewPermAgentKey(realAgents[0]?.agent_key || "");
                       setNewPermKey("");
@@ -5561,6 +5863,13 @@ export function GovernanceDashboard() {
                       <div className="gov-baction-btns">
                         <button
                           className="gov-baction-btn primary"
+                          disabled={!canChangeBudget(actorRoles)}
+                          title={
+                            canChangeBudget(actorRoles)
+                              ? "Perbarui limit anggaran harian workspace"
+                              : "Pengubahan budget memerlukan peran IT_LEAD atau DIRECTOR"
+                          }
+                          style={!canChangeBudget(actorRoles) ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                           onClick={() => {
                             setBudgetReqLimit(String(realBudget?.daily_request_limit || 1000));
                             setBudgetTokenLimit(String(realBudget?.daily_output_token_limit || 2500000));
@@ -5601,6 +5910,18 @@ export function GovernanceDashboard() {
               View: Audit Trail
               ---------------------------------------------------------------- */}
           {view === "audit" && renderAuditTrailView()}
+
+          {/* ----------------------------------------------------------------
+              View: Sources & Vault (Source Management & Verification)
+              ---------------------------------------------------------------- */}
+          {view === "sources" && (
+            <SourcesView
+              actorRoles={actorRoles}
+              onError={setError}
+              onNotice={setNotice}
+              workspaceId={workspaceId}
+            />
+          )}
         </div>
       </section>
 
