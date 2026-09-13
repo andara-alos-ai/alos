@@ -1,0 +1,110 @@
+/* ALOS Design System Tokens
+   PT Andara Rejo Makmur — Integrated Business Platform
+   Primary: Deep Forest Green / Dark Emerald
+   Accent: ALOS Gold
+   Background: Warm Ivory / Off-White
+   Surface: Crisp White
+*/
+
+:root {
+  /* Brand Core Palette */
+  --alos-forest-900: #021f19;
+  --alos-forest-850: #042b23;
+  --alos-forest-800: #06382d;
+  --alos-forest-750: #09473a;
+  --alos-forest-700: #0d5849;
+  --alos-forest-600: #14725f;
+  --alos-forest-500: #1b8d77;
+  --alos-forest-400: #2fb197;
+  --alos-forest-300: #62cfb9;
+  --alos-forest-200: #9fe6d6;
+  --alos-forest-100: #d4f4ed;
+  --alos-forest-50: #eef9f6;
+
+  /* Gold Accents */
+  --alos-gold-900: #573e13;
+  --alos-gold-800: #7c581a;
+  --alos-gold-700: #a47623;
+  --alos-gold-600: #c99d4c;
+  --alos-gold-500: #dfb76c;
+  --alos-gold-400: #ebd096;
+  --alos-gold-300: #f5e4bd;
+  --alos-gold-200: #fbf1dc;
+  --alos-gold-100: #fdf8ed;
+
+  /* Neutrals & Surfaces */
+  --alos-bg-app: #f5f6f1;
+  --alos-bg-app-warm: #f6f5f0;
+  --alos-bg-surface: #ffffff;
+  --alos-bg-surface-subtle: #fafbf9;
+  --alos-bg-surface-elevated: #ffffff;
+
+  /* Borders & Dividers */
+  --alos-border: #e5e8e3;
+  --alos-border-subtle: #edf0ea;
+  --alos-border-strong: #d2d8ce;
+
+  /* Typography Colors */
+  --alos-text-primary: #11231f;
+  --alos-text-secondary: #536761;
+  --alos-text-muted: #82948e;
+  --alos-text-disabled: #a9b7b2;
+  --alos-text-inverse: #ffffff;
+
+  /* Status Colors */
+  --alos-status-success-bg: #e2f4ea;
+  --alos-status-success-text: #0b7c48;
+  --alos-status-success-border: #c3e9d4;
+
+  --alos-status-warning-bg: #fdf3dc;
+  --alos-status-warning-text: #ad7410;
+  --alos-status-warning-border: #fae4b5;
+
+  --alos-status-danger-bg: #fde8e7;
+  --alos-status-danger-text: #c52a23;
+  --alos-status-danger-border: #f9c9c7;
+
+  --alos-status-info-bg: #e3f2fd;
+  --alos-status-info-text: #1468a8;
+  --alos-status-info-border: #bfe0f7;
+
+  /* Sidebar Tokens (Reference Anchor) */
+  --alos-sidebar-width: 260px;
+  --alos-sidebar-bg: #042b23;
+  --alos-sidebar-border: rgba(255, 255, 255, 0.08);
+  --alos-sidebar-text: #9bb0a9;
+  --alos-sidebar-text-hover: #f1f7f5;
+  --alos-sidebar-active-bg: linear-gradient(90deg, rgba(20, 68, 55, 0.9) 0%, rgba(10, 50, 40, 0.75) 100%);
+  --alos-sidebar-active-border: #c99d4c;
+  --alos-sidebar-active-text: #ffffff;
+  --alos-sidebar-divider: rgba(255, 255, 255, 0.09);
+
+  /* Topbar Tokens */
+  --alos-topbar-height: 70px;
+  --alos-topbar-bg: #ffffff;
+  --alos-topbar-border: #e5e8e3;
+
+  /* Radii */
+  --alos-radius-sm: 6px;
+  --alos-radius-md: 10px;
+  --alos-radius-lg: 14px;
+  --alos-radius-xl: 18px;
+  --alos-radius-full: 9999px;
+
+  /* Shadows */
+  --alos-shadow-sm: 0 1px 2px rgba(17, 35, 31, 0.04);
+  --alos-shadow-md: 0 3px 8px rgba(17, 35, 31, 0.06), 0 1px 3px rgba(17, 35, 31, 0.04);
+  --alos-shadow-lg: 0 8px 24px rgba(17, 35, 31, 0.08), 0 2px 6px rgba(17, 35, 31, 0.04);
+
+  /* Enterprise Control Room & Subnav Tokens */
+  --alos-tab-bg: rgba(0, 0, 0, 0.04);
+  --alos-tab-active-bg: #06382d;
+  --alos-tab-active-text: #ffffff;
+  --alos-tab-text: #495f57;
+  --alos-tab-text-hover: #11231f;
+
+  /* Dense Table Tokens */
+  --alos-table-header-color: #667a73;
+  --alos-table-border: #ebefe9;
+  --alos-table-row-hover: #fbfcf9;
+}

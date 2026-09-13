@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 
+import "./design-tokens.css";
 import "./globals.css";
+import "./shell.css";
 import "./portfolio.css";
 import "./genesis.css";
 
