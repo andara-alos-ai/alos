@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from math import ceil
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import psycopg
@@ -1701,7 +1701,14 @@ class OperationalRepository:
                 )
                 for row in division_rows
             )
-            queries = (
+            queries: tuple[
+                tuple[
+                    Literal["PROJECT", "TASK", "DOCUMENT", "FINDING"],
+                    str,
+                    str,
+                ],
+                ...,
+            ] = (
                 (
                     "PROJECT",
                     """

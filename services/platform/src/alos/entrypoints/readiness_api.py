@@ -1,4 +1,4 @@
-"""Human-owned H5 release-readiness decisions; GENESIS cannot call this boundary."""
+"""Human-owned release-readiness decisions; GENESIS cannot call this boundary."""
 
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -15,7 +15,7 @@ from alos.identity import HumanRole
 from alos.persistence.database import psycopg_url
 from alos.security.tokens import ActorContext, get_current_actor
 
-router = APIRouter(prefix="/api/v1/readiness", tags=["h5-readiness"])
+router = APIRouter(prefix="/api/v1/readiness", tags=["release-readiness"])
 
 
 class ReleaseDecisionRequest(BaseModel):

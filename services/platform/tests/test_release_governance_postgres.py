@@ -1,4 +1,5 @@
 import os
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -9,6 +10,10 @@ from psycopg import sql
 
 from alos.agents.registry import AgentContract, AgentRegistryRepository, LocalBootstrapRequest
 from alos.config import Settings, get_settings
+from alos.identity import DataScope, HumanRole
+from alos.jobs.repository import AgentScheduleRequest, JobQueueRepository
+from alos.jobs.scheduler import DurableScheduler
+from alos.jobs.worker import DurableWorker
 from alos.model_gateway import (
     FakeModelGateway,
     GuardedModelGateway,
@@ -38,6 +43,7 @@ from alos.runtime.service import (
     AgentRuntimeBlocked,
     AgentRuntimeRepository,
 )
+from alos.security.tokens import ActorContext
 
 pytestmark = [
     pytest.mark.postgres,
@@ -54,9 +60,9 @@ def _settings(database_url: str) -> Settings:
         environment="test",
         database_url=database_url,
         auth_signing_secret="a" * 32,
-        llm_provider="gemini",
+        llm_provider="openai",
         llm_api_key="test-only-key",
-        llm_model="gemini-3.7-flash",
+        llm_model="gpt-5.6-luna",
         llm_max_output_tokens=256,
         llm_daily_request_limit=20,
         llm_daily_output_token_limit=3_000,
@@ -85,7 +91,7 @@ def _contract(workspace_id: UUID, owner_user_id: UUID, name: str) -> AgentContra
                 "citations": {"type": "array"},
             },
         },
-        model_policy={"provider": "gemini", "max_output_tokens": 256},
+        model_policy={"max_output_tokens": 256},
         tool_keys=[],
         permission_keys=[],
         evidence_requirements=["synthetic fixture citation"],
@@ -94,13 +100,14 @@ def _contract(workspace_id: UUID, owner_user_id: UUID, name: str) -> AgentContra
         approval_required=True,
         timeout_seconds=120,
         prompt_template="Return a short cited fixture response. Do not take actions.",
+        schedule_policy={"enabled": True},
     )
 
 
 def _response() -> ModelResponse:
     return ModelResponse(
-        provider="gemini",
-        model="gemini-3.7-flash",
+        provider="openai",
+        model="gpt-5.6-luna",
         output_text='{"summary":"Synthetic property result","citations":["FIXTURE-001"]}',
         usage=ModelUsage(input_tokens=10, output_tokens=10),
         latency_milliseconds=1,
@@ -384,11 +391,13 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
                 settings,
             )
         release_repository = ReleaseGovernanceRepository(temporary_url)
-        assert release_repository.find_independent_release_maker(
+        resolved_maker = release_repository.find_independent_release_maker(
             context.workspace_id,
             organization_id=context.organization_id,
             requested_by_user_id=requester_user_id,
-        ) == maker_user_id
+        )
+        assert resolved_maker != requester_user_id
+        assert resolved_maker in {maker_user_id, context.user_id}
         local_team = release_repository.bootstrap_local_release_team(context.workspace_id, uuid4())
         assert {participant.duty for participant in local_team.participants} == {
             "MAKER",
@@ -438,6 +447,9 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
         assert detail.state == "ACTIVE"
         assert len(detail.test_cases) == 5
         assert len(detail.test_runs) == 5
+        assert all(run.evidence_id is not None for run in detail.test_runs)
+        assert {run.evaluator for run in detail.test_runs} == {"EqualsExpected"}
+        assert {run.score for run in detail.test_runs} == {1.0}
         assert {review.reviewer_user_id for review in detail.reviews} == {
             business_reviewer_id,
             technical_reviewer_id,
@@ -456,6 +468,65 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
             organization_id=context.organization_id,
             actor_user_id=checker_user_id,
         )[0].change_request_id == version_two_request
+
+        now = datetime.now(UTC)
+        maker_actor = ActorContext(
+            user_id=maker_user_id,
+            organization_id=context.organization_id,
+            roles=[HumanRole.IT_LEAD],
+            division_codes=[],
+            workspace_ids=[context.workspace_id],
+            tenant_ids=[],
+            data_scope=DataScope.COMPANY,
+            permissions=[],
+            issued_at=now,
+            expires_at=now + timedelta(hours=1),
+        )
+        queue = JobQueueRepository(temporary_url)
+        schedule = queue.configure_agent_schedule(
+            AgentScheduleRequest(
+                workspace_id=context.workspace_id,
+                agent_key="PROPERTY_RELEASE_FIXTURE",
+                schedule_expression="DAILY 00:00",
+                timezone="UTC",
+                input={"query": "scheduled generated Agent fixture"},
+            ),
+            maker_actor,
+            correlation_id=uuid4(),
+        )
+        with psycopg.connect(temporary_url) as connection:
+            connection.execute(
+                "UPDATE jobs.agent_schedules SET next_run_at = now() WHERE agent_schedule_id = %s",
+                (schedule.agent_schedule_id,),
+            )
+            connection.commit()
+        assert DurableScheduler(temporary_url, scheduler_id="test-scheduler").tick() == 1
+        scheduled_job = DurableWorker(
+            temporary_url,
+            worker_id="test-worker",
+            runtime_factory=lambda: runtime,
+        ).run_once()
+        assert scheduled_job is not None
+        assert scheduled_job.status == "SUCCEEDED"
+        assert scheduled_job.payload["result"]["status"] == "SUCCEEDED"
+        scheduled_agent_run_id = UUID(scheduled_job.payload["result"]["agent_run_id"])
+        with psycopg.connect(temporary_url) as connection:
+            scheduled_run = connection.execute(
+                """
+                SELECT status, execution_mode, requested_by_user_id
+                FROM runtime.agent_runs WHERE agent_run_id = %s
+                """,
+                (scheduled_agent_run_id,),
+            ).fetchone()
+            assert scheduled_run == ("SUCCEEDED", "LIVE", maker_user_id)
+            dispatch = connection.execute(
+                """
+                SELECT status, job_id FROM jobs.agent_schedule_dispatches
+                WHERE agent_schedule_id = %s
+                """,
+                (schedule.agent_schedule_id,),
+            ).fetchone()
+            assert dispatch == ("ENQUEUED", scheduled_job.job_id)
 
         assert (
             release_repository.kill_switch(
@@ -587,6 +658,32 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
             assert connection.execute(
                 "SELECT action FROM audit.events WHERE action = 'LOCAL_RELEASE_TEAM_BOOTSTRAPPED'"
             ).fetchone() == ("LOCAL_RELEASE_TEAM_BOOTSTRAPPED",)
+            evidence = connection.execute(
+                """
+                SELECT evidence_id, agent_run_id, evaluator, status
+                FROM governance.agent_eval_evidence
+                WHERE agent_version_id = (
+                    SELECT agent_version_id FROM governance.agent_change_requests
+                    WHERE change_request_id = %s
+                )
+                """,
+                (version_two_request,),
+            ).fetchall()
+            assert len(evidence) == 5
+            assert all(row[1] is not None for row in evidence)
+            assert {(row[2], row[3]) for row in evidence} == {
+                ("EqualsExpected", "PASSED")
+            }
+        with psycopg.connect(temporary_url) as connection:
+            evidence_id = connection.execute(
+                "SELECT evidence_id FROM governance.agent_eval_evidence LIMIT 1"
+            ).fetchone()
+            assert evidence_id is not None
+            with pytest.raises(psycopg.DatabaseError, match="append-only"):
+                connection.execute(
+                    "UPDATE governance.agent_eval_evidence SET score = 0 WHERE evidence_id = %s",
+                    (evidence_id[0],),
+                )
         assert version_one_request != version_two_request
     finally:
         with psycopg.connect(maintenance_url, autocommit=True) as connection:

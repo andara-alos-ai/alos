@@ -93,27 +93,27 @@ def test_staging_disables_provider_response_storage() -> None:
         )
 
 
-def test_local_allows_gemini_for_the_temporary_local_provider() -> None:
+def test_local_provider_name_is_extensible_but_not_implicitly_registered() -> None:
     settings = Settings(
         _env_file=None,
         environment="local",
-        llm_provider="gemini",
+        llm_provider="future-provider",
         llm_api_key="test-only-key",
-        llm_model="gemini-3.7-flash",
+        llm_model="future-model",
     )
-    assert settings.llm_provider == "gemini"
+    assert settings.llm_provider == "future-provider"
 
 
-def test_staging_rejects_gemini() -> None:
-    with pytest.raises(ValueError, match="Gemini is limited"):
+def test_staging_rejects_an_unapproved_provider() -> None:
+    with pytest.raises(ValueError, match="approved deployment providers"):
         Settings(
             _env_file=None,
             environment="staging",
             auth_signing_secret="a" * 32,
             object_storage_provider="s3",
-            llm_provider="gemini",
+            llm_provider="future-provider",
             llm_api_key="test-only-key",
-            llm_model="gemini-3.7-flash",
+            llm_model="future-model",
         )
 
 

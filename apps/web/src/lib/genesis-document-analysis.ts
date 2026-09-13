@@ -34,7 +34,7 @@ export type GenesisDocumentAnalysisResult = {
   };
   semantic: {
     analysis_run_id: string;
-    provider: "openai" | "anthropic" | "gemini" | "local" | "fake";
+    provider: string;
     model: string;
     answer: string;
     input_tokens: number;

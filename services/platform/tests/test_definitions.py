@@ -17,3 +17,10 @@ def test_agent_contract_schema_declares_hari_1_governance_fields() -> None:
         "forbidden_actions",
         "kpis",
     }
+    model_policy = schema["properties"]["model_policy"]
+    assert model_policy["properties"]["model_route"]["enum"] == [
+        "light",
+        "standard",
+        "critical",
+    ]
+    assert "provider" not in model_policy.get("required", [])

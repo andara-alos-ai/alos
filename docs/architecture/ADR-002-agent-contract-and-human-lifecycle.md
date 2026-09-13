@@ -1,31 +1,36 @@
-# ADR-002: Semua agent menggunakan Agent Contract dan lifecycle manusia
+# ADR-002: Agent Contract dan lifecycle lima-duty
 
-- Status: Accepted
-- Tanggal: 2026-09-03
+- Status: **Superseded by [ADR-005](ADR-005-genesis-factory-governance.md)**
+- Tanggal keputusan awal: 2026-09-03
+- Tanggal superseded: 2026-09-13
 
-## Context
+## Context historis
 
-Genesis harus dapat membuat agent baru tanpa taxonomy tetap, tetapi tidak boleh
-auto-approve, auto-active untuk risiko, atau melewati audit dan rollback.
-
-## Decision
-
-Setiap logical agent memiliki Agent Contract versioned yang memuat purpose,
-schema, model policy, tool/permission, risk, owner, KPI, evidence, forbidden
-actions, dan timeout. Lifecycle minimum adalah:
+Keputusan awal menetapkan Agent Contract versioned dan lifecycle:
 
 ```text
 DRAFT → TESTED → IN_REVIEW → APPROVED → RELEASED → ACTIVE
                                             → SUSPENDED → ROLLED_BACK
 ```
 
-Maker, checker, business reviewer, technical reviewer, dan approver harus
-terpisah untuk satu release request. `ACTIVE` hanya menunjuk version Registry;
-ia tidak memberi tool, permission, atau authority baru.
+ADR ini juga mewajibkan maker, checker, business reviewer, technical reviewer,
+dan approver sebagai manusia yang terpisah untuk setiap release request.
 
-## Consequences
+## Bagian yang tetap berlaku
 
-- Genesis dapat membuat draft tetapi tidak dapat menyetujui atau mengaktifkan
-  dirinya sendiri.
-- Setiap activation dan rollback dapat direplay dari audit/lifecycle event.
-- Perubahan contract menghasilkan version baru dan memerlukan lifecycle baru.
+- Agent Contract dan version bersifat immutable setelah keluar dari draft.
+- GENESIS tidak dapat self-approve, self-release, atau self-activate.
+- `APPROVED`, `RELEASED`, dan `ACTIVE` adalah state berbeda.
+- Lifecycle event, evidence, actor, reason, correlation ID, dan rollback harus
+  traceable.
+- Maker/self-approval tetap dilarang untuk perubahan material.
+
+## Bagian yang digantikan
+
+Kewajiban lima akun manusia terpisah tidak lagi menjadi governance target.
+Target organisasi sekarang adalah automated validation oleh GENESIS, review
+teknis/operator oleh Divisi IT, lalu keputusan final Director. Role dan duty
+lama tetap terbaca di kode/database sebagai compatibility path sampai migrasi
+implementasi dilakukan melalui perubahan terpisah.
+
+Dokumen ini dipertahankan agar history keputusan tidak ditulis ulang diam-diam.

@@ -280,6 +280,7 @@ class GenesisAgentDesigner:
             input_schema=proposal.input_schema,
             output_schema=proposal.output_schema,
             model_policy={
+                "execution_engine": "PYDANTICAI",
                 "model_route": proposal.model_route.casefold(),
                 "max_model_steps": 3,
                 "max_tool_calls": 20,
@@ -295,6 +296,16 @@ class GenesisAgentDesigner:
             approval_required=True,
             timeout_seconds=120,
             prompt_template=proposal.prompt_template,
+            capabilities=[item.capability_key for item in resolution.resolved],
+            human_gate_policy={"required": True},
+            evidence_policy={"required": True, "verification_required": True},
+            source_policy={"approved_sources_only": True},
+            memory_policy={"enabled": False, "reason": "requires scoped configuration"},
+            skill_policy={"active_versions_only": True},
+            schedule_policy={"enabled": False},
+            limits={"max_model_steps": 3, "max_tool_calls": 20},
+            test_policy={"actual_evidence_required": True},
+            rollback_policy={"successor_version_required": True},
         )
         draft = self._registry.create_draft(
             contract,

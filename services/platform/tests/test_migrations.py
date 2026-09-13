@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from alos.persistence.migrations import discover_migrations
@@ -31,4 +32,33 @@ def test_hari_1_migrations_are_ordered_and_complete() -> None:
         "022_genesis_chat_and_governance_linkage.sql",
         "023_approved_action_execution.sql",
         "024_h5_final_readiness_controls.sql",
+        "025_genesis_agentic_runtime.sql",
+        "026_genesis_governed_foundations.sql",
+        "027_genesis_factory_persistence.sql",
+        "028_genesis_factory_governance_linkage.sql",
+        "029_scoped_semantic_memory.sql",
+        "030_governed_skill_persistence.sql",
+        "031_persistent_delegation_lineage.sql",
+        "032_generic_research_persistence.sql",
+        "033_agent_eval_evidence.sql",
+        "034_generated_agent_schedules.sql",
+        "035_release_tenant_scope.sql",
+        "036_agent_run_cancellation.sql",
     ]
+
+
+def test_no_migration_redefines_an_existing_table() -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    migrations = discover_migrations(repository_root / "infra" / "database")
+    table_counts: dict[str, int] = {}
+    for migration in migrations:
+        sql = migration.path.read_text(encoding="utf-8")
+        pattern = (
+            r"CREATE TABLE\s+"
+            r"([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*|"
+            r"IF NOT EXISTS\s+[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)"
+        )
+        for match in re.findall(pattern, sql, re.IGNORECASE):
+            table = match.split()[-1].lower()
+            table_counts[table] = table_counts.get(table, 0) + 1
+    assert not {table for table, count in table_counts.items() if count > 1}

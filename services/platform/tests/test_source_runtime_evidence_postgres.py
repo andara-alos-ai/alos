@@ -38,9 +38,9 @@ def _settings(database_url: str) -> Settings:
         environment="test",
         database_url=database_url,
         auth_signing_secret="a" * 32,
-        llm_provider="gemini",
+        llm_provider="openai",
         llm_api_key="test-only-key",
-        llm_model="gemini-3.7-flash",
+        llm_model="gpt-5.6-luna",
         llm_max_output_tokens=256,
         llm_daily_request_limit=10,
         llm_daily_output_token_limit=3_000,
@@ -71,7 +71,7 @@ def _contract(workspace_id: object, owner_user_id: object) -> AgentContract:
                 "citations": {"type": "array"},
             },
         },
-        model_policy={"provider": "gemini", "max_output_tokens": 256},
+        model_policy={"max_output_tokens": 256},
         tool_keys=["SOURCE_REGISTRY_SEARCH"],
         permission_keys=["SOURCE_READ_INTERNAL"],
         evidence_requirements=["verified source citation"],
@@ -87,8 +87,8 @@ def _contract(workspace_id: object, owner_user_id: object) -> AgentContract:
 
 def _response(citation_key: str) -> ModelResponse:
     return ModelResponse(
-        provider="gemini",
-        model="gemini-3.7-flash",
+        provider="openai",
+        model="gpt-5.6-luna",
         output_text=(
             '{"assessment":"SUPPORTED by the verified synthetic report",'
             f'"citations":["{citation_key}"]}}'

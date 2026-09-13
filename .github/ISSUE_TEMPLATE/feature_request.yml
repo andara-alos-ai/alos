@@ -1,0 +1,25 @@
+name: Feature request
+description: Usulkan capability atau perbaikan produk tanpa menentukan solusi prematur.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Masalah atau kebutuhan
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome yang diharapkan
+    validations:
+      required: true
+  - type: textarea
+    id: users
+    attributes:
+      label: User dan scope
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraint, risiko, dan evidence

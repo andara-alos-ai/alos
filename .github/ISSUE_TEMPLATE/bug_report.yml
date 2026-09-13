@@ -1,0 +1,32 @@
+name: Bug report
+description: Laporkan behavior ALOS yang salah atau regresi terverifikasi.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Ringkasan
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Langkah reproduksi
+      description: Jangan sertakan secret atau data sensitif.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Hasil yang diharapkan
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence aman
+  - type: textarea
+    id: scope
+    attributes:
+      label: Versi dan environment

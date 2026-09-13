@@ -1,4 +1,4 @@
-import { AgentValidationConsole } from "@/components/h5-pilot-console";
+import { AgentValidationConsole } from "@/components/agent-validation-console";
 
 export default function AgentValidationPage() {
   return <AgentValidationConsole />;

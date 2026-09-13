@@ -23,9 +23,14 @@ const divisionLabels: Record<string, string> = {
 };
 
 const roleLabels: Record<string, string> = {
+  AI_ADMIN: "AI Administrator",
   BUSINESS_REVIEWER: "Business Reviewer",
   DIRECTOR: "Direktur Utama",
+  DIVISION_LEAD: "Lead Divisi",
+  DIVISION_MEMBER: "Anggota Divisi",
   DIVISION_OWNER: "Lead Divisi",
+  GOVERNANCE_APPROVER: "Governance Approver",
+  IT_ADMIN: "IT Administrator",
   IT_LEAD: "IT Lead",
   QA_SECURITY: "Wakil IT",
   TECHNICAL_REVIEWER: "Wakil IT",
@@ -90,7 +95,16 @@ export function getDashboardProfile(roles: readonly string[], divisionCodes: rea
 }
 
 export function canOpenGovernance(roles: readonly string[]): boolean {
-  return roles.some((role) => ["DIRECTOR", "IT_LEAD", "QA_SECURITY", "TECHNICAL_REVIEWER", "BUSINESS_REVIEWER"].includes(role));
+  return roles.some((role) => [
+    "DIRECTOR",
+    "IT_LEAD",
+    "QA_SECURITY",
+    "TECHNICAL_REVIEWER",
+    "BUSINESS_REVIEWER",
+    "IT_ADMIN",
+    "AI_ADMIN",
+    "GOVERNANCE_APPROVER",
+  ].includes(role));
 }
 
 export function formatDivisionLabel(divisionCodes: readonly string[]): string | null {

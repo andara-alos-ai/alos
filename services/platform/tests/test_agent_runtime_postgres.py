@@ -42,6 +42,7 @@ def _settings(
     return Settings(
         _env_file=None,
         environment=environment,
+        allow_staging_filesystem_object_storage=environment == "staging",
         database_url=database_url,
         auth_signing_secret="a" * 32,
         llm_provider="openai",
@@ -79,7 +80,7 @@ def _contract(workspace_id: object, owner_user_id: object) -> AgentContract:
                 "citations": {"type": "array"},
             },
         },
-        model_policy={"provider": "openai", "max_output_tokens": 300},
+        model_policy={"max_output_tokens": 300},
         tool_keys=["FIXTURE_SOURCE_READ"],
         permission_keys=[],
         evidence_requirements=["fixture reference"],

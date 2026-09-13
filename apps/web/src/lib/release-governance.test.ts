@@ -13,7 +13,7 @@ import {
   releaseProgress,
 } from "./release-governance";
 
-describe("H4 Release Governance helpers", () => {
+describe("Release Governance helpers", () => {
   it("creates a prompt-only Designer payload without a model or credential", () => {
     expect(designerPayload({
       workspaceId: "workspace-1",

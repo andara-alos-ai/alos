@@ -4,11 +4,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from alos.config import Settings
-from alos.genesis.semantic_analysis import (
+from alos.ara.assistance.semantic_analysis import (
     GenesisSemanticAnalysisError,
     GenesisSemanticAnalyzer,
 )
+from alos.config import Settings
 from alos.model_gateway import FakeModelGateway, ModelGateway, ModelResponse, ModelUsage
 
 

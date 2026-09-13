@@ -523,7 +523,7 @@ class IdentityAuthenticationRepository:
         workspace_key: str,
         settings: Settings,
     ) -> BootstrapResult:
-        """Create one staging-only H4 duty account with an interactive VPS password."""
+        """Create one staging-only release duty account with an interactive VPS password."""
         if settings.environment != "staging":
             raise BootstrapError("release participant bootstrap is restricted to staging")
         if role not in _STAGING_RELEASE_PARTICIPANT_ROLES:
@@ -576,7 +576,7 @@ class IdentityAuthenticationRepository:
                 if existing_roles and existing_roles != {role}:
                     raise BootstrapError(
                         "email already has another active role; "
-                        "use a separate account for each H4 duty"
+                        "use a separate account for each release duty"
                     )
             user = connection.execute(
                 """
@@ -630,7 +630,9 @@ class IdentityAuthenticationRepository:
                 entity_type="USER",
                 entity_id=user_id,
                 correlation_id=uuid4(),
-                reason="Staging H4 duty password was set through the interactive VPS bootstrap",
+                reason=(
+                    "Staging release duty password was set through the interactive VPS bootstrap"
+                ),
                 metadata={
                     "role": role.value,
                     "workspace_id": str(workspace["workspace_id"]),

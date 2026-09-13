@@ -32,7 +32,17 @@
     "owner_user_id": {"type": "string", "format": "uuid"},
     "input_schema": {"type": "object"},
     "output_schema": {"type": "object"},
-    "model_policy": {"type": "object"},
+    "model_policy": {
+      "type": "object",
+      "properties": {
+        "model_route": {"enum": ["light", "standard", "critical"]},
+        "execution_engine": {"type": "string"},
+        "data_classification": {
+          "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"]
+        },
+        "max_output_tokens": {"type": "integer", "minimum": 1}
+      }
+    },
     "tool_keys": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "permission_keys": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "evidence_requirements": {"type": "array", "items": {"type": "string"}},
@@ -40,6 +50,16 @@
     "kpis": {"type": "array", "items": {"type": "object"}},
     "approval_required": {"type": "boolean"},
     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
-    "prompt_template": {"type": "string", "minLength": 1, "maxLength": 20000}
+    "prompt_template": {"type": "string", "minLength": 1, "maxLength": 20000},
+    "capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "human_gate_policy": {"type": "object"},
+    "evidence_policy": {"type": "object"},
+    "source_policy": {"type": "object"},
+    "memory_policy": {"type": "object"},
+    "skill_policy": {"type": "object"},
+    "schedule_policy": {"type": "object"},
+    "limits": {"type": "object"},
+    "test_policy": {"type": "object"},
+    "rollback_policy": {"type": "object"}
   }
 }

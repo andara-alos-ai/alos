@@ -15,7 +15,9 @@ class DurableScheduler:
 
     def tick(self) -> int:
         try:
-            return len(self._queue.schedule_due_reports(self._scheduler_id))
+            reports = self._queue.schedule_due_reports(self._scheduler_id)
+            agents = self._queue.schedule_due_agents(self._scheduler_id)
+            return len(reports) + len(agents)
         finally:
             # A scheduler with no schedules due is still healthy and should be visible.
             self._queue.heartbeat("SCHEDULER", self._scheduler_id)

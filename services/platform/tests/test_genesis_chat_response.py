@@ -3,14 +3,14 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
-from alos.genesis.chat import (
+from alos.ara.assistance.router import AgentCandidate
+from alos.ara.conversations.service import (
     ExternalResearchResult,
     GenesisChatService,
     _deterministic_response,
     _intent_for_prompt,
     _parse_model_response,
 )
-from alos.genesis.router import AgentCandidate
 from alos.identity import HumanRole
 from alos.model_gateway import ModelResponse, ModelUsage
 from alos.security.tokens import ActorContext
@@ -156,6 +156,6 @@ def test_model_input_serializes_uuid_values_returned_by_governed_tools() -> None
 
 
 def _external_not_requested():
-    from alos.genesis.chat import ExternalResearchResult
+    from alos.ara.conversations.service import ExternalResearchResult
 
     return ExternalResearchResult(status="NOT_REQUESTED")

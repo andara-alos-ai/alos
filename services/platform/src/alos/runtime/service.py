@@ -1,144 +1,86 @@
-"""H3 shared Agent Runtime with deterministic budgets and tool guardrails."""
+"""Shared Agent Runtime with deterministic budgets and tool guardrails."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
-from math import ceil
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field
 
 from alos.agents.registry import AgentContract
+from alos.authorization import require_tenant, require_workspace
 from alos.config import Settings
 from alos.model_gateway import (
+    DataClassification,
+    GatewayProvider,
     ModelGateway,
     ModelGatewayBudgetError,
     ModelGatewayError,
     ModelResponse,
+    ModelUsage,
 )
 from alos.persistence.database import psycopg_url
+from alos.runtime.agentic import (
+    AgenticExecutionRequest,
+    AgenticToolDefinition,
+    ALOSModelAdapter,
+    ALOSToolAdapter,
+    ExecutionContext,
+    ExecutionMode,
+    ExecutionStatus,
+    PydanticAgenticEngine,
+)
+from alos.runtime.context.builder import (
+    conservative_input_token_bound as _conservative_input_token_bound,
+)
+from alos.runtime.context.builder import estimated_context_tokens as _estimated_context_tokens
+from alos.runtime.context.builder import model_input_text as _model_input_text
+from alos.runtime.errors import (
+    AgentRuntimeBlocked,
+    AgentRuntimeError,
+    InputSchemaError,
+    OutputSchemaError,
+)
+from alos.runtime.models import (
+    AgentRunRequest,
+    AgentRunResult,
+    AgentRunSummary,
+    RunStatus,
+    ToolDecision,
+    WorkspaceBudget,
+    WorkspaceBudgetRequest,
+    WorkspaceUsageSummary,
+)
+from alos.runtime.policy import (
+    _contract_classification,
+    _digest,
+    _model_instructions,
+    _parse_and_validate_output,
+    _read_only_fixture,
+    _resolve_agentic_limits,
+    _resolve_model_policy,
+    _source_query,
+    _uses_agentic_engine,
+    _validate_json_schema,
+    _validate_output_citations,
+)
 from alos.security.tokens import ActorContext
 from alos.sources.registry import SourceRegistryRepository
-from alos.tools.executor import (
-    StructuredToolCall,
-    ToolExecutionDenied,
-    ToolExecutionError,
-    ToolExecutor,
-)
+from alos.tools.executor import ToolExecutionDenied, ToolExecutionError, ToolExecutor
 
-RunStatus = Literal["SUCCEEDED", "FAILED", "BLOCKED"]
-H3_FIXTURE_ENVIRONMENTS = frozenset({"local", "test", "staging"})
+VALIDATION_FIXTURE_ENVIRONMENTS = frozenset({"local", "test", "staging"})
 
 
-def h3_fixture_runtime_enabled(environment: str) -> bool:
-    """Allow bounded H3 fixture runs in staging, never production."""
-    return environment in H3_FIXTURE_ENVIRONMENTS
-
-
-class AgentRuntimeError(RuntimeError):
-    """A safe, deterministic runtime failure."""
-
-
-class AgentRuntimeBlocked(AgentRuntimeError):
-    """The runtime refused a run before contacting the provider."""
-
-
-class InputSchemaError(AgentRuntimeError):
-    """The supplied fixture does not match the Contract input schema."""
-
-
-class OutputSchemaError(AgentRuntimeError):
-    """The provider output does not match the Contract output schema."""
-
-
-class AgentRunRequest(BaseModel):
-    """A human-requested, bounded runtime invocation."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    workspace_id: UUID
-    input: dict[str, Any] = Field(default_factory=dict)
-    requested_tool_keys: list[str] = Field(default_factory=list)
-    tool_calls: list[StructuredToolCall] = Field(default_factory=list, max_length=20)
-    testing: bool = False
-
-
-class WorkspaceBudgetRequest(BaseModel):
-    """Human-controlled daily policy; it is never selected by an LLM."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    daily_request_limit: int = Field(ge=1, le=100_000)
-    daily_output_token_limit: int = Field(ge=1_000, le=10_000_000)
-    daily_cost_cap_usd: Decimal = Field(ge=0, le=1_000_000)
-
-
-class WorkspaceBudget(BaseModel):
-    workspace_id: UUID
-    daily_request_limit: int
-    daily_output_token_limit: int
-    daily_cost_cap_usd: Decimal
-
-
-class ToolDecision(BaseModel):
-    tool_key: str
-    decision: Literal["ALLOWED", "BLOCKED"]
-    reason: str
-
-
-class AgentRunResult(BaseModel):
-    agent_run_id: UUID
-    agent_key: str
-    semantic_version: str
-    status: RunStatus
-    correlation_id: UUID
-    output: dict[str, Any] | None = None
-    provider: str | None = None
-    model: str | None = None
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    latency_milliseconds: int | None = None
-    estimated_cost_usd: Decimal | None = None
-    tool_decisions: list[ToolDecision] = Field(default_factory=list)
-    error_code: str | None = None
-
-
-class AgentRunSummary(BaseModel):
-    """Safe run metadata for operations views; it never exposes inputs or output bodies."""
-
-    agent_run_id: UUID
-    agent_key: str
-    semantic_version: str
-    status: RunStatus
-    correlation_id: UUID
-    created_at: datetime
-    completed_at: datetime | None
-    provider: str | None
-    model: str | None
-    input_tokens: int | None
-    output_tokens: int | None
-    latency_milliseconds: int | None
-    estimated_cost_usd: Decimal | None
-    error_code: str | None = None
-    block_reason: str | None = None
-
-
-class WorkspaceUsageSummary(BaseModel):
-    workspace_id: UUID
-    request_count: int
-    input_tokens: int
-    output_tokens: int
-    estimated_cost_usd: Decimal
+def validation_fixture_runtime_enabled(environment: str) -> bool:
+    """Allow bounded validation fixture runs in staging, never production."""
+    return environment in VALIDATION_FIXTURE_ENVIRONMENTS
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +104,11 @@ class _PreparedRun:
     input_hash: str
     tool_decisions: tuple[ToolDecision, ...]
     fixture_context: tuple[dict[str, Any], ...]
+    division_id: UUID | None = None
+    project_id: UUID | None = None
+    tenant_id: UUID | None = None
+    execution_mode: Literal["TEST", "LIVE"] = "TEST"
+    classification: DataClassification = "INTERNAL"
 
 
 class AgentRuntime:
@@ -194,6 +141,14 @@ class AgentRuntime:
         target_agent_version_id: UUID | None = None,
     ) -> AgentRunResult:
         correlation_id = correlation_id or uuid4()
+        if actor is not None and (
+            actor.organization_id != organization_id or actor.user_id != actor_user_id
+        ):
+            raise AgentRuntimeBlocked("authenticated actor does not match execution authority")
+        if request.tenant_id is not None and (
+            actor is None or request.tenant_id not in actor.tenant_ids
+        ):
+            raise AgentRuntimeBlocked("tenant is outside the authenticated execution scope")
         prepared = self._repository.prepare_run(
             agent_key,
             request,
@@ -211,6 +166,9 @@ class AgentRuntime:
         response: ModelResponse | None = None
         runtime_context = list(prepared.fixture_context)
         try:
+            cancelled = self._cancel_if_requested(prepared)
+            if cancelled is not None:
+                return cancelled
             self._record_step(
                 prepared,
                 "PLAN",
@@ -225,6 +183,9 @@ class AgentRuntime:
             if request.tool_calls and self._tool_executor is None:
                 self._tool_executor = ToolExecutor(self._repository.database_url)
             for call in request.tool_calls:
+                cancelled = self._cancel_if_requested(prepared)
+                if cancelled is not None:
+                    return cancelled
                 if actor is None:  # Narrowed for static analysis after the guard above.
                     raise AgentRuntimeBlocked(
                         "typed tool execution requires an authenticated actor"
@@ -259,6 +220,17 @@ class AgentRuntime:
                         "elapsed_milliseconds": tool_result.elapsed_milliseconds,
                     },
                 )
+                cancelled = self._cancel_if_requested(prepared)
+                if cancelled is not None:
+                    return cancelled
+            cancelled = self._cancel_if_requested(prepared)
+            if cancelled is not None:
+                return cancelled
+            if _uses_agentic_engine(prepared.execution.contract):
+                return self._execute_agentic(prepared, request, runtime_context, actor)
+            cancelled = self._cancel_if_requested(prepared)
+            if cancelled is not None:
+                return cancelled
             self._record_step(prepared, "MODEL", {"model_step": 1})
             model_request = self._model_request(
                 prepared.execution.contract, request, tuple(runtime_context)
@@ -323,8 +295,156 @@ class AgentRuntime:
             output_tokens=response.usage.output_tokens,
             latency_milliseconds=response.latency_milliseconds,
             estimated_cost_usd=response.estimated_cost_usd,
+            total_tokens=response.usage.input_tokens + response.usage.output_tokens,
             tool_decisions=list(prepared.tool_decisions),
         )
+
+    def _execute_agentic(
+        self,
+        prepared: _PreparedRun,
+        request: AgentRunRequest,
+        runtime_context: list[dict[str, Any]],
+        actor: ActorContext | None,
+    ) -> AgentRunResult:
+        if actor is None:
+            self._repository.complete_blocked(
+                prepared,
+                reason="agentic execution requires an authenticated actor context",
+                tool_key="ACTOR_CONTEXT",
+            )
+            return _blocked_result(
+                prepared,
+                error_code="ACTOR_CONTEXT_REQUIRED",
+                tool_key="ACTOR_CONTEXT",
+                reason="agentic execution requires an authenticated actor context",
+            )
+        model, output_limit = _resolve_model_policy(
+            prepared.execution.contract, self._settings, self._max_output_tokens
+        )
+        limits = _resolve_agentic_limits(
+            prepared.execution.contract,
+            self._settings,
+            output_limit=output_limit,
+        )
+        tool_definitions = self._agentic_tool_definitions(prepared.execution)
+        tool_adapter = None
+        if tool_definitions:
+            if self._tool_executor is None:
+                self._tool_executor = ToolExecutor(self._repository.database_url)
+            tool_adapter = ALOSToolAdapter(self._tool_executor, actor)
+        model_adapter = ALOSModelAdapter(
+            self._gateway,
+            model_name=model,
+            classification=prepared.classification,
+            correlation_id=prepared.correlation_id,
+            max_output_tokens=output_limit,
+        )
+        engine = PydanticAgenticEngine(model_adapter, tool_adapter)
+        cancellation_check = getattr(self._repository, "is_cancel_requested", None)
+        result = engine.execute(
+            AgenticExecutionRequest(
+                context=ExecutionContext(
+                    organization_id=prepared.organization_id,
+                    workspace_id=prepared.workspace_id,
+                    division_id=prepared.division_id,
+                    project_id=prepared.project_id,
+                    tenant_id=prepared.tenant_id,
+                    actor_user_id=prepared.actor_user_id,
+                    actor_role=actor.roles[0].value,
+                    agent_id=prepared.execution.agent_contract_id,
+                    agent_version_id=prepared.execution.agent_version_id,
+                    run_id=prepared.agent_run_id,
+                    correlation_id=prepared.correlation_id,
+                    execution_mode=ExecutionMode(prepared.execution_mode),
+                    classification=prepared.classification,
+                ),
+                instructions=_model_instructions(prepared.execution.contract),
+                input_text=_model_input_text(request, runtime_context),
+                output_schema=prepared.execution.contract.output_schema,
+                tools=tuple(tool_definitions),
+                limits=limits,
+            ),
+            cancellation_check=cancellation_check if callable(cancellation_check) else None,
+        )
+        for step in result.steps:
+            self._record_step(
+                prepared,
+                f"AGENTIC_{step.step_type.value}",
+                step.model_dump(mode="json", exclude_none=True),
+            )
+        if result.status != ExecutionStatus.SUCCEEDED:
+            reason = result.reason or "agentic execution stopped safely"
+            cancel_requested = (
+                callable(cancellation_check)
+                and bool(cancellation_check(prepared.agent_run_id))
+            )
+            if result.status == ExecutionStatus.CANCELLED or cancel_requested:
+                finisher = getattr(self._repository, "complete_cancelled", None)
+                if callable(finisher):
+                    finisher(prepared)
+                return _cancelled_result(prepared, reason)
+            if result.status == ExecutionStatus.BLOCKED:
+                self._repository.complete_blocked(
+                    prepared,
+                    reason=reason,
+                    tool_key=result.error_code or "AGENTIC_POLICY",
+                )
+                return _blocked_result(
+                    prepared,
+                    error_code=result.error_code or "AGENTIC_POLICY_BLOCKED",
+                    tool_key=result.error_code or "AGENTIC_POLICY",
+                    reason=reason,
+                )
+            self._repository.complete_failure(prepared, result.error_code or reason)
+            return _failure_result(prepared, result.error_code or "AGENTIC_EXECUTION_FAILED")
+
+        output = result.output or {}
+        _validate_output_citations(output, tuple(runtime_context))
+        final_step = result.steps[-1]
+        response = ModelResponse(
+            provider=cast(GatewayProvider, final_step.provider or "fake"),
+            model=final_step.model or model,
+            output_text=json.dumps(output, ensure_ascii=False),
+            usage=ModelUsage(
+                input_tokens=result.usage.total_input_tokens,
+                output_tokens=result.usage.total_output_tokens,
+            ),
+            latency_milliseconds=result.usage.total_latency_milliseconds,
+            estimated_cost_usd=result.usage.total_cost,
+        )
+        self._repository.complete_success(
+            prepared,
+            response,
+            output,
+            model_calls=result.usage.total_model_calls,
+            tool_calls=result.usage.total_tool_calls,
+        )
+        return AgentRunResult(
+            agent_run_id=prepared.agent_run_id,
+            agent_key=prepared.execution.agent_key,
+            semantic_version=prepared.execution.semantic_version,
+            status="SUCCEEDED",
+            correlation_id=prepared.correlation_id,
+            output=output,
+            provider=response.provider,
+            model=response.model,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            latency_milliseconds=response.latency_milliseconds,
+            estimated_cost_usd=response.estimated_cost_usd,
+            total_model_calls=result.usage.total_model_calls,
+            total_tool_calls=result.usage.total_tool_calls,
+            total_tokens=result.usage.total_tokens,
+            tool_decisions=list(prepared.tool_decisions),
+        )
+
+    def _agentic_tool_definitions(
+        self, execution: _ExecutionVersion
+    ) -> list[AgenticToolDefinition]:
+        loader = getattr(self._repository, "load_agentic_tools", None)
+        if not callable(loader):
+            return []
+        return cast(list[AgenticToolDefinition], loader(execution))
 
     @property
     def _max_output_tokens(self) -> int:
@@ -352,6 +472,15 @@ class AgentRuntime:
     def _close(self) -> None:
         if self._close_gateway is not None:
             self._close_gateway()
+
+    def _cancel_if_requested(self, prepared: _PreparedRun) -> AgentRunResult | None:
+        checker = getattr(self._repository, "is_cancel_requested", None)
+        if not callable(checker) or not checker(prepared.agent_run_id):
+            return None
+        finisher = getattr(self._repository, "complete_cancelled", None)
+        if callable(finisher):
+            finisher(prepared)
+        return _cancelled_result(prepared)
 
     def _record_step(
         self, prepared: _PreparedRun, step_type: str, content: dict[str, Any]
@@ -396,8 +525,24 @@ class AgentRuntimeRepository:
                 allow_draft=allow_draft,
                 target_agent_version_id=target_agent_version_id,
             )
-            execution_mode = "TEST" if request.testing else execution.lifecycle_status
+            scope_error = self._validate_execution_scope(
+                connection, organization_id, request, execution
+            )
+            execution_mode: Literal["TEST", "LIVE"] = "TEST" if request.testing else "LIVE"
             input_hash = _digest(request.input)
+            if scope_error is not None:
+                return self._block_run(
+                    connection,
+                    execution,
+                    organization_id,
+                    request.workspace_id,
+                    actor_user_id,
+                    correlation_id,
+                    input_hash,
+                    execution_mode=execution_mode,
+                    tool_key="EXECUTION_SCOPE",
+                    reason=scope_error,
+                )
             permission_error = self._evaluate_permissions(connection, execution)
             if permission_error is not None:
                 return self._block_run(
@@ -478,6 +623,11 @@ class AgentRuntimeRepository:
                 input_tokens=_conservative_input_token_bound(
                     _model_instructions(execution.contract),
                     model_input,
+                )
+                * (
+                    self._settings.agentic_max_model_steps
+                    if _uses_agentic_engine(execution.contract)
+                    else 1
                 ),
                 output_tokens=output_limit,
             )
@@ -493,6 +643,7 @@ class AgentRuntimeRepository:
                     output_limit,
                     reserved_cost_usd,
                     execution_mode,
+                    request,
                 )
             except AgentRuntimeBlocked as error:
                 return self._block_run(
@@ -540,7 +691,43 @@ class AgentRuntimeRepository:
                 input_hash=input_hash,
                 tool_decisions=tuple(decisions),
                 fixture_context=tuple(fixture_context),
+                division_id=request.division_id,
+                project_id=request.project_id,
+                tenant_id=request.tenant_id,
+                execution_mode=execution_mode,
+                classification=_contract_classification(execution.contract),
             )
+
+    def load_agentic_tools(
+        self, execution: _ExecutionVersion
+    ) -> list[AgenticToolDefinition]:
+        dotted_keys = [key for key in execution.contract.tool_keys if "." in key]
+        if not dotted_keys:
+            return []
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT tool_key, description, input_schema
+                FROM capabilities.tools
+                WHERE tool_key = ANY(%s) AND lifecycle_status = 'APPROVED'
+                ORDER BY tool_key
+                """,
+                (dotted_keys,),
+            ).fetchall()
+        found = {row["tool_key"] for row in rows}
+        missing = sorted(set(dotted_keys) - found)
+        if missing:
+            raise AgentRuntimeBlocked(
+                "agentic tool is not approved or registered: " + ", ".join(missing)
+            )
+        return [
+            AgenticToolDefinition(
+                tool_key=row["tool_key"],
+                description=row["description"],
+                input_schema=row["input_schema"],
+            )
+            for row in rows
+        ]
 
     def get_budget_limit(
         self,
@@ -736,10 +923,22 @@ class AgentRuntimeRepository:
         return WorkspaceUsageSummary(workspace_id=workspace_id, **dict(row))
 
     def complete_success(
-        self, prepared: _PreparedRun, response: ModelResponse, output: dict[str, Any]
+        self,
+        prepared: _PreparedRun,
+        response: ModelResponse,
+        output: dict[str, Any],
+        *,
+        model_calls: int = 1,
+        tool_calls: int = 0,
     ) -> None:
         with self._transaction() as connection:
-            self._complete_usage(connection, prepared.agent_run_id, response)
+            self._complete_usage(
+                connection,
+                prepared.agent_run_id,
+                response,
+                model_calls=model_calls,
+                tool_calls=tool_calls,
+            )
             connection.execute(
                 """
                 UPDATE runtime.agent_runs
@@ -865,6 +1064,169 @@ class AgentRuntimeRepository:
                 metadata={"agent_key": prepared.execution.agent_key, "tool_key": tool_key},
             )
 
+    def is_cancel_requested(self, agent_run_id: UUID) -> bool:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM runtime.agent_runs
+                WHERE agent_run_id = %s
+                  AND status IN ('RUNNING', 'CANCEL_REQUESTED')
+                  AND cancel_requested_at IS NOT NULL
+                """,
+                (agent_run_id,),
+            ).fetchone()
+        return row is not None
+
+    def complete_cancelled(self, prepared: _PreparedRun, reason: str = "run was cancelled") -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "DELETE FROM runtime.budget_reservations WHERE agent_run_id = %s",
+                (prepared.agent_run_id,),
+            )
+            row = connection.execute(
+                """
+                UPDATE runtime.agent_runs
+                SET status = 'CANCELLED', cancelled_at = coalesce(cancelled_at, now()),
+                    completed_at = now(), output_reference = %s
+                WHERE agent_run_id = %s
+                  AND status IN ('RUNNING', 'CANCEL_REQUESTED')
+                RETURNING agent_run_id
+                """,
+                (Jsonb({"reason": reason}), prepared.agent_run_id),
+            ).fetchone()
+            if row is None:
+                raise AgentRuntimeError("cancelled Agent Run could not be finalized")
+            connection.execute(
+                """
+                INSERT INTO runtime.run_steps (agent_run_id, step_sequence, step_type, content)
+                SELECT %s, coalesce(max(step_sequence), 0) + 1, 'CANCELLED', %s
+                FROM runtime.run_steps WHERE agent_run_id = %s
+                """,
+                (prepared.agent_run_id, Jsonb({"reason": reason}), prepared.agent_run_id),
+            )
+            self._append_audit(
+                connection,
+                organization_id=prepared.organization_id,
+                actor_user_id=prepared.actor_user_id,
+                action="AGENT_RUN_CANCELLED",
+                entity_type="AGENT_RUN",
+                entity_id=prepared.agent_run_id,
+                correlation_id=prepared.correlation_id,
+                reason=reason,
+                metadata={"agent_key": prepared.execution.agent_key},
+            )
+
+    def cancel_run(
+        self,
+        agent_run_id: UUID,
+        actor: ActorContext,
+        *,
+        correlation_id: UUID,
+    ) -> AgentRunSummary:
+        with self._transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT run.workspace_id, run.tenant_id, run.status
+                FROM runtime.agent_runs AS run
+                WHERE run.agent_run_id = %s AND run.organization_id = %s
+                """,
+                (agent_run_id, actor.organization_id),
+            ).fetchone()
+            if row is None or row["workspace_id"] is None:
+                raise AgentRuntimeBlocked("Agent Run was not found")
+            require_workspace(actor, row["workspace_id"])
+            require_tenant(actor, row["tenant_id"])
+            if row["status"] not in {"QUEUED", "RUNNING", "CANCEL_REQUESTED"}:
+                raise AgentRuntimeBlocked("only an active Agent Run can be cancelled")
+            updated = connection.execute(
+                """
+                UPDATE runtime.agent_runs
+                SET cancel_requested_at = coalesce(cancel_requested_at, now()),
+                    status = CASE
+                        WHEN status = 'QUEUED' THEN 'CANCELLED'
+                        WHEN status = 'CANCELLED' THEN status
+                        ELSE 'CANCEL_REQUESTED'
+                    END,
+                    cancelled_at = CASE
+                        WHEN status = 'QUEUED' THEN now()
+                        ELSE cancelled_at
+                    END,
+                    completed_at = CASE
+                        WHEN status = 'QUEUED' THEN now()
+                        ELSE completed_at
+                    END
+                WHERE agent_run_id = %s
+                RETURNING agent_run_id
+                """,
+                (agent_run_id,),
+            ).fetchone()
+            if updated is None:
+                raise AgentRuntimeError("Agent Run cancellation could not be persisted")
+            self._append_audit(
+                connection,
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+                action="AGENT_RUN_CANCEL_REQUESTED",
+                entity_type="AGENT_RUN",
+                entity_id=agent_run_id,
+                correlation_id=correlation_id,
+                reason="Human requested cancellation of an active Agent Run",
+                metadata={"agent_run_id": str(agent_run_id)},
+            )
+            return self._run_summary(connection, agent_run_id)
+
+    @staticmethod
+    def _run_summary(
+        connection: psycopg.Connection[Any], agent_run_id: UUID
+    ) -> AgentRunSummary:
+        row = connection.execute(
+            """
+            SELECT run.agent_run_id, contract.agent_key, version.semantic_version,
+                   run.status, run.correlation_id, run.created_at, run.completed_at,
+                   ledger.provider, ledger.model, ledger.input_tokens,
+                   ledger.output_tokens, ledger.latency_ms, ledger.estimated_cost_usd,
+                   CASE
+                       WHEN run.status = 'BLOCKED' THEN 'TOOL_OR_INPUT_BLOCKED'
+                       WHEN run.status = 'FAILED' THEN 'RUNTIME_FAILED'
+                       WHEN run.status = 'CANCELLED' THEN 'RUN_CANCELLED'
+                       ELSE NULL
+                   END AS error_code,
+                   CASE
+                       WHEN run.status IN ('BLOCKED', 'FAILED', 'CANCELLED')
+                       THEN nullif(run.output_reference ->> 'reason', '')
+                       ELSE NULL
+                   END AS block_reason
+            FROM runtime.agent_runs AS run
+            JOIN agents.versions AS version
+              ON version.agent_version_id = run.agent_version_id
+            JOIN agents.contracts AS contract
+              ON contract.agent_contract_id = version.agent_contract_id
+            LEFT JOIN observability.usage_ledger AS ledger
+              ON ledger.agent_run_id = run.agent_run_id
+            WHERE run.agent_run_id = %s
+            """,
+            (agent_run_id,),
+        ).fetchone()
+        if row is None:
+            raise AgentRuntimeError("Agent Run was not found")
+        return AgentRunSummary(
+            agent_run_id=row["agent_run_id"],
+            agent_key=row["agent_key"],
+            semantic_version=row["semantic_version"],
+            status=cast(RunStatus, row["status"]),
+            correlation_id=row["correlation_id"],
+            created_at=row["created_at"],
+            completed_at=row["completed_at"],
+            provider=row["provider"],
+            model=row["model"],
+            input_tokens=row["input_tokens"],
+            output_tokens=row["output_tokens"],
+            latency_milliseconds=row["latency_ms"],
+            estimated_cost_usd=row["estimated_cost_usd"],
+            error_code=row["error_code"],
+            block_reason=row["block_reason"],
+        )
+
     def _load_execution(
         self,
         connection: psycopg.Connection[Any],
@@ -894,8 +1256,11 @@ class AgentRuntimeRepository:
                   AND (
                       (%s::uuid IS NOT NULL
                           AND agent_version_id = %s::uuid
-                          AND %s
-                          AND lifecycle_status = 'DRAFT'
+                          AND (
+                              (agent_version_id = registry.active_version_id
+                                  AND lifecycle_status = 'ACTIVE')
+                              OR (%s AND lifecycle_status = 'DRAFT')
+                          )
                       )
                       OR (%s::uuid IS NULL AND (
                           (
@@ -1052,7 +1417,8 @@ class AgentRuntimeRepository:
         input_hash: str,
         max_output_tokens: int,
         reserved_cost_usd: Decimal,
-        execution_mode: str,
+        execution_mode: Literal["TEST", "LIVE"],
+        request: AgentRunRequest,
     ) -> UUID:
         connection.execute(
             "SELECT pg_advisory_xact_lock(hashtext(%s))",
@@ -1159,8 +1525,9 @@ class AgentRuntimeRepository:
             """
             INSERT INTO runtime.agent_runs (
                 organization_id, workspace_id, agent_version_id, requested_by_user_id,
-                correlation_id, status, input_reference
-            ) VALUES (%s, %s, %s, %s, %s, 'RUNNING', %s)
+                correlation_id, status, input_reference, division_id, project_id,
+                tenant_id, execution_mode, classification
+            ) VALUES (%s, %s, %s, %s, %s, 'RUNNING', %s, %s, %s, %s, %s, %s)
             RETURNING agent_run_id
             """,
             (
@@ -1170,6 +1537,11 @@ class AgentRuntimeRepository:
                 actor_user_id,
                 correlation_id,
                 Jsonb({"sha256": input_hash, "execution_mode": execution_mode}),
+                request.division_id,
+                request.project_id,
+                request.tenant_id,
+                execution_mode,
+                _contract_classification(execution.contract),
             ),
         ).fetchone()
         if run is None:
@@ -1294,7 +1666,13 @@ class AgentRuntimeRepository:
         )
 
     def _complete_usage(
-        self, connection: psycopg.Connection[Any], agent_run_id: UUID, response: ModelResponse
+        self,
+        connection: psycopg.Connection[Any],
+        agent_run_id: UUID,
+        response: ModelResponse,
+        *,
+        model_calls: int = 1,
+        tool_calls: int = 0,
     ) -> None:
         connection.execute(
             "DELETE FROM runtime.budget_reservations WHERE agent_run_id = %s", (agent_run_id,)
@@ -1303,8 +1681,8 @@ class AgentRuntimeRepository:
             """
             INSERT INTO observability.usage_ledger (
                 agent_run_id, provider, model, input_tokens, output_tokens, latency_ms,
-                estimated_cost_usd
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                estimated_cost_usd, model_calls, tool_calls
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 agent_run_id,
@@ -1314,8 +1692,64 @@ class AgentRuntimeRepository:
                 response.usage.output_tokens,
                 response.latency_milliseconds,
                 response.estimated_cost_usd,
+                model_calls,
+                tool_calls,
             ),
         )
+
+    @staticmethod
+    def _validate_execution_scope(
+        connection: psycopg.Connection[Any],
+        organization_id: UUID,
+        request: AgentRunRequest,
+        execution: _ExecutionVersion,
+    ) -> str | None:
+        factory_scope = connection.execute(
+            """
+            SELECT tenant_id FROM genesis.factory_requests
+            WHERE organization_id = %s AND workspace_id = %s
+              AND agent_version_id = %s
+            """,
+            (organization_id, request.workspace_id, execution.agent_version_id),
+        ).fetchone()
+        if factory_scope is not None and factory_scope["tenant_id"] != request.tenant_id:
+            return "execution tenant does not match the Agent Factory scope"
+        if factory_scope is None and request.tenant_id is not None:
+            return "tenant execution requires authoritative Agent Factory scope"
+        if request.tenant_id is not None and (
+            execution.contract.tool_keys
+            or request.requested_tool_keys
+            or request.tool_calls
+        ):
+            return "tenant-scoped tool execution is unavailable for non-tenant-aware resources"
+        if request.division_id is not None:
+            division = connection.execute(
+                """
+                SELECT 1 FROM identity.divisions
+                WHERE division_id = %s AND organization_id = %s
+                """,
+                (request.division_id, organization_id),
+            ).fetchone()
+            if division is None:
+                return "division is outside the execution organization scope"
+        if request.project_id is not None:
+            project = connection.execute(
+                """
+                SELECT 1 FROM portfolio.projects
+                WHERE project_id = %s AND organization_id = %s AND workspace_id = %s
+                  AND (%s::uuid IS NULL OR division_id = %s::uuid)
+                """,
+                (
+                    request.project_id,
+                    organization_id,
+                    request.workspace_id,
+                    request.division_id,
+                    request.division_id,
+                ),
+            ).fetchone()
+            if project is None:
+                return "project is outside the execution workspace or division scope"
+        return None
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg.Connection[Any]]:
@@ -1388,166 +1822,6 @@ class AgentRuntimeRepository:
         )
 
 
-def _resolve_model_policy(
-    contract: AgentContract, settings: Settings, maximum_output_tokens: int
-) -> tuple[str, int]:
-    """Resolve the bounded, server-owned model selection used for reservation and execution."""
-    configured_provider = contract.model_policy.get("provider")
-    if configured_provider not in {None, settings.llm_provider}:
-        raise AgentRuntimeBlocked("contract model provider does not match Model Gateway policy")
-    configured_limit = contract.model_policy.get("max_output_tokens", maximum_output_tokens)
-    if isinstance(configured_limit, bool) or not isinstance(configured_limit, int):
-        raise AgentRuntimeBlocked("contract output token policy is invalid")
-    output_limit = min(configured_limit, maximum_output_tokens)
-    if output_limit < 1:
-        raise AgentRuntimeBlocked("contract output token policy is invalid")
-    model_route = contract.model_policy.get("model_route", "standard")
-    if model_route not in {"light", "standard", "critical"}:
-        raise AgentRuntimeBlocked("contract model route is invalid")
-    route = cast(Literal["light", "standard", "critical"], model_route)
-    return settings.model_for_route(route), output_limit
-
-
-def _model_instructions(contract: AgentContract) -> str:
-    return (
-        f"{contract.prompt_template}\n\n"
-        "Return JSON only. Do not take actions. "
-        "The JSON must conform to this output schema: "
-        f"{json.dumps(contract.output_schema, ensure_ascii=False)}"
-    )
-
-
-def _model_input_text(
-    request: AgentRunRequest, fixture_context: tuple[dict[str, Any], ...] | list[dict[str, Any]]
-) -> str:
-    return json.dumps(
-        {"input": request.input, "read_only_fixture_context": fixture_context},
-        ensure_ascii=False,
-    )
-
-
-def _conservative_input_token_bound(instructions: str, input_text: str) -> int:
-    """Upper-bound text tokens by UTF-8 bytes before a provider call.
-
-    This intentionally over-reserves budget; a token cannot represent an empty
-    byte sequence, so it cannot understate the user-controlled textual input.
-    """
-    return len((instructions + input_text).encode("utf-8"))
-
-
-def _estimated_context_tokens(instructions: str, input_text: str) -> int:
-    """Estimate context use before a provider call using a documented heuristic."""
-    return max(1, ceil(len((instructions + input_text).encode("utf-8")) / 4))
-
-
-def _parse_and_validate_output(value: str, schema: dict[str, Any]) -> dict[str, Any]:
-    try:
-        parsed = json.loads(_strip_code_fence(value))
-    except json.JSONDecodeError as error:
-        raise OutputSchemaError("model output was not valid JSON") from error
-    if not isinstance(parsed, dict):
-        raise OutputSchemaError("model output must be a JSON object")
-    try:
-        _validate_json_schema(parsed, schema, "output")
-    except InputSchemaError as error:
-        raise OutputSchemaError(str(error)) from error
-    return parsed
-
-
-def _validate_output_citations(
-    output: dict[str, Any], fixture_context: tuple[dict[str, Any], ...]
-) -> None:
-    """Prevent a model from claiming sources that the Runtime did not retrieve."""
-    permitted = {
-        citation["citation_key"]
-        for context in fixture_context
-        for citation in context.get("records", [])
-        if isinstance(citation, dict) and isinstance(citation.get("citation_key"), str)
-    }
-    if not permitted:
-        return
-    citations = output.get("citations")
-    if not isinstance(citations, list) or not citations:
-        raise OutputSchemaError("output must cite at least one retrieved source")
-    supplied: set[str] = set()
-    for citation in citations:
-        if isinstance(citation, str):
-            supplied.add(citation)
-        elif isinstance(citation, dict) and isinstance(citation.get("citation_key"), str):
-            supplied.add(citation["citation_key"])
-        else:
-            raise OutputSchemaError("each output citation must identify a citation_key")
-    unknown = supplied - permitted
-    if unknown:
-        raise OutputSchemaError("output cited a source not retrieved by the Runtime")
-
-
-def _validate_json_schema(value: Any, schema: dict[str, Any], path: str) -> None:
-    expected_type = schema.get("type")
-    if expected_type == "object":
-        if not isinstance(value, dict):
-            raise InputSchemaError(f"{path} must be an object")
-        required = schema.get("required", [])
-        if isinstance(required, list):
-            for key in required:
-                if isinstance(key, str) and key not in value:
-                    raise InputSchemaError(f"{path}.{key} is required")
-        properties = schema.get("properties", {})
-        if isinstance(properties, dict):
-            for key, property_schema in properties.items():
-                if key in value and isinstance(property_schema, dict):
-                    _validate_json_schema(value[key], property_schema, f"{path}.{key}")
-    elif expected_type == "array" and not isinstance(value, list):
-        raise InputSchemaError(f"{path} must be an array")
-    elif expected_type == "string" and not isinstance(value, str):
-        raise InputSchemaError(f"{path} must be a string")
-    elif expected_type == "integer" and (isinstance(value, bool) or not isinstance(value, int)):
-        raise InputSchemaError(f"{path} must be an integer")
-    elif expected_type == "number" and (
-        isinstance(value, bool) or not isinstance(value, (int, float))
-    ):
-        raise InputSchemaError(f"{path} must be a number")
-    elif expected_type == "boolean" and not isinstance(value, bool):
-        raise InputSchemaError(f"{path} must be a boolean")
-
-
-def _read_only_fixture(fixture_input: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "fixture": "H3_READ_ONLY_PROPERTY_SOURCE",
-        "query": fixture_input.get("query", ""),
-        "records": [
-            {
-                "reference": "FIXTURE-PROPERTY-001",
-                "summary": (
-                    "Synthetic read-only property opportunity fixture for runtime validation."
-                ),
-            }
-        ],
-    }
-
-
-def _source_query(fixture_input: dict[str, Any]) -> str:
-    """Use an explicit retrieval query without asking the model to choose a source."""
-    for key in ("query", "claim", "question", "division_code"):
-        value = fixture_input.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
-
-
-def _digest(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-
-
-def _strip_code_fence(value: str) -> str:
-    stripped = value.strip()
-    if stripped.startswith("```") and stripped.endswith("```"):
-        return stripped.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    return stripped
-
-
 def _failure_result(prepared: _PreparedRun, error_code: str) -> AgentRunResult:
     return AgentRunResult(
         agent_run_id=prepared.agent_run_id,
@@ -1557,6 +1831,19 @@ def _failure_result(prepared: _PreparedRun, error_code: str) -> AgentRunResult:
         correlation_id=prepared.correlation_id,
         tool_decisions=list(prepared.tool_decisions),
         error_code=error_code,
+    )
+
+
+def _cancelled_result(prepared: _PreparedRun, reason: str = "run was cancelled") -> AgentRunResult:
+    return AgentRunResult(
+        agent_run_id=prepared.agent_run_id,
+        agent_key=prepared.execution.agent_key,
+        semantic_version=prepared.execution.semantic_version,
+        status="CANCELLED",
+        correlation_id=prepared.correlation_id,
+        tool_decisions=list(prepared.tool_decisions),
+        error_code="RUN_CANCELLED",
+        output={"reason": reason},
     )
 
 

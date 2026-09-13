@@ -31,7 +31,7 @@ def _request(**changes: object) -> AgentBuilderRequest:
         "objective": "Prepare a concise read-only operational brief from registered sources.",
         "input_schema": {"type": "object"},
         "output_schema": {"type": "object"},
-        "model_policy": {"provider": "gemini", "mode": "local_test"},
+        "model_policy": {"provider": "openai", "mode": "local_test"},
         "tool_keys": [],
         "permission_keys": ["sources.read"],
         "approval_required": True,

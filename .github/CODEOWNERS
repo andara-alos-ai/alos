@@ -1,0 +1,132 @@
+# ============================================================
+# ALOS CODEOWNERS
+# PT Andara Rejo Makmur
+# ============================================================
+#
+# Current repository owner:
+# @reynaldptandararejomakmur
+#
+# Untuk fase ALOS Repository Architecture v1, repository-wide
+# review sementara dimiliki oleh Architecture / AI / Technical Lead.
+#
+# Setelah ownership tim stabil, area Frontend dan Backend/Platform
+# dapat ditambahkan dengan GitHub username/team yang terverifikasi.
+#
+# Jangan menggunakan placeholder @OWNER_* sebagai CODEOWNER aktif
+# karena GitHub hanya menerima user/team yang benar-benar tersedia.
+# ============================================================
+
+
+# ------------------------------------------------------------
+# DEFAULT OWNER
+# ------------------------------------------------------------
+
+* @reynaldptandararejomakmur
+
+
+# ------------------------------------------------------------
+# ARCHITECTURE / AI / GENESIS
+# ------------------------------------------------------------
+
+/services/platform/src/alos/genesis/         @reynaldptandararejomakmur
+/services/platform/src/alos/runtime/         @reynaldptandararejomakmur
+/services/platform/src/alos/model_gateway/   @reynaldptandararejomakmur
+/services/platform/src/alos/capabilities/    @reynaldptandararejomakmur
+/services/platform/src/alos/skills/          @reynaldptandararejomakmur
+/services/platform/src/alos/memory/          @reynaldptandararejomakmur
+/services/platform/src/alos/agents/          @reynaldptandararejomakmur
+/services/platform/src/alos/evals/           @reynaldptandararejomakmur
+
+/definitions/                                @reynaldptandararejomakmur
+
+/docs/architecture/                          @reynaldptandararejomakmur
+
+
+# ------------------------------------------------------------
+# SECURITY / GOVERNANCE / PERMISSIONS
+# ------------------------------------------------------------
+
+/services/platform/src/alos/security/        @reynaldptandararejomakmur
+/services/platform/src/alos/permissions/     @reynaldptandararejomakmur
+/services/platform/src/alos/tools/           @reynaldptandararejomakmur
+/services/platform/src/alos/release/         @reynaldptandararejomakmur
+/services/platform/src/alos/audit/           @reynaldptandararejomakmur
+
+/docs/governance/                            @reynaldptandararejomakmur
+/docs/security/                              @reynaldptandararejomakmur
+
+
+# ------------------------------------------------------------
+# BACKEND / PLATFORM
+# ------------------------------------------------------------
+
+/services/platform/src/alos/identity/        @reynaldptandararejomakmur
+/services/platform/src/alos/operational/     @reynaldptandararejomakmur
+/services/platform/src/alos/portfolio/       @reynaldptandararejomakmur
+/services/platform/src/alos/documents/       @reynaldptandararejomakmur
+/services/platform/src/alos/research/        @reynaldptandararejomakmur
+/services/platform/src/alos/jobs/            @reynaldptandararejomakmur
+/services/platform/src/alos/persistence/     @reynaldptandararejomakmur
+/services/platform/src/alos/entrypoints/     @reynaldptandararejomakmur
+
+/infra/                                      @reynaldptandararejomakmur
+/scripts/                                    @reynaldptandararejomakmur
+
+
+# ------------------------------------------------------------
+# FRONTEND / PRODUCT EXPERIENCE
+# ------------------------------------------------------------
+
+/apps/web/                                   @reynaldptandararejomakmur
+
+
+# ------------------------------------------------------------
+# DOCUMENTATION / REPOSITORY GOVERNANCE
+# ------------------------------------------------------------
+
+/docs/                                       @reynaldptandararejomakmur
+/.github/                                    @reynaldptandararejomakmur
+
+/README.md                                   @reynaldptandararejomakmur
+/SECURITY.md                                 @reynaldptandararejomakmur
+/CONTRIBUTING.md                             @reynaldptandararejomakmur
+/LICENSE                                     @reynaldptandararejomakmur
+/CHANGELOG.md                                @reynaldptandararejomakmur
+
+
+# ------------------------------------------------------------
+# DATABASE / MIGRATIONS
+# ------------------------------------------------------------
+#
+# Migration existing bersifat immutable.
+# Perubahan migration baru tetap memerlukan review owner repository.
+
+/infra/database/                             @reynaldptandararejomakmur
+
+
+# ============================================================
+# FUTURE TEAM OWNERSHIP
+# ============================================================
+#
+# Setelah username GitHub engineer terverifikasi, pembagian dapat
+# dikembangkan misalnya:
+#
+# /apps/web/ @USERNAME_FRONTEND @reynaldptandararejomakmur
+#
+# /services/platform/src/alos/persistence/ @USERNAME_BACKEND @reynaldptandararejomakmur
+# /services/platform/src/alos/jobs/        @USERNAME_BACKEND @reynaldptandararejomakmur
+# /infra/                                  @USERNAME_BACKEND @reynaldptandararejomakmur
+#
+# Area sensitif seperti:
+#
+# - GENESIS
+# - Runtime
+# - ModelGateway
+# - Security
+# - Permissions
+# - ToolExecutor
+# - Governance / Release
+#
+# tetap sebaiknya mempertahankan Architecture / AI owner sebagai
+# salah satu required reviewer.
+# ============================================================

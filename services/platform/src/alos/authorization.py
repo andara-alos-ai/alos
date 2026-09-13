@@ -44,6 +44,14 @@ def require_workspace(actor: ActorContext, workspace_id: UUID) -> None:
         deny("workspace is outside the authenticated scope")
 
 
+def require_tenant(actor: ActorContext, tenant_id: UUID | None) -> None:
+    """Use only tenant claims established by authentication; absent means un-tenanted data."""
+    if tenant_id is None:
+        return
+    if tenant_id not in actor.tenant_ids:
+        deny("tenant is outside the authenticated scope")
+
+
 def require_division(actor: ActorContext, division_code: DivisionCode | str | None) -> None:
     if division_code is None or effective_data_scope(actor) == DataScope.COMPANY:
         return

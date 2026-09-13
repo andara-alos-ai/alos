@@ -1,4 +1,3 @@
-from datetime import date
 from hashlib import sha256
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -10,52 +9,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from alos.agents.registry import (
     AgentBuilderRequest,
     AgentConflictError,
-    AgentDraftBuilder,
     AgentNotFoundError,
     AgentRegistryError,
     AgentRegistryRecord,
-    AgentRegistryRepository,
-    DeterministicAgentDraftGenerator,
     LocalBootstrapRequest,
 )
 from alos.agents.validation_catalog import validation_agent_requests
-from alos.audit.reader import AuditEventRecord, AuditReader
-from alos.authorization import can_govern_agents
-from alos.config import get_settings
-from alos.documents.center import (
-    ChecklistCompletionRequest,
-    DocumentCenterError,
-    DocumentCenterRepository,
-    DocumentConflictError,
-    DocumentDetail,
-    DocumentDraftRequest,
-    DocumentNotFoundError,
-    DocumentRecord,
-    DocumentReviewDecisionRequest,
-    GenesisDocumentDraftRequest,
-)
-from alos.entrypoints.documents_api import router as documents_intelligence_router
-from alos.entrypoints.genesis_agents_api import create_genesis_agent_designer
-from alos.entrypoints.genesis_agents_api import router as genesis_agents_router
-from alos.entrypoints.genesis_chat_api import router as genesis_chat_router
-from alos.entrypoints.integrations_api import router as integrations_router
-from alos.entrypoints.jobs_api import router as jobs_router
-from alos.entrypoints.operational_api import router as operational_router
-from alos.entrypoints.projects_api import router as projects_router
-from alos.entrypoints.readiness_api import router as readiness_router
-from alos.executive_dashboard import (
-    ExecutiveDashboardRepository,
-    ExecutiveDashboardSnapshot,
-)
-from alos.genesis.agent_designer import AgentDesignRequest, GenesisAgentDesignerError
-from alos.genesis.document_analysis import (
+from alos.ara.assistance.document_analysis import (
     GenesisDocumentAnalysisError,
     GenesisDocumentAnalysisRequest,
     GenesisDocumentAnalysisResult,
-    GenesisDocumentAnalysisService,
     GenesisDocumentWorkflowStageResult,
 )
-from alos.genesis.document_workflow import (
+from alos.ara.assistance.document_workflow import (
     GenesisAgentProposalRequest,
     GenesisApprovalHandoffRequest,
     GenesisCompletionDraftRequest,
@@ -64,71 +30,83 @@ from alos.genesis.document_workflow import (
     GenesisDocumentWorkflowError,
     GenesisDocumentWorkflowNotFoundError,
     GenesisDocumentWorkflowRecord,
-    GenesisDocumentWorkflowRepository,
 )
-from alos.genesis.follow_up import (
+from alos.ara.assistance.follow_up import (
     GenesisFollowUpBlocked,
     GenesisFollowUpErrorResponse,
     GenesisFollowUpFailed,
-    GenesisFollowUpRepository,
     GenesisFollowUpRequest,
     GenesisFollowUpResponse,
-    GenesisFollowUpService,
 )
-from alos.genesis.history import (
-    GenesisArtifactRecord,
-    GenesisConversationRecord,
-    GenesisConversationRequest,
-    GenesisHistoryError,
-    GenesisHistoryRepository,
-    GenesisMessageRecord,
-    GenesisMessageRequest,
-)
-from alos.genesis.semantic_analysis import (
-    GenesisSemanticAnalysisRepository,
-    GenesisSemanticAnalyzer,
-)
-from alos.genesis.uploads import (
-    FilesystemGenesisUploadStorage,
+from alos.ara.assistance.uploads import (
     GenesisUploadConflictError,
     GenesisUploadDocumentDraftRequest,
     GenesisUploadError,
     GenesisUploadNotFoundError,
     GenesisUploadRecord,
-    GenesisUploadRepository,
-    GenesisUploadService,
-    S3GenesisUploadStorage,
-    object_storage_is_ready,
 )
+from alos.ara.conversations.repository import (
+    GenesisArtifactRecord,
+    GenesisConversationRecord,
+    GenesisConversationRequest,
+    GenesisHistoryError,
+    GenesisMessageRecord,
+    GenesisMessageRequest,
+)
+from alos.audit.reader import AuditEventRecord
+from alos.authorization import can_govern_agents, require_tenant
+from alos.config import get_settings
+from alos.dependencies import (
+    get_agent_draft_builder,
+    get_agent_registry_repository,
+    get_agent_runtime,
+    get_audit_reader,
+    get_document_center_repository,
+    get_executive_dashboard_repository,
+    get_genesis_document_analysis_service,
+    get_genesis_document_workflow_repository,
+    get_genesis_follow_up_service,
+    get_genesis_history_repository,
+    get_genesis_upload_repository,
+    get_genesis_upload_service,
+    get_identity_authentication_repository,
+    get_permission_registry_repository,
+    get_portfolio_repository,
+    get_release_repository,
+    get_source_registry_repository,
+    get_tool_registry_repository,
+)
+from alos.documents.center import (
+    ChecklistCompletionRequest,
+    DocumentCenterError,
+    DocumentConflictError,
+    DocumentDetail,
+    DocumentDraftRequest,
+    DocumentNotFoundError,
+    DocumentRecord,
+    DocumentReviewDecisionRequest,
+    GenesisDocumentDraftRequest,
+)
+from alos.entrypoints.dashboard_api import router as dashboard_router
+from alos.entrypoints.documents_api import router as documents_intelligence_router
+from alos.entrypoints.genesis_agents_api import create_genesis_agent_designer
+from alos.entrypoints.genesis_agents_api import router as genesis_agents_router
+from alos.entrypoints.genesis_chat_api import router as genesis_chat_router
+from alos.entrypoints.genesis_factory_api import router as genesis_factory_router
+from alos.entrypoints.integrations_api import router as integrations_router
+from alos.entrypoints.jobs_api import router as jobs_router
+from alos.entrypoints.operational_api import router as operational_router
+from alos.entrypoints.projects_api import router as projects_router
+from alos.entrypoints.readiness_api import router as readiness_router
+from alos.entrypoints.system_api import router as system_router
+from alos.genesis.agent_designer import AgentDesignRequest, GenesisAgentDesignerError
 from alos.identity import DivisionCode, HumanRole
-from alos.identity.authentication import (
-    AuthenticationError,
-    AuthenticationPrincipal,
-    IdentityAuthenticationRepository,
-    PasswordLoginRequest,
-    WorkspaceSummary,
-)
-from alos.model_gateway import (
-    GuardedModelGateway,
-    ModelGatewayPolicyError,
-    RetryingModelGateway,
-    UsageBudget,
-)
-from alos.model_gateway_factory import create_model_gateway
 from alos.permissions.registry import (
     PermissionConflictError,
     PermissionNotFoundError,
     PermissionPolicyRecord,
     PermissionPolicyRequest,
     PermissionRegistryError,
-    PermissionRegistryRepository,
-)
-from alos.persistence.database import database_is_ready
-from alos.portfolio import (
-    DivisionsOverviewSnapshot,
-    PortfolioRepository,
-    ProjectPortfolioSnapshot,
-    ProjectStatus,
 )
 from alos.release.governance import (
     AgentTestRunner,
@@ -136,7 +114,6 @@ from alos.release.governance import (
     LocalReleaseTeam,
     ReasonRequest,
     ReleaseGovernanceError,
-    ReleaseGovernanceRepository,
     ReleaseRequestDetail,
     ReleaseRequestInput,
     ReleaseRequestRecord,
@@ -151,7 +128,6 @@ from alos.runtime.service import (
     AgentRunRequest,
     AgentRunResult,
     AgentRunSummary,
-    AgentRuntime,
     AgentRuntimeBlocked,
     AgentRuntimeError,
     AgentRuntimeRepository,
@@ -159,13 +135,11 @@ from alos.runtime.service import (
     WorkspaceBudgetRequest,
     WorkspaceUsageSummary,
 )
-from alos.security.middleware import install_security_middleware, metrics
+from alos.security.middleware import install_security_middleware
 from alos.security.tokens import (
-    SESSION_COOKIE_NAME,
     ActorContext,
     LocalTokenRequest,
     get_current_actor,
-    issue_access_token,
     issue_local_token,
 )
 from alos.sources.registry import (
@@ -174,7 +148,6 @@ from alos.sources.registry import (
     SourceNotFoundError,
     SourceRegistrationRequest,
     SourceRegistryError,
-    SourceRegistryRepository,
     SourceVaultPolicyRecord,
     SourceVaultPolicyRequest,
     SourceVerificationRequest,
@@ -186,19 +159,21 @@ from alos.tools.registry import (
     ToolDefinitionRequest,
     ToolNotFoundError,
     ToolRegistryError,
-    ToolRegistryRepository,
 )
 
 app = FastAPI(title="ALOS", version="0.2.0")
 install_security_middleware(app, get_settings())
 app.include_router(operational_router)
+app.include_router(dashboard_router)
 app.include_router(documents_intelligence_router)
 app.include_router(genesis_agents_router)
 app.include_router(genesis_chat_router)
+app.include_router(genesis_factory_router)
 app.include_router(jobs_router)
 app.include_router(integrations_router)
 app.include_router(projects_router)
 app.include_router(readiness_router)
+app.include_router(system_router)
 
 
 class AgentDesignerRequest(BaseModel):
@@ -249,34 +224,34 @@ class ModelPolicySummary(BaseModel):
     max_output_tokens: int
 
 
-class H5PilotRequest(BaseModel):
-    """Controlled H5 setup is always workspace-scoped and human-triggered."""
+class GovernanceValidationRequest(BaseModel):
+    """Controlled validation setup is always workspace-scoped and human-triggered."""
 
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: UUID
 
 
-H5_VALIDATION_AGENT_KEYS = (
+VALIDATION_AGENT_KEYS = (
     "DAILY_BRIEF",
     "EVIDENCE_CHECKER",
     "PERMIT_OVERDUE_MONITOR",
 )
 
 
-class H5PermissionControlStatus(BaseModel):
+class ValidationPermissionControlStatus(BaseModel):
     agent_key: str
     semantic_version: str | None
     permission_policy: PermissionPolicyRecord | None
 
 
-class H5ControlSummary(BaseModel):
+class ValidationControlSummary(BaseModel):
     source_tool: ToolDefinitionRecord | None
-    permissions: list[H5PermissionControlStatus]
+    permissions: list[ValidationPermissionControlStatus]
     ready_for_uat: bool
 
 
-class H5ValidationRunRequest(BaseModel):
+class ValidationRunRequest(BaseModel):
     """A bounded source-enabled fixture run; only the shared Runtime invokes a model."""
 
     model_config = ConfigDict(extra="forbid")
@@ -284,130 +259,6 @@ class H5ValidationRunRequest(BaseModel):
     workspace_id: UUID
     agent_key: Literal["DAILY_BRIEF", "EVIDENCE_CHECKER", "PERMIT_OVERDUE_MONITOR"]
     input: dict[str, object] = Field(default_factory=dict)
-
-
-def get_agent_registry_repository() -> AgentRegistryRepository:
-    return AgentRegistryRepository(get_settings().database_url)
-
-
-def get_identity_authentication_repository() -> IdentityAuthenticationRepository:
-    return IdentityAuthenticationRepository(get_settings().database_url)
-
-
-def get_agent_draft_builder() -> AgentDraftBuilder:
-    return AgentDraftBuilder(DeterministicAgentDraftGenerator())
-
-
-def get_agent_runtime() -> AgentRuntime:
-    settings = get_settings()
-    try:
-        delegate, close_gateway = create_model_gateway(settings)
-    except ModelGatewayPolicyError as error:
-        raise AgentRuntimeBlocked(str(error)) from error
-    gateway = GuardedModelGateway(
-        RetryingModelGateway(delegate, settings.llm_max_retries),
-        settings,
-        UsageBudget(
-            request_limit=1,
-            output_token_limit=settings.llm_max_output_tokens,
-        ),
-    )
-    return AgentRuntime(
-        AgentRuntimeRepository(settings.database_url, settings),
-        gateway,
-        settings,
-        close_gateway=close_gateway,
-    )
-
-
-def get_release_repository() -> ReleaseGovernanceRepository:
-    return ReleaseGovernanceRepository(get_settings().database_url)
-
-
-def get_source_registry_repository() -> SourceRegistryRepository:
-    settings = get_settings()
-    return SourceRegistryRepository(settings.database_url, settings=settings)
-
-
-def get_audit_reader() -> AuditReader:
-    return AuditReader(get_settings().database_url)
-
-
-def get_genesis_history_repository() -> GenesisHistoryRepository:
-    return GenesisHistoryRepository(get_settings().database_url)
-
-
-def get_document_center_repository() -> DocumentCenterRepository:
-    return DocumentCenterRepository(get_settings().database_url)
-
-
-def get_executive_dashboard_repository() -> ExecutiveDashboardRepository:
-    return ExecutiveDashboardRepository(get_settings().database_url)
-
-
-def get_portfolio_repository() -> PortfolioRepository:
-    return PortfolioRepository(get_settings().database_url)
-
-
-def get_genesis_document_workflow_repository() -> GenesisDocumentWorkflowRepository:
-    return GenesisDocumentWorkflowRepository(get_settings().database_url)
-
-
-def get_genesis_semantic_analyzer() -> GenesisSemanticAnalyzer | None:
-    """Build the opt-in external-model boundary for one Genesis request."""
-
-    settings = get_settings()
-    if not settings.genesis_semantic_analysis_enabled:
-        return None
-    return GenesisSemanticAnalyzer(
-        settings,
-        lambda: create_model_gateway(settings),
-        GenesisSemanticAnalysisRepository(settings.database_url, settings),
-    )
-
-
-def get_genesis_document_analysis_service() -> GenesisDocumentAnalysisService:
-    return GenesisDocumentAnalysisService(
-        get_document_center_repository(),
-        get_genesis_history_repository(),
-        get_genesis_document_workflow_repository(),
-        get_genesis_semantic_analyzer(),
-    )
-
-
-def get_genesis_follow_up_service() -> GenesisFollowUpService:
-    settings = get_settings()
-    return GenesisFollowUpService(
-        settings,
-        GenesisFollowUpRepository(settings.database_url, settings),
-        lambda: create_model_gateway(settings),
-    )
-
-
-def get_genesis_upload_repository() -> GenesisUploadRepository:
-    return GenesisUploadRepository(get_settings().database_url)
-
-
-def get_genesis_upload_service() -> GenesisUploadService:
-    settings = get_settings()
-    storage = (
-        S3GenesisUploadStorage(settings)
-        if settings.object_storage_provider == "s3"
-        else FilesystemGenesisUploadStorage(settings)
-    )
-    return GenesisUploadService(
-        get_genesis_upload_repository(),
-        storage,
-        get_document_center_repository(),
-    )
-
-
-def get_tool_registry_repository() -> ToolRegistryRepository:
-    return ToolRegistryRepository(get_settings().database_url)
-
-
-def get_permission_registry_repository() -> PermissionRegistryRepository:
-    return PermissionRegistryRepository(get_settings().database_url)
 
 
 def require_registry_editor(actor: ActorContext) -> None:
@@ -442,21 +293,22 @@ def require_agent_registry_reader(actor: ActorContext) -> None:
         )
 
 
-def require_h5_pilot_editor(actor: ActorContext) -> None:
-    """H5 can create only controlled DRAFTs and is owned by the IT Lead."""
+def require_validation_pilot_editor(actor: ActorContext) -> None:
+    """Validation can create only controlled DRAFTs and is owned by the IT Lead."""
     if HumanRole.IT_LEAD not in actor.roles:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="IT Lead H5 pilot authority required"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="IT Lead validation pilot authority required",
         )
 
 
-def require_h5_control_reader(actor: ActorContext) -> None:
+def require_validation_control_reader(actor: ActorContext) -> None:
     """Approval evidence is visible to its makers and independent reviewers only."""
     if not {HumanRole.DIRECTOR, HumanRole.IT_LEAD, HumanRole.QA_SECURITY}.intersection(
         actor.roles
     ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="H5 control reader role required"
+            status_code=status.HTTP_403_FORBIDDEN, detail="validation control reader role required"
         )
 
 
@@ -591,177 +443,6 @@ def require_review_role(actor: ActorContext, gate: str) -> None:
         )
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    settings = get_settings()
-    return {
-        "status": "ok",
-        "service": "alos",
-        "environment": settings.environment,
-    }
-
-
-@app.get("/metrics", include_in_schema=False)
-def prometheus_metrics() -> Response:
-    return Response(content=metrics.prometheus(), media_type="text/plain; version=0.0.4")
-
-
-@app.get("/health/ready")
-def readiness() -> dict[str, str]:
-    settings = get_settings()
-    if not database_is_ready(settings.database_url):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="database is not ready",
-        )
-    if not object_storage_is_ready(settings):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="object storage is not ready",
-        )
-    return {"status": "ok", "database": "ready", "object_storage": "ready"}
-
-
-@app.post("/api/v1/auth/local-token")
-def create_local_token(request: LocalTokenRequest) -> dict[str, str]:
-    return {"access_token": issue_local_token(request, get_settings()), "token_type": "bearer"}
-
-
-@app.post("/api/v1/auth/login", response_model=AuthenticationPrincipal)
-def login(request: PasswordLoginRequest, response: Response) -> AuthenticationPrincipal:
-    """Create an HttpOnly, same-site browser session without returning its token to JavaScript."""
-    try:
-        principal = get_identity_authentication_repository().authenticate(request)
-    except AuthenticationError as error:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid email or password",
-        ) from error
-    settings = get_settings()
-    token = issue_access_token(
-        LocalTokenRequest(
-            user_id=principal.user_id,
-            organization_id=principal.organization_id,
-            roles=principal.roles,
-            division_codes=principal.division_codes,
-            workspace_ids=principal.workspace_ids,
-            data_scope=principal.data_scope,
-            permissions=principal.permissions,
-        ),
-        settings,
-    )
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=token,
-        max_age=settings.auth_token_ttl_seconds,
-        httponly=True,
-        secure=settings.environment in {"staging", "production"},
-        samesite="lax",
-        path="/api",
-    )
-    response.headers["Cache-Control"] = "no-store"
-    return principal
-
-
-@app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout() -> Response:
-    # Construct the response explicitly.  The injected FastAPI response can
-    # carry a `None` status before route finalisation, while observability
-    # middleware needs a concrete status code during this request.
-    response = Response(status_code=status.HTTP_204_NO_CONTENT)
-    response.delete_cookie(
-        key=SESSION_COOKIE_NAME,
-        httponly=True,
-        secure=get_settings().environment in {"staging", "production"},
-        samesite="lax",
-        path="/api",
-    )
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-
-@app.get("/api/v1/whoami")
-def whoami(actor: Annotated[ActorContext, Depends(get_current_actor)]) -> ActorContext:
-    return actor
-
-
-@app.get("/api/v1/executive-dashboard", response_model=ExecutiveDashboardSnapshot)
-def get_executive_dashboard(
-    response: Response,
-    actor: Annotated[ActorContext, Depends(get_current_actor)],
-) -> ExecutiveDashboardSnapshot:
-    """Return a read-only company snapshot from the Director's accessible workspaces."""
-
-    if HumanRole.DIRECTOR not in actor.roles:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Director authority required for executive dashboard",
-        )
-    response.headers["Cache-Control"] = "no-store"
-    return get_executive_dashboard_repository().snapshot(
-        organization_id=actor.organization_id,
-        actor_user_id=actor.user_id,
-        workspace_ids=actor.workspace_ids,
-    )
-
-
-@app.get("/api/v1/divisions/overview", response_model=DivisionsOverviewSnapshot)
-def get_divisions_overview(
-    response: Response,
-    actor: Annotated[ActorContext, Depends(get_current_actor)],
-) -> DivisionsOverviewSnapshot:
-    """Return division health derived only from the actor's accessible workspaces."""
-
-    response.headers["Cache-Control"] = "no-store"
-    return get_portfolio_repository().divisions_overview(
-        organization_id=actor.organization_id,
-        workspace_ids=actor.workspace_ids,
-    )
-
-
-@app.get("/api/v1/projects/portfolio", response_model=ProjectPortfolioSnapshot)
-def get_project_portfolio(
-    response: Response,
-    actor: Annotated[ActorContext, Depends(get_current_actor)],
-    division_code: Annotated[str | None, Query(max_length=40)] = None,
-    project_status: Annotated[ProjectStatus | None, Query(alias="status")] = None,
-    category: Annotated[str | None, Query(max_length=80)] = None,
-    date_from: Annotated[date | None, Query()] = None,
-    date_to: Annotated[date | None, Query()] = None,
-    search: Annotated[str | None, Query(max_length=160)] = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> ProjectPortfolioSnapshot:
-    """Return the filtered project portfolio without crossing workspace boundaries."""
-
-    if date_from and date_to and date_to < date_from:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="date_to must be on or after date_from",
-        )
-    response.headers["Cache-Control"] = "no-store"
-    return get_portfolio_repository().project_portfolio(
-        organization_id=actor.organization_id,
-        workspace_ids=actor.workspace_ids,
-        division_code=division_code,
-        project_status=project_status,
-        category=category,
-        date_from=date_from,
-        date_to=date_to,
-        search=search,
-        page=page,
-        page_size=page_size,
-    )
-
-
-@app.get("/api/v1/workspaces", response_model=list[WorkspaceSummary])
-def list_workspaces(
-    actor: Annotated[ActorContext, Depends(get_current_actor)],
-) -> list[WorkspaceSummary]:
-    return get_identity_authentication_repository().list_workspaces(
-        organization_id=actor.organization_id, user_id=actor.user_id
-    )
-
 
 @app.get("/api/v1/governance/model-policy", response_model=ModelPolicySummary)
 def get_model_policy(
@@ -781,7 +462,7 @@ def get_model_policy(
 
 @app.post("/api/v1/local/bootstrap")
 def bootstrap_local_registry_context(request: LocalBootstrapRequest) -> dict[str, str]:
-    """Create a local-only human/workspace context for the authenticated H2 Builder."""
+    """Create a local-only human/workspace context for the authenticated Agent Registry Builder."""
     if get_settings().environment not in {"local", "test"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="local bootstrap is disabled"
@@ -809,7 +490,7 @@ def bootstrap_local_registry_context(request: LocalBootstrapRequest) -> dict[str
 
 @app.post("/api/v1/local/release-review-team")
 def bootstrap_local_release_review_team(workspace_id: UUID) -> dict[str, object]:
-    """Issue local-only test tokens for distinct H4 lifecycle duties."""
+    """Issue local-only test tokens for distinct release lifecycle duties."""
     if get_settings().environment not in {"local", "test"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="local review-team bootstrap is disabled"
@@ -834,6 +515,28 @@ def bootstrap_local_release_review_team(workspace_id: UUID) -> dict[str, object]
         return {"team": team.model_dump(mode="json"), "access_tokens": tokens}
     except ReleaseGovernanceError as error:
         raise release_http_error(error) from error
+
+
+__all__ = [
+    "get_agent_draft_builder",
+    "get_agent_registry_repository",
+    "get_agent_runtime",
+    "get_audit_reader",
+    "get_document_center_repository",
+    "get_executive_dashboard_repository",
+    "get_genesis_document_analysis_service",
+    "get_genesis_document_workflow_repository",
+    "get_genesis_follow_up_service",
+    "get_genesis_history_repository",
+    "get_identity_authentication_repository",
+    "get_genesis_upload_repository",
+    "get_genesis_upload_service",
+    "get_permission_registry_repository",
+    "get_portfolio_repository",
+    "get_release_repository",
+    "get_source_registry_repository",
+    "get_tool_registry_repository",
+]
 
 
 @app.post("/api/v1/genesis/conversations", response_model=GenesisConversationRecord)
@@ -1770,8 +1473,10 @@ def get_agent(
         raise registry_http_error(error) from error
 
 
-def _h5_control_summary(organization_id: UUID, workspace_id: UUID) -> H5ControlSummary:
-    """Describe only the current H5 control chain, never a secret or contract body."""
+def _validation_control_summary(
+    organization_id: UUID, workspace_id: UUID
+) -> ValidationControlSummary:
+    """Describe only the current validation control chain, never a secret or contract body."""
     tool = next(
         (
             record
@@ -1782,20 +1487,20 @@ def _h5_control_summary(organization_id: UUID, workspace_id: UUID) -> H5ControlS
     )
     agents = get_agent_registry_repository()
     permissions = get_permission_registry_repository()
-    controls: list[H5PermissionControlStatus] = []
-    for agent_key in H5_VALIDATION_AGENT_KEYS:
+    controls: list[ValidationPermissionControlStatus] = []
+    for agent_key in VALIDATION_AGENT_KEYS:
         try:
             agent = agents.get_agent(organization_id, agent_key)
         except AgentNotFoundError:
             controls.append(
-                H5PermissionControlStatus(
+                ValidationPermissionControlStatus(
                     agent_key=agent_key, semantic_version=None, permission_policy=None
                 )
             )
             continue
         if agent.workspace_id != workspace_id:
             controls.append(
-                H5PermissionControlStatus(
+                ValidationPermissionControlStatus(
                     agent_key=agent_key, semantic_version=None, permission_policy=None
                 )
             )
@@ -1811,7 +1516,7 @@ def _h5_control_summary(organization_id: UUID, workspace_id: UUID) -> H5ControlS
             None,
         )
         controls.append(
-            H5PermissionControlStatus(
+            ValidationPermissionControlStatus(
                 agent_key=agent_key,
                 semantic_version=latest.semantic_version,
                 permission_policy=policy,
@@ -1820,7 +1525,7 @@ def _h5_control_summary(organization_id: UUID, workspace_id: UUID) -> H5ControlS
     ready_for_uat = (
         tool is not None
         and tool.lifecycle_status == "APPROVED"
-        and len(controls) == len(H5_VALIDATION_AGENT_KEYS)
+        and len(controls) == len(VALIDATION_AGENT_KEYS)
         and all(
             control.permission_policy is not None
             and control.permission_policy.lifecycle_status == "APPROVED"
@@ -1828,39 +1533,39 @@ def _h5_control_summary(organization_id: UUID, workspace_id: UUID) -> H5ControlS
             for control in controls
         )
     )
-    return H5ControlSummary(
+    return ValidationControlSummary(
         source_tool=tool,
         permissions=controls,
         ready_for_uat=ready_for_uat,
     )
 
 
-@app.get("/api/v1/validation/controls", response_model=H5ControlSummary)
-@app.get("/api/v1/h5/validation-controls", response_model=H5ControlSummary, include_in_schema=False)
-def get_h5_validation_controls(
+@app.get("/api/v1/validation/controls", response_model=ValidationControlSummary)
+def get_validation_controls(
     workspace_id: UUID,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
-) -> H5ControlSummary:
-    """Show draft/approved H5 controls to the maker and independent reviewers."""
-    require_h5_control_reader(actor)
+) -> ValidationControlSummary:
+    """Show draft/approved validation controls to the maker and independent reviewers."""
+    require_validation_control_reader(actor)
     require_workspace_access(actor, workspace_id)
-    return _h5_control_summary(actor.organization_id, workspace_id)
+    return _validation_control_summary(actor.organization_id, workspace_id)
 
 
 @app.post("/api/v1/validation/runs", response_model=AgentRunResult)
-@app.post("/api/v1/h5/validation-runs", response_model=AgentRunResult, include_in_schema=False)
-def run_h5_validation_fixture(
-    request: H5ValidationRunRequest,
+def run_validation_fixture(
+    request: ValidationRunRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> AgentRunResult:
-    """Run one approved, source-enabled H5 fixture through the shared Runtime."""
-    require_h5_pilot_editor(actor)
+    """Run one approved, source-enabled validation fixture through the shared Runtime."""
+    require_validation_pilot_editor(actor)
     require_workspace_access(actor, request.workspace_id)
-    summary = _h5_control_summary(actor.organization_id, request.workspace_id)
+    summary = _validation_control_summary(actor.organization_id, request.workspace_id)
     if not summary.ready_for_uat:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="H5 Tool and all current Permission Policies require independent approval",
+            detail=(
+                "Validation Tool and all current Permission Policies require independent approval"
+            ),
         )
     sources = get_source_registry_repository().list_source_versions(
         request.workspace_id, organization_id=actor.organization_id
@@ -1868,7 +1573,7 @@ def run_h5_validation_fixture(
     if not any(source.status == "VERIFIED" for source in sources):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="at least one verified source is required before an H5 validation run",
+            detail="at least one verified source is required before an validation run",
         )
     try:
         return get_agent_runtime().execute(
@@ -1880,23 +1585,23 @@ def run_h5_validation_fixture(
             ),
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
+            actor=actor,
         )
     except AgentRuntimeError as error:
         raise runtime_http_error(error) from error
 
 
 @app.post("/api/v1/validation/agents/drafts")
-@app.post("/api/v1/h5/validation-agents/drafts", include_in_schema=False)
-def create_h5_validation_agent_drafts(
-    request: H5PilotRequest,
+def create_validation_agent_drafts(
+    request: GovernanceValidationRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> dict[str, object]:
-    """Create only the three reviewed H5 pilot contracts as Registry DRAFTs.
+    """Create only the three reviewed validation pilot contracts as Registry DRAFTs.
 
     This endpoint does not approve a tool or policy, call a model, or release
     an agent. Repeating it is safe when the current draft already matches.
     """
-    require_h5_pilot_editor(actor)
+    require_validation_pilot_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     registry = get_agent_registry_repository()
     builder = get_agent_draft_builder()
@@ -1912,7 +1617,7 @@ def create_h5_validation_agent_drafts(
                     organization_id=actor.organization_id,
                     actor_user_id=actor.user_id,
                     correlation_id=uuid4(),
-                    reason="H5 controlled pilot created a validation Agent Contract draft",
+                    reason="Validation controlled pilot created a validation Agent Contract draft",
                 )
                 results.append({"status": "CREATED_DRAFT", **created.model_dump(mode="json")})
                 continue
@@ -1937,7 +1642,10 @@ def create_h5_validation_agent_drafts(
                 organization_id=actor.organization_id,
                 actor_user_id=actor.user_id,
                 correlation_id=uuid4(),
-                reason="H5 controlled pilot created a successor validation Agent Contract draft",
+                reason=(
+                    "Validation controlled pilot created a successor "
+                    "validation Agent Contract draft"
+                ),
             )
             results.append({"status": "CREATED_SUCCESSOR_DRAFT", **updated.model_dump(mode="json")})
     except AgentRegistryError as error:
@@ -1946,13 +1654,12 @@ def create_h5_validation_agent_drafts(
 
 
 @app.post("/api/v1/validation/controls/drafts")
-@app.post("/api/v1/h5/validation-controls/drafts", include_in_schema=False)
-def create_h5_validation_control_drafts(
-    request: H5PilotRequest,
+def create_validation_control_drafts(
+    request: GovernanceValidationRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> dict[str, object]:
-    """Prepare unapproved read-only Tool and Permission Policy DRAFTs for H5."""
-    require_h5_pilot_editor(actor)
+    """Prepare unapproved read-only Tool and Permission Policy DRAFTs for validation."""
+    require_validation_pilot_editor(actor)
     require_workspace_access(actor, request.workspace_id)
     registry = get_agent_registry_repository()
     tool_repository = get_tool_registry_repository()
@@ -2055,8 +1762,8 @@ def configure_source_vault(
     request: SourceVaultPolicyRequest,
     actor: Annotated[ActorContext, Depends(get_current_actor)],
 ) -> SourceVaultPolicyRecord:
-    """Set the H5 source boundary; this is metadata, not a Drive connection."""
-    require_h5_pilot_editor(actor)
+    """Set the Validation source boundary; this is metadata, not a Drive connection."""
+    require_validation_pilot_editor(actor)
     require_workspace_access(actor, workspace_id)
     try:
         return get_source_registry_repository().configure_vault_policy(
@@ -2230,6 +1937,22 @@ def run_agent(
         raise runtime_http_error(error) from error
 
 
+@app.post("/api/v1/agent-runs/{agent_run_id}/cancel", response_model=AgentRunSummary)
+def cancel_agent_run(
+    agent_run_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> AgentRunSummary:
+    """Request durable cancellation for a queued or running Agent Run."""
+    try:
+        return AgentRuntimeRepository(get_settings().database_url, get_settings()).cancel_run(
+            agent_run_id,
+            actor,
+            correlation_id=uuid4(),
+        )
+    except AgentRuntimeError as error:
+        raise runtime_http_error(error) from error
+
+
 @app.get("/api/v1/workspaces/{workspace_id}/runs", response_model=list[AgentRunSummary])
 def list_workspace_runs(
     workspace_id: UUID,
@@ -2335,6 +2058,7 @@ def create_release_request(
 ) -> ReleaseRequestRecord:
     require_agent_registry_editor(actor)
     require_workspace_access(actor, request.workspace_id)
+    require_tenant(actor, request.tenant_id)
     try:
         return get_release_repository().create_release_request(
             agent_key,
@@ -2342,6 +2066,7 @@ def create_release_request(
             request.requirement,
             organization_id=actor.organization_id,
             maker_user_id=actor.user_id,
+            tenant_id=request.tenant_id,
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2360,6 +2085,7 @@ def list_release_requests(
             workspace_id,
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             limit=limit,
         )
     except ReleaseGovernanceError as error:
@@ -2376,6 +2102,7 @@ def get_release_request_detail(
             change_request_id,
             organization_id=actor.organization_id,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
         )
     except ReleaseGovernanceError as error:
         raise release_http_error(error) from error
@@ -2392,6 +2119,7 @@ def register_release_test_case(
             change_request_id,
             request,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2414,6 +2142,7 @@ def update_release_test_case(
             test_key,
             request,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2431,6 +2160,7 @@ def delete_release_test_case(
             change_request_id,
             test_key,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -2449,6 +2179,7 @@ def execute_release_test_case(
 ) -> TestExecutionResult:
     require_checker(actor)
     runtime = get_agent_runtime()
+    correlation_id = uuid4()
     try:
         runner = AgentTestRunner(
             get_release_repository(),
@@ -2457,6 +2188,8 @@ def execute_release_test_case(
                 runtime_request,
                 organization_id=actor.organization_id,
                 actor_user_id=actor.user_id,
+                correlation_id=correlation_id,
+                actor=actor,
                 target_agent_version_id=agent_version_id,
             ),
         )
@@ -2464,6 +2197,8 @@ def execute_release_test_case(
             change_request_id,
             test_key,
             checker_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
+            correlation_id=correlation_id,
         )
     except ReleaseGovernanceError as error:
         raise release_http_error(error) from error
@@ -2482,6 +2217,7 @@ def submit_release_for_review(
         return get_release_repository().submit_for_review(
             change_request_id,
             checker_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2502,6 +2238,7 @@ def review_release_request(
             change_request_id,
             request,
             reviewer_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2520,6 +2257,7 @@ def approve_release_request(
         return get_release_repository().approve(
             change_request_id,
             approver_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2538,6 +2276,7 @@ def release_approved_request(
         return get_release_repository().release(
             change_request_id,
             approver_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2556,6 +2295,7 @@ def activate_released_request(
         return get_release_repository().activate(
             change_request_id,
             approver_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:
@@ -2575,6 +2315,7 @@ def suspend_release_request(
         return get_release_repository().suspend(
             change_request_id,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             reason=request.reason,
             correlation_id=uuid4(),
         )
@@ -2598,6 +2339,7 @@ def activate_kill_switch(
         return get_release_repository().kill_switch(
             change_request_id,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             reason=request.reason,
             correlation_id=uuid4(),
         )
@@ -2622,6 +2364,7 @@ def clear_kill_switch(
         return get_release_repository().clear_kill_switch(
             change_request_id,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             reason=request.reason,
             correlation_id=uuid4(),
         )
@@ -2643,6 +2386,7 @@ def rollback_release_request(
             change_request_id,
             request,
             actor_user_id=actor.user_id,
+            tenant_ids=tuple(actor.tenant_ids),
             correlation_id=uuid4(),
         )
     except ReleaseGovernanceError as error:

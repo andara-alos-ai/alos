@@ -50,7 +50,7 @@ def _payload(workspace_id: str, agent_key: str, **changes: object) -> dict[str, 
         "risk_level": "LOW",
         "input_schema": {"type": "object"},
         "output_schema": {"type": "object"},
-        "model_policy": {"provider": "gemini", "mode": "local_test"},
+        "model_policy": {"provider": "openai", "mode": "local_test"},
         "tool_keys": [],
         "permission_keys": ["sources.read"],
         "approval_required": True,
@@ -189,6 +189,7 @@ def test_registry_builder_api_versions_audits_and_rejects_circular_parent(
                 """
             ).fetchall()
             assert [row[0] for row in rows] == [
+                "AGENT_DRAFT_CREATED",
                 "AGENT_DRAFT_CREATED",
                 "AGENT_DRAFT_CREATED",
                 "AGENT_DRAFT_UPDATED",

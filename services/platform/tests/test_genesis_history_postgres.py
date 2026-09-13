@@ -7,15 +7,15 @@ import pytest
 from psycopg import sql
 
 from alos.agents.registry import AgentRegistryRepository, LocalBootstrapRequest
-from alos.audit.reader import AuditReader
-from alos.config import get_settings
-from alos.genesis.history import (
+from alos.ara.conversations.repository import (
     GenesisConversationContextRequest,
     GenesisConversationRequest,
     GenesisConversationUpdateRequest,
     GenesisHistoryRepository,
     GenesisMessageRequest,
 )
+from alos.audit.reader import AuditReader
+from alos.config import get_settings
 from alos.persistence.database import psycopg_url
 from alos.persistence.migrations import apply_migrations
 

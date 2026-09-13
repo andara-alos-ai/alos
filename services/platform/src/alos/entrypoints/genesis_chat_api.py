@@ -6,17 +6,8 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from alos.authorization import effective_data_scope
-from alos.capabilities.registry import CapabilityRegistryRepository
-from alos.config import Settings, get_settings
-from alos.genesis.chat import (
-    ExternalResearchService,
-    GenesisChatError,
-    GenesisChatService,
-    GenesisTurnRequest,
-    GenesisTurnResult,
-)
-from alos.genesis.history import (
+from alos.ara.assistance.router import ActiveAgentSummary, AgentRouter
+from alos.ara.conversations.repository import (
     ContextEntityType,
     GenesisContextOption,
     GenesisConversationContextRecord,
@@ -26,7 +17,16 @@ from alos.genesis.history import (
     GenesisHistoryError,
     GenesisHistoryRepository,
 )
-from alos.genesis.router import ActiveAgentSummary, AgentRouter
+from alos.ara.conversations.service import (
+    ExternalResearchService,
+    GenesisChatError,
+    GenesisChatService,
+    GenesisTurnRequest,
+    GenesisTurnResult,
+)
+from alos.authorization import effective_data_scope
+from alos.capabilities.registry import CapabilityRegistryRepository
+from alos.config import Settings, get_settings
 from alos.identity import DataScope
 from alos.model_gateway import (
     GuardedModelGateway,
@@ -34,8 +34,8 @@ from alos.model_gateway import (
     ModelGatewayError,
     RetryingModelGateway,
     UsageBudget,
+    create_model_gateway,
 )
-from alos.model_gateway_factory import create_model_gateway
 from alos.operational.repository import OperationalRepository
 from alos.security.tokens import ActorContext, get_current_actor
 from alos.tools.executor import ToolExecutionError, ToolExecutor
