@@ -1,7 +1,7 @@
 # H5 — Local Backend Stability Report
 
 > Superseded for release-readiness purposes by
-> [`GENESIS_H5_FINAL_READINESS.md`](../compliance/GENESIS_H5_FINAL_READINESS.md).
+> [`GENESIS_H5_FINAL_READINESS.md`](GENESIS_H5_FINAL_READINESS.md).
 > This document is a historical local checkpoint from 3 September 2026; its
 > test counts and limitations must not be used as current staging evidence.
 

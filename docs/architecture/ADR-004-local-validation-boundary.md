@@ -1,26 +1,33 @@
-# ADR-004: Local validation terpisah dari staging dan production
+# ADR-004: Validation non-production terpisah dari live production
 
 - Status: Accepted
-- Tanggal: 2026-09-03
+- Tanggal awal: 2026-09-03
+- Implementation note: 2026-09-13
 
 ## Context
 
-MVP1 perlu membuktikan lifecycle dan Runtime sebelum VPS, identity provider,
-OpenAI staging, dan data perusahaan tersedia.
+Lifecycle dan Runtime perlu diuji dengan data/provider aman tanpa menjadikan
+hasil uji sebagai approval atau production readiness.
 
 ## Decision
 
-Environment `local`/`test` memakai PostgreSQL Docker dan dapat memakai Gemini
-untuk test read-only. Bootstrap token serta review team lokal hanya tersedia di
-environment ini. Local Runtime memprioritaskan draft untuk release testing dan
-menjalankan version active bila tidak ada draft tertunda.
-
-Staging/production menolak bootstrap token lokal dan Gemini. Aktivasi scheduler,
-identity reviewer riil, OpenAI, secret manager, backup, HTTPS, dan monitoring
-harus tersedia sebelum agent active dipakai di sana.
+- `local`/`test` dapat memakai Gemini dan bootstrap identity khusus development.
+- Staging/production menolak Gemini. Adapter OpenAI atau provider `disabled`
+  adalah konfigurasi yang valid sesuai environment policy.
+- Runtime test-mode dapat menjalankan exact Agent Version `DRAFT` di local,
+  test, atau staging untuk menghasilkan evidence. Bila exact version tidak
+  diberikan, version `ACTIVE` diprioritaskan.
+- Production tidak boleh menjalankan draft test-mode.
+- Test run tidak mengubah `active_version_id`, tidak memberi permission, dan
+  tidak memenuhi human approval dengan sendirinya.
+- Data perusahaan/credential tidak boleh masuk local validation fixture.
 
 ## Consequences
 
-- Bukti lokal tidak disalahartikan sebagai approval atau readiness production.
-- Tidak ada data perusahaan/credential yang dikirim selama validation lokal.
-- Jalur production perlu runbook dan quality gate tambahan sebelum deployment.
+- Evidence harus menyimpan environment, exact version, correlation ID, actor,
+  waktu, evaluator, expected/actual, dan status.
+- Staging evidence tidak boleh dipromosikan sebagai production evidence tanpa
+  review scope/configuration.
+- Local bootstrap team dan role compatibility bukan model akun organisasi.
+- Provider, identity, object storage, backup, HTTPS, monitoring, serta rollback
+  harus divalidasi pada topology deployment yang benar sebelum release.

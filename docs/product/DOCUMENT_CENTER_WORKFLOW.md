@@ -1,53 +1,40 @@
-# Document Center dan Genesis Draft Workflow
+# Document Center workflow
 
-## Satu repositori kanonis
+Document Center adalah repositori dokumen kanonik per workspace. Tampilan ARA
+atau GENESIS tidak boleh membuat salinan authority kedua dari record yang sama.
 
-Navbar **Dokumen** adalah daftar resmi seluruh dokumen dalam workspace, baik
-dibuat manual maupun berasal dari Genesis. Halaman **Genesis** hanya memfilter
-dokumen dengan origin `GENESIS`; ia tidak menyimpan salinan kedua.
+## CURRENT IMPLEMENTATION
 
-Setiap dokumen memiliki satu record, versi konten append-only, digest SHA-256,
-owner, klasifikasi, status, checklist, dan jejak audit.
-
-## Alur aman
+Setiap document record memiliki version content, digest SHA-256, owner,
+classification, status, checklist, dan audit. Alur dokumen saat ini:
 
 ```text
-Genesis requirement atau dokumen manual
-→ DRAFT
-→ checklist otomatis + checklist human independen
+manual or GENESIS document DRAFT
+→ automated and human checklist
 → IN_REVIEW
-→ APPROVED atau REJECTED
+→ APPROVED or REJECTED
 ```
 
-`APPROVED` bukan `ACTIVE`. Publikasi/aktivasi dokumen dan penulisan kembali ke
-Google Drive bukan bagian dari vertical slice ini dan harus memiliki gate
-terpisah.
+`APPROVED` pada document lifecycle bukan `RELEASED` atau `ACTIVE` pada
+capability lifecycle. Publikasi eksternal dan write-back connector memerlukan
+gate/ToolExecutor terpisah.
 
-## Peran
+Backend document path masih menerima checker dari beberapa role compatibility,
+termasuk `BUSINESS_REVIEWER`, `TECHNICAL_REVIEWER`, dan `QA_SECURITY`, serta
+role lama `DIVISION_OWNER`/`IT_LEAD`. Ini adalah compatibility implementation,
+bukan kewajiban akun manusia pada governance Factory target.
 
-- Maker: setiap pengguna dengan akses workspace dapat membuat DRAFT dan hanya
-  pembuatnya yang dapat mengirim DRAFT untuk review.
-- Checker: Director, Lead Divisi, IT Lead, Technical Reviewer, Business
-  Reviewer, atau Wakil IT (`QA_SECURITY`). Pembuat DRAFT tidak dapat melengkapi
-  checklist human miliknya sendiri.
-- Approver: Director atau Lead Divisi. Approver juga harus berbeda dari maker.
+## Safety rules
 
-## Checklist default
+- Maker document tidak dapat menyelesaikan independent human check atau
+  menyetujui document material miliknya sendiri.
+- Semua checklist wajib PASS sebelum submit.
+- Review/decision terikat document version/digest.
+- GENESIS hanya membuat draft dan tidak mempublikasikan atau memberi approval.
+- Credential, API key, dan raw secret tidak boleh masuk content atau audit.
+- Write ke sistem eksternal selalu melalui connector/tool yang approved dan
+  permission yang tepat.
 
-1. Metadata dokumen lengkap — otomatis.
-2. Konten DRAFT tersedia dan memiliki digest — otomatis.
-3. Evidence/sumber diperiksa atau dinyatakan tidak diperlukan — human.
-4. Ruang lingkup serta owner dikonfirmasi — human.
-5. Klasifikasi dan risiko ditinjau — human.
-
-Semua checklist wajib harus `PASSED` sebelum maker dapat mengirim dokumen
-untuk review. Setiap tindakan menghasilkan audit event tanpa menyimpan
-credential, API key, atau dokumen Drive mentah.
-
-## Batas Genesis saat ini
-
-Genesis mencatat requirement dan menyiapkan kerangka DRAFT yang secara jelas
-menandai bagian evidence, scope, dan risiko yang masih harus dilengkapi. Ia
-tidak menyatakan kerangka itu sebagai analisis final, tidak mengesahkan
-checklist, tidak menyetujui dokumen, serta tidak mempublikasikan atau menulis
-ke Google Drive.
+Governance capability/Agent dijelaskan pada
+[governance model](../governance/governance-model.md); alur ini tidak boleh
+dipakai sebagai pengganti lifecycle release capability.

@@ -1,97 +1,63 @@
-# ALOS — Operating Model
+# ALOS operating model
 
-## Mandat produk
+ALOS — Andara Leverage Operating System — adalah satu enterprise platform,
+bukan kumpulan aplikasi per divisi atau per Agent.
 
-ALOS — **Andara Leaverage Operating Sistem** — adalah satu operating system
-internal perusahaan properti. ALOS menyediakan konteks data, aturan,
-orchestration, shared runtime, audit, dan Mission Control. Ia bukan kumpulan
-aplikasi per divisi atau per agent.
+## Product surfaces
 
-Genesis adalah **AI Executive Operating Layer** sekaligus mesin Research &
-Development ALOS. Genesis menerima arah bisnis dari Direksi, mengubahnya
-menjadi research mission, work plan, proposal artifact, atau proposal agent.
-Genesis tidak memiliki kewenangan final.
-
-```text
-Direktur Utama
-  └─ ALOS / Genesis — AI Executive Operating Layer dan R&D
-       ├─ Research & opportunity engine
-       ├─ Work orchestration
-       ├─ Agent factory dan shared runtime
-       └─ Evidence, audit, observability, Mission Control
-            ├─ Keuangan
-            ├─ Sales & Marketing
-            ├─ Property
-            ├─ HR
-            ├─ Legal
-            └─ IT
-```
-
-Direktur Utama dan Genesis adalah layer lintas divisi, bukan divisi ketujuh
-atau role yang dapat menggantikan manusia.
-
-## Siklus nilai bisnis
-
-Fokus awal ALOS adalah perusahaan properti: menemukan dan memvalidasi peluang
-property, market, customer, partner, dan pendapatan. Output tidak berhenti
-pada laporan; Genesis dapat mengusulkan tindakan berikutnya yang aman.
-
-```text
-Business goal
-  → Research Mission
-  → source/evidence collection
-  → finding dan opportunity hypothesis
-  → feasibility / experiment plan
-  → artifact proposal
-     (document, workflow, website preview, agent, task plan)
-  → human approval bila diperlukan
-  → staged execution melalui shared runtime
-  → evidence, KPI, cost, learning loop
-```
-
-Portofolio, P&L, rekening, CRM, dan bukti proyek tetap terpisah (ring-fenced).
-Genesis tidak boleh mencampur forecast, target, atau klaim dengan actual yang
-belum diverifikasi. Semua output menyatakan sumber, versi, status bukti, dan
-tingkat keyakinan.
-
-## Prinsip desain
-
-1. **Satu platform.** Satu database PostgreSQL, satu backend, satu runtime,
-   dan satu registry universal. Tidak ada database, microservice, atau UI
-   wajib per agent.
-2. **Agent bersifat dinamis.** Agent, sub-agent, dan sub-sub-agent berbagi
-   Agent Contract, Agent Registry, lifecycle, tool guardrail, dan audit yang
-   sama. `parent_agent_id` hanya membentuk delegasi teknis, bukan struktur
-   organisasi atau taxonomy permanen.
-3. **Artifact bersifat generik.** Dokumen, research brief, website preview,
-   workflow, task plan, dan agent proposal adalah Artifact versi. Agent
-   Contract adalah spesialisasi artifact yang dapat dieksekusi setelah lulus
-   governance.
-4. **Automation dengan batas.** Genesis boleh meneliti, menyusun draft,
-   menguji pada data sintetis, membuat preview, serta membuat task yang sudah
-   diizinkan. Ia tidak boleh menyetujui dirinya sendiri atau melakukan side
-   effect berisiko.
-5. **Evidence sebelum klaim.** Setiap insight dan hasil task memiliki source
-   locator, source version, classification, evidence status, dan citation.
-6. **Manusia pemegang otoritas.** Direksi/reviewer menyetujui rilis, biaya,
-   perubahan akses, tindakan eksternal, dan tindakan material/irreversible.
-
-## Wewenang Genesis
-
-| Genesis dapat otomatis | Genesis hanya boleh mengusulkan | Selalu human approval |
+| Surface | Pengguna | Fungsi |
 | --- | --- | --- |
-| Analisis sumber yang diizinkan, draft, test sintetis, preview sandbox, task low-risk yang sudah dikontrak | Agent/sub-agent baru, prompt/tool baru, website staging, experiment, jadwal baru, perubahan policy low-risk | Produksi, pengeluaran/komitmen biaya, pembayaran, aksi legal/HR, komunikasi eksternal, akses/credential, penghapusan data, perubahan organisasi |
+| ARA | User perusahaan | AI workspace untuk percakapan, konteks, pencarian, analisis, draft, dan rekomendasi |
+| GENESIS | Tim IT dan governance | AI control plane, Capability/Agent Factory, registry, evidence, lifecycle, release, dan monitoring |
+| Operational modules | User sesuai scope | Divisi, proyek, task, approval, dokumen, report, finding, dan dashboard |
 
-## Pembuktian MVP1
+ARA adalah pengalaman user; GENESIS adalah control plane. Keduanya berada dalam
+ALOS dan memakai identity, data scope, capability registry, backend policy,
+audit, serta runtime yang sama. ARA tidak mem-bypass GENESIS/governance dan
+GENESIS bukan atasan organisasi atau approver manusia.
 
-MVP1 tidak berusaha mengotomatisasi seluruh perusahaan. Ia membuktikan satu
-vertical slice yang dapat diperluas tanpa re-arsitektur:
+## Value flow target
 
-> Requirement Dirut → Property R&D Mission berbasis sumber sintetis → cited
-> research brief dan task plan → Agent Contract → validation/test → human
-> review → staging/activation → scheduled/run → evidence, cost, audit →
-> suspend/rollback.
+```text
+Business requirement melalui ARA atau proses terkontrol
+→ GENESIS analyze and resolve capability
+→ versioned DRAFT
+→ automated evidence
+→ IT review and configuration
+→ Director decision
+→ release and activation
+→ bounded execution
+→ evidence, KPI, cost, audit, and learning
+```
 
-Daily Brief Agent, Evidence Checker Agent, dan Permit/Overdue Monitor Agent
-adalah tiga **validation agent** untuk membuktikan registry dan runtime yang
-sama; bukan struktur produk yang mengunci Genesis hanya pada tiga kemampuan.
+Requirement dapat menghasilkan Agent, Skill, Workflow, Rule, Validator,
+Report, Human Task, Schedule, Event Handler, connector/tool requirement, atau
+composite. Agent hanya dipakai bila reasoning/autonomy memang diperlukan.
+
+## Product principles
+
+1. **One platform.** Satu backend, satu shared runtime, dan satu PostgreSQL;
+   bukan service/database per Agent.
+2. **Capability first.** Gunakan rule/validator/skill/workflow sebelum Agent
+   bila kebutuhan dapat dipenuhi deterministik.
+3. **Evidence before claim.** Output menyatakan sumber, version, classification,
+   evidence state, dan limitation yang relevan.
+4. **Human authority.** GENESIS membuat draft/evidence; Divisi IT meninjau;
+   Director memutuskan release candidate.
+5. **Separate lifecycle decisions.** Draft, approval, release, active, suspend,
+   resume, dan rollback tidak boleh digabung.
+6. **Backend enforcement.** UI membantu user tetapi tidak memberi authority.
+7. **Scoped execution.** Organization, workspace, division, project, tenant,
+   permission, tool, model, dan budget selalu dibatasi.
+
+## CURRENT IMPLEMENTATION
+
+ARA presentation sudah ada pada Next.js, tetapi sebagian interaction masih
+local-state dan integrasi end-to-end ARA belum selesai. GENESIS chat/document,
+Factory, Agent Registry, release governance, Agent Runtime, ToolExecutor,
+worker/scheduler, evidence, dan audit memiliki backend path masing-masing.
+Factory baru melakukan governance handoff end-to-end untuk proposal yang
+memuat Agent.
+
+Status target/implemented lebih rinci ada di
+[peta dokumentasi](../README.md).

@@ -12,10 +12,10 @@ budget.
 ## Decision
 
 Semua provider LLM melewati satu Model Gateway server-side. Saat ini adapter
-yang benar-benar didukung adalah OpenAI dan Gemini. OpenAI adalah provider
-staging/production; Gemini hanya local/test. Anthropic/fallback dan local
-model adapter belum diimplementasikan sebagai runtime provider. Secret hanya
-dibaca dari environment/secret manager backend.
+yang benar-benar didukung adalah OpenAI dan Gemini. OpenAI adalah satu-satunya
+adapter yang tersedia saat LLM diaktifkan pada staging/production; Gemini hanya
+local/test. Nilai konfigurasi Anthropic/fallback dan local model belum memiliki
+adapter runtime. Secret hanya dibaca dari environment/secret manager backend.
 
 ALOS secara deterministik memvalidasi schema, data classification, token/cost
 cap, timeout/retry, tool allowlist, permission, lifecycle, approval, audit,

@@ -1,15 +1,13 @@
-# Staging Governance Dashboard
+# Staging governance dashboard
 
-The dashboard uses a same-origin, `HttpOnly`, secure session cookie. It never
-returns or renders an OpenAI API key. Authentication is backed by the ALOS
-PostgreSQL identity records; local token issuance remains unavailable in staging.
+Status: CURRENT IMPLEMENTATION runbook. UI memakai same-origin `HttpOnly`
+session cookie dan tidak menampilkan provider credential. Backend PostgreSQL
+identity dan authorization tetap menjadi authority.
 
-## First director bootstrap
+## Bootstrap Director
 
-After the new image and migration have been deployed on the VPS, run the command
-below from the repository checkout on the VPS. It prompts directly in the VPS
-terminal and does not accept a password through command-line arguments or an
-environment variable.
+Jalankan di container platform dari checkout staging. Password diminta secara
+interaktif dan tidak diterima melalui argument/environment.
 
 ```bash
 docker compose --env-file /etc/alos/alos.staging.env \
@@ -17,24 +15,42 @@ docker compose --env-file /etc/alos/alos.staging.env \
   python -m alos.identity.bootstrap_director
 ```
 
-The command creates or refreshes the configured director account, gives it the
-`DIRECTOR` role, and creates the `ALOS_GOVERNANCE` workspace if needed. Its
-initial daily budget comes from the existing staging environment values. It
-creates an append-only `DIRECTOR_CREDENTIAL_BOOTSTRAPPED` audit event, but never
-records the password or its hash in the audit payload.
+Command membuat/refresh account Director dan workspace `ALOS_GOVERNANCE`, lalu
+mencatat audit tanpa password/hash di payload.
+
+## Bootstrap IT operator compatibility account
+
+Release API saat ini masih memakai role compatibility `IT_LEAD` pada beberapa
+operator/maker path. Sampai migrasi target role selesai, buat akun manusia IT
+terpisah:
+
+```bash
+docker compose --env-file /etc/alos/alos.staging.env \
+  -f infra/compose/compose.staging.yaml run --rm --no-deps platform \
+  python -m alos.identity.bootstrap_it_lead --email it-operator@example.com
+```
+
+Ganti email placeholder. Jangan memakai akun Director sebagai operator IT.
+Role `BUSINESS_REVIEWER`, `TECHNICAL_REVIEWER`, dan `QA_SECURITY` yang masih
+diminta release workflow lama adalah compatibility roles, bukan target akun
+organisasi. Jika flow lama harus diuji di staging, provision actor tersebut
+secara change-controlled dan tandai evidence sebagai compatibility UAT.
 
 ## Verification
 
-1. Open the staging URL and sign in using the password entered at the VPS prompt.
-2. Confirm that the dashboard shows the workspace, daily request/token/USD caps,
-   remaining quota, server-side model routing, and the latest safe run metadata.
-3. Change a test limit as a Director and confirm that `COST_LIMIT_UPDATED` appears
-   in the selected workspace audit trail.
-4. Sign out and ensure that the dashboard redirects to `/login`.
+1. Sign in sebagai IT operator dan pastikan hanya workspace/scope yang diberikan
+   yang terlihat.
+2. Periksa Factory proposal, exact version, dependency, generated tests, actual
+   eval evidence, permission, rollback target, dan audit.
+3. Sign in sebagai Director untuk final decision; pastikan maker/self-approval
+   material ditolak oleh backend.
+4. Verifikasi approve, release, dan activate tetap command terpisah.
+5. Sign out dan pastikan protected route kembali ke login.
 
 ## Operational boundary
 
-The dashboard exposes provider and model names because they are runtime policy.
-It does not expose provider credentials, raw model gateway headers, agent input,
-or agent output bodies. Only `DIRECTOR` and `IT_LEAD` can update a workspace
-budget; the API independently enforces this rule.
+Dashboard boleh menampilkan provider/model sebagai policy metadata, tetapi tidak
+API key, header, raw credential, atau data di luar scope. Disabled button dan
+hidden menu bukan RBAC evidence; verifikasi allow/deny pada API. Current budget
+update API menerima Director dan role compatibility `IT_LEAD`; target role
+mapping harus diubah melalui architectural review, bukan dokumentasi saja.

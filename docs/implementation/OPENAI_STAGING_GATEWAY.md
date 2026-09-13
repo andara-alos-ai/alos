@@ -1,5 +1,8 @@
 # OpenAI Staging Gateway
 
+Status: CURRENT IMPLEMENTATION provider-boundary validation. Untuk deployment
+Compose lengkap gunakan [staging runbook](../operations/STAGING_OPENAI_RUNBOOK.md).
+
 ## Boundary
 
 ALOS sends model traffic to OpenAI only through the shared Model Gateway. The
@@ -48,7 +51,10 @@ review are required to change a route.
    business documents or activate an agent at this point.
 5. Execute the synthetic validation matrix, including provider failure,
    malformed output, budget cap, blocked tool, kill switch, and rollback.
-6. Submit only a passing DRAFT through the normal human review lifecycle.
+6. Submit only the exact passing DRAFT through the enforced compatibility
+   lifecycle. Target organizational flow is IT review followed by Director
+   decision, as documented in the
+   [governance model](../governance/governance-model.md).
 
 ## Rollback
 

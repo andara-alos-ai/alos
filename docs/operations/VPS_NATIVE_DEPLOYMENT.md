@@ -1,23 +1,24 @@
-# ALOS Native VPS Deployment
+# Native production VPS deployment
 
-ALOS berjalan langsung pada VPS Linux melalui systemd. PostgreSQL dan object
-storage adalah layanan terkelola/eksternal; tidak ada service Docker yang
-diperlukan untuk runtime ini.
+Status: CURRENT IMPLEMENTATION runbook untuk topology native production.
 
-## Prasyarat
+ALOS berjalan langsung melalui systemd. PostgreSQL dan S3-compatible object
+storage adalah layanan eksternal; Caddy adalah reverse proxy host. Topology ini
+tidak memakai Compose service untuk runtime.
 
-- User sistem `alos` dan checkout release immutable pada `/opt/alos`.
-- Python 3.12, Node.js 22, pnpm, Caddy, dan virtual environment
-  `/opt/alos/.venv`.
-- PostgreSQL TLS terkelola, bucket S3-compatible, DNS publik, serta port
-  80/443 ke Caddy.
-- File `/etc/alos/alos.production.env`, owner `root:alos`, mode `0640`.
+## Prerequisites
 
-Environment harus memuat `ALOS_DATABASE_URL`, `ALOS_PUBLIC_HOST`,
-`ALOS_AUTH_SIGNING_SECRET`, dan seluruh konfigurasi object storage. Jangan
-menulis credential ke repository, systemd unit, atau journal.
+- User sistem `alos` dan exact immutable release checkout di `/opt/alos`.
+- Python 3.12, Node.js 22, pnpm, Caddy, dan `/opt/alos/.venv`.
+- PostgreSQL TLS eksternal, bucket S3-compatible, DNS, dan port 80/443.
+- `/etc/alos/alos.production.env`, owner `root:alos`, mode `0640`.
+- Backup/restore drill serta rollback commit telah diverifikasi sebelum change.
 
-## Rilis
+Gunakan `infra/environments/production/alos.production.env.example` sebagai
+daftar variable. Credential tidak boleh ditulis ke repository, unit systemd,
+shell history, atau journal.
+
+## Build and migrate
 
 ```bash
 sudo install -d -o alos -g alos /opt/alos/data
@@ -28,13 +29,20 @@ python3.12 -m venv .venv
 corepack enable
 pnpm install --frozen-lockfile
 pnpm --filter @andara/alos-web build
-sudo ALOS_PYTHON_BIN=/opt/alos/.venv/bin/python scripts/deployment/preflight-staging.sh /etc/alos/alos.production.env
+sudo env ALOS_DEPLOYMENT_MODE=native \
+  ALOS_PYTHON_BIN=/opt/alos/.venv/bin/python \
+  scripts/deployment/preflight-staging.sh /etc/alos/alos.production.env
 sudo -u alos bash -c 'set -a; source /etc/alos/alos.production.env; set +a; /opt/alos/.venv/bin/python -m alos.persistence.migrations'
 ```
 
-Install `infra/systemd/alos-*.service` into `/etc/systemd/system/`, install
-`infra/proxy/Caddyfile.vps` as Caddy configuration with the same environment,
-then activate:
+`ALOS_DEPLOYMENT_MODE=native` harus diberikan ke process preflight; nilai di
+environment file baru dibaca setelah pemilihan mode oleh script saat ini.
+
+## Activate services
+
+Install `infra/systemd/alos-platform.service`, `alos-worker.service`, dan
+`alos-scheduler.service` ke `/etc/systemd/system/`. Install
+`infra/proxy/Caddyfile.vps` sebagai Caddy configuration.
 
 ```bash
 sudo systemctl daemon-reload
@@ -43,10 +51,17 @@ sudo systemctl status alos-platform alos-worker alos-scheduler --no-pager
 curl --fail https://YOUR_HOST/health/ready
 ```
 
-## Operasi dan rollback
+Verifikasi juga `GET /api/v1/system/background-services`, audit, queue,
+scheduler heartbeat, object storage, dan satu synthetic scoped flow. Health
+endpoint saja bukan production readiness.
 
-Periksa `GET /api/v1/system/background-services` memakai role observability.
-Untuk rollback, deploy release Git sebelumnya yang telah diuji, jalankan migrasi
-append-only (tidak pernah downgrade schema), restart tiga service ALOS, lalu
-verifikasi health, heartbeat, dan audit. Restore database mengikuti
-[backup/restore](BACKUP_RESTORE.md) dan membutuhkan change approval.
+## Rollback
+
+Deploy exact prior known-good application release, jalankan migration runner
+tanpa schema downgrade, restart platform/worker/scheduler, lalu verifikasi
+health, heartbeat, active-version pointers, audit, dan queued work. Jangan
+restore database hanya untuk rollback aplikasi.
+
+Database restore adalah change-controlled incident action dan mengikuti
+[backup/restore](BACKUP_RESTORE.md). Hentikan writer sebelum restore, verifikasi
+checksum/compatibility, dan simpan actor, reason, time, serta evidence.
