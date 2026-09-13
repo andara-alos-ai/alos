@@ -80,7 +80,7 @@ def _contract(workspace_id: object, owner_user_id: object) -> AgentContract:
                 "citations": {"type": "array"},
             },
         },
-        model_policy={"provider": "openai", "max_output_tokens": 300},
+        model_policy={"max_output_tokens": 300},
         tool_keys=["FIXTURE_SOURCE_READ"],
         permission_keys=[],
         evidence_requirements=["fixture reference"],

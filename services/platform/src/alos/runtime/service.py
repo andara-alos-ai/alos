@@ -37,6 +37,11 @@ from alos.runtime.agentic import (
     ExecutionStatus,
     PydanticAgenticEngine,
 )
+from alos.runtime.context.builder import (
+    conservative_input_token_bound as _conservative_input_token_bound,
+)
+from alos.runtime.context.builder import estimated_context_tokens as _estimated_context_tokens
+from alos.runtime.context.builder import model_input_text as _model_input_text
 from alos.runtime.errors import (
     AgentRuntimeBlocked,
     AgentRuntimeError,
@@ -54,11 +59,8 @@ from alos.runtime.models import (
     WorkspaceUsageSummary,
 )
 from alos.runtime.policy import (
-    _conservative_input_token_bound,
     _contract_classification,
     _digest,
-    _estimated_context_tokens,
-    _model_input_text,
     _model_instructions,
     _parse_and_validate_output,
     _read_only_fixture,

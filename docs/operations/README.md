@@ -2,6 +2,8 @@
 
 Runbook aktif:
 
+- [Incident response](incident-response.md)
+- [Observability](observability.md)
 - [Native production VPS deployment](VPS_NATIVE_DEPLOYMENT.md)
 - [Staging OpenAI/Compose runbook](STAGING_OPENAI_RUNBOOK.md)
 - [OpenAI gateway validation](../implementation/OPENAI_STAGING_GATEWAY.md)

@@ -12,32 +12,32 @@ from alos.agents.registry import (
     AgentRegistryRepository,
     DeterministicAgentDraftGenerator,
 )
-from alos.audit.reader import AuditReader
-from alos.config import get_settings
-from alos.documents.center import DocumentCenterRepository
-from alos.executive_dashboard import ExecutiveDashboardRepository
-from alos.genesis.document_analysis import GenesisDocumentAnalysisService
-from alos.genesis.document_workflow import GenesisDocumentWorkflowRepository
-from alos.genesis.follow_up import GenesisFollowUpRepository, GenesisFollowUpService
-from alos.genesis.history import GenesisHistoryRepository
-from alos.genesis.semantic_analysis import (
+from alos.ara.assistance.document_analysis import GenesisDocumentAnalysisService
+from alos.ara.assistance.document_workflow import GenesisDocumentWorkflowRepository
+from alos.ara.assistance.follow_up import GenesisFollowUpRepository, GenesisFollowUpService
+from alos.ara.assistance.semantic_analysis import (
     GenesisSemanticAnalysisRepository,
     GenesisSemanticAnalyzer,
 )
-from alos.genesis.uploads import (
+from alos.ara.assistance.uploads import (
     FilesystemGenesisUploadStorage,
     GenesisUploadRepository,
     GenesisUploadService,
     S3GenesisUploadStorage,
 )
+from alos.ara.conversations.repository import GenesisHistoryRepository
+from alos.audit.reader import AuditReader
+from alos.config import get_settings
+from alos.documents.center import DocumentCenterRepository
+from alos.executive_dashboard import ExecutiveDashboardRepository
 from alos.identity.authentication import IdentityAuthenticationRepository
 from alos.model_gateway import (
     GuardedModelGateway,
     ModelGatewayPolicyError,
     RetryingModelGateway,
     UsageBudget,
+    create_model_gateway,
 )
-from alos.model_gateway_factory import create_model_gateway
 from alos.permissions.registry import PermissionRegistryRepository
 from alos.portfolio import PortfolioRepository
 from alos.release.governance import ReleaseGovernanceRepository

@@ -10,8 +10,7 @@ from uuid import uuid4
 import pytest
 from starlette.datastructures import UploadFile
 
-from alos.config import Settings
-from alos.genesis.uploads import (
+from alos.ara.assistance.uploads import (
     DraftableGenesisUpload,
     FilesystemGenesisUploadStorage,
     GenesisUploadDocumentDraftRequest,
@@ -22,6 +21,7 @@ from alos.genesis.uploads import (
     _validate_upload_filename,
     _validate_uploaded_content,
 )
+from alos.config import Settings
 
 
 def test_plain_text_json_and_csv_are_extracted_without_running_uploaded_content(

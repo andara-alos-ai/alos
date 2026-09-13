@@ -32,7 +32,17 @@
     "owner_user_id": {"type": "string", "format": "uuid"},
     "input_schema": {"type": "object"},
     "output_schema": {"type": "object"},
-    "model_policy": {"type": "object"},
+    "model_policy": {
+      "type": "object",
+      "properties": {
+        "model_route": {"enum": ["light", "standard", "critical"]},
+        "execution_engine": {"type": "string"},
+        "data_classification": {
+          "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"]
+        },
+        "max_output_tokens": {"type": "integer", "minimum": 1}
+      }
+    },
     "tool_keys": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "permission_keys": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "evidence_requirements": {"type": "array", "items": {"type": "string"}},

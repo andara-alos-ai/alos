@@ -17,8 +17,12 @@ from psycopg.rows import dict_row
 from alos.config import Settings, get_settings
 from alos.identity import DataScope, DivisionCode, HumanRole
 from alos.jobs.repository import JobEnqueueRequest, JobQueueError, JobQueueRepository, JobRecord
-from alos.model_gateway import GuardedModelGateway, RetryingModelGateway, UsageBudget
-from alos.model_gateway_factory import create_model_gateway
+from alos.model_gateway import (
+    GuardedModelGateway,
+    RetryingModelGateway,
+    UsageBudget,
+    create_model_gateway,
+)
 from alos.operational.models import ReportGenerateRequest
 from alos.operational.repository import OperationalRepository
 from alos.persistence.database import psycopg_url

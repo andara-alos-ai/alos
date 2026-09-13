@@ -33,13 +33,9 @@ workspace juga selalu divalidasi.
 
 ## ModelGateway
 
-Adapter runtime yang tersedia hanya:
-
-- OpenAI untuk environment yang mengizinkannya;
-- Gemini untuk `local`/`test`.
-
-Production hanya menerima `disabled` atau OpenAI. Nilai konfigurasi provider
-lain tidak berarti adapter tersedia. Contract memilih route `light`,
+OpenAI adalah adapter runtime yang tersedia saat ini; `disabled` adalah default
+fail-closed. Nilai konfigurasi provider lain tidak berarti adapter tersedia.
+Contract memilih route `light`,
 `standard`, atau `critical`; mapping ke model mentah hanya berasal dari
 configuration backend.
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 from decimal import Decimal
-from math import ceil
 from typing import Any, Literal, cast
 
 from alos.agents.registry import AgentContract
@@ -13,7 +12,6 @@ from alos.config import Settings
 from alos.model_gateway import DataClassification
 from alos.runtime.agentic import ExecutionLimits
 from alos.runtime.errors import AgentRuntimeBlocked, InputSchemaError, OutputSchemaError
-from alos.runtime.models import AgentRunRequest
 
 
 def _resolve_model_policy(
@@ -115,29 +113,6 @@ def _model_instructions(contract: AgentContract) -> str:
         "The JSON must conform to this output schema: "
         f"{json.dumps(contract.output_schema, ensure_ascii=False)}"
     )
-
-
-def _model_input_text(
-    request: AgentRunRequest, fixture_context: tuple[dict[str, Any], ...] | list[dict[str, Any]]
-) -> str:
-    return json.dumps(
-        {"input": request.input, "read_only_fixture_context": fixture_context},
-        ensure_ascii=False,
-    )
-
-
-def _conservative_input_token_bound(instructions: str, input_text: str) -> int:
-    """Upper-bound text tokens by UTF-8 bytes before a provider call.
-
-    This intentionally over-reserves budget; a token cannot represent an empty
-    byte sequence, so it cannot understate the user-controlled textual input.
-    """
-    return len((instructions + input_text).encode("utf-8"))
-
-
-def _estimated_context_tokens(instructions: str, input_text: str) -> int:
-    """Estimate context use before a provider call using a documented heuristic."""
-    return max(1, ceil(len((instructions + input_text).encode("utf-8")) / 4))
 
 
 def _parse_and_validate_output(value: str, schema: dict[str, Any]) -> dict[str, Any]:

@@ -12,14 +12,15 @@ mengoperasikan ALOS/GENESIS. Klaim status memakai tiga label:
 ## Urutan baca kanonik
 
 1. [System overview](architecture/system-overview.md)
-2. [GENESIS Capability/Agent Factory](architecture/genesis-agent-factory.md)
-3. [Agent Runtime](architecture/agent-runtime.md)
-4. [Governance model](governance/governance-model.md)
-5. [Roles and access](governance/roles-and-access.md)
-6. [Agent lifecycle](governance/agent-lifecycle.md)
-7. [Team ownership](development/team-ownership.md)
-8. [Architecture change policy](development/architecture-change-policy.md)
-9. [Branch strategy](development/branch-strategy.md)
+2. [ARA boundary](architecture/ara.md)
+3. [Capability model](architecture/capability-model.md)
+4. [GENESIS Capability/Agent Factory](architecture/genesis-agent-factory.md)
+5. [ModelGateway](architecture/model-gateway.md)
+6. [Agent Runtime](architecture/agent-runtime.md)
+7. [Context Runtime](architecture/context-runtime.md)
+8. [Governance model](governance/governance-model.md)
+9. [Security model](security/security-model.md)
+10. [Development guides](development/README.md)
 
 ## Status ringkas
 

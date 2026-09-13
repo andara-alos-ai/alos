@@ -30,8 +30,8 @@ from alos.model_gateway import (
     ModelGatewayPolicyError,
     RetryingModelGateway,
     UsageBudget,
+    create_model_gateway,
 )
-from alos.model_gateway_factory import create_model_gateway
 from alos.release.governance import ReleaseGovernanceError, ReleaseGovernanceRepository
 from alos.runtime.agentic import (
     ALOSModelAdapter,

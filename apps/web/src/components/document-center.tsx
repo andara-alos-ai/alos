@@ -720,9 +720,7 @@ function numberValue(value: unknown): number | null {
 }
 
 function providerValue(value: unknown): NonNullable<GenesisDocumentAnalysisResult["semantic"]>["provider"] {
-  return ["openai", "anthropic", "gemini", "local", "fake"].includes(String(value))
-    ? String(value) as NonNullable<GenesisDocumentAnalysisResult["semantic"]>["provider"]
-    : "openai";
+  return stringValue(value) ?? "unknown";
 }
 
 type DocumentDetailPanelProps = {

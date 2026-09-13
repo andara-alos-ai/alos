@@ -13,7 +13,7 @@ from alos.model_gateway import (
     ModelResponse,
     UsageBudget,
 )
-from alos.openai_gateway import OpenAIModelGateway
+from alos.model_gateway.providers.openai import OpenAIModelGateway
 
 _SMOKE_MAX_OUTPUT_TOKENS = 512
 _SMOKE_PROMPT = "Return exactly this JSON: {\"status\":\"openai_smoke_ok\"}."

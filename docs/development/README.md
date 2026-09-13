@@ -47,6 +47,8 @@ menghapus database uji turunan.
 
 ## Engineering guides
 
+- [Coding standards](coding-standards.md)
+- [Testing strategy](testing-strategy.md)
 - [Team ownership](team-ownership.md)
 - [Architecture change policy](architecture-change-policy.md)
 - [Branch strategy](branch-strategy.md)

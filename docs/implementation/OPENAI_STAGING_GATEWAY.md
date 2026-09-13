@@ -58,6 +58,5 @@ review are required to change a route.
 
 ## Rollback
 
-Set `ALOS_LLM_PROVIDER=disabled` to stop provider traffic, or restore
-`ALOS_LLM_PROVIDER=gemini` only for local/test. The Agent Runtime will refuse
-the unsupported provider state rather than bypassing its guardrails.
+Set `ALOS_LLM_PROVIDER=disabled` to stop provider traffic. The Agent Runtime
+refuses any unregistered provider state rather than bypassing its guardrails.

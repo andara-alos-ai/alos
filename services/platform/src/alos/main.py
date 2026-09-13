@@ -15,6 +15,44 @@ from alos.agents.registry import (
     LocalBootstrapRequest,
 )
 from alos.agents.validation_catalog import validation_agent_requests
+from alos.ara.assistance.document_analysis import (
+    GenesisDocumentAnalysisError,
+    GenesisDocumentAnalysisRequest,
+    GenesisDocumentAnalysisResult,
+    GenesisDocumentWorkflowStageResult,
+)
+from alos.ara.assistance.document_workflow import (
+    GenesisAgentProposalRequest,
+    GenesisApprovalHandoffRequest,
+    GenesisCompletionDraftRequest,
+    GenesisDocumentResearchRequest,
+    GenesisDocumentWorkflowConflictError,
+    GenesisDocumentWorkflowError,
+    GenesisDocumentWorkflowNotFoundError,
+    GenesisDocumentWorkflowRecord,
+)
+from alos.ara.assistance.follow_up import (
+    GenesisFollowUpBlocked,
+    GenesisFollowUpErrorResponse,
+    GenesisFollowUpFailed,
+    GenesisFollowUpRequest,
+    GenesisFollowUpResponse,
+)
+from alos.ara.assistance.uploads import (
+    GenesisUploadConflictError,
+    GenesisUploadDocumentDraftRequest,
+    GenesisUploadError,
+    GenesisUploadNotFoundError,
+    GenesisUploadRecord,
+)
+from alos.ara.conversations.repository import (
+    GenesisArtifactRecord,
+    GenesisConversationRecord,
+    GenesisConversationRequest,
+    GenesisHistoryError,
+    GenesisMessageRecord,
+    GenesisMessageRequest,
+)
 from alos.audit.reader import AuditEventRecord
 from alos.authorization import can_govern_agents, require_tenant
 from alos.config import get_settings
@@ -62,44 +100,6 @@ from alos.entrypoints.projects_api import router as projects_router
 from alos.entrypoints.readiness_api import router as readiness_router
 from alos.entrypoints.system_api import router as system_router
 from alos.genesis.agent_designer import AgentDesignRequest, GenesisAgentDesignerError
-from alos.genesis.document_analysis import (
-    GenesisDocumentAnalysisError,
-    GenesisDocumentAnalysisRequest,
-    GenesisDocumentAnalysisResult,
-    GenesisDocumentWorkflowStageResult,
-)
-from alos.genesis.document_workflow import (
-    GenesisAgentProposalRequest,
-    GenesisApprovalHandoffRequest,
-    GenesisCompletionDraftRequest,
-    GenesisDocumentResearchRequest,
-    GenesisDocumentWorkflowConflictError,
-    GenesisDocumentWorkflowError,
-    GenesisDocumentWorkflowNotFoundError,
-    GenesisDocumentWorkflowRecord,
-)
-from alos.genesis.follow_up import (
-    GenesisFollowUpBlocked,
-    GenesisFollowUpErrorResponse,
-    GenesisFollowUpFailed,
-    GenesisFollowUpRequest,
-    GenesisFollowUpResponse,
-)
-from alos.genesis.history import (
-    GenesisArtifactRecord,
-    GenesisConversationRecord,
-    GenesisConversationRequest,
-    GenesisHistoryError,
-    GenesisMessageRecord,
-    GenesisMessageRequest,
-)
-from alos.genesis.uploads import (
-    GenesisUploadConflictError,
-    GenesisUploadDocumentDraftRequest,
-    GenesisUploadError,
-    GenesisUploadNotFoundError,
-    GenesisUploadRecord,
-)
 from alos.identity import DivisionCode, HumanRole
 from alos.permissions.registry import (
     PermissionConflictError,

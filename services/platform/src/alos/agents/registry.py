@@ -41,7 +41,7 @@ class AgentConflictError(AgentRegistryError):
 
 
 class AgentBuilderRequest(BaseModel):
-    """Human-controlled Builder inputs; Gemini never chooses these controls."""
+    """Human-controlled Builder inputs; Model provider never chooses these controls."""
 
     model_config = ConfigDict(extra="forbid")
 

@@ -40,9 +40,9 @@ transition dilakukan backend.
 - Shared runtime memilih exact Agent Version, memeriksa scope, lifecycle,
   permission, tool, budget, source/evidence, kill switch, serta cancellation,
   kemudian mencatat run dan audit.
-- `ModelGateway` memiliki adapter OpenAI dan Gemini. Gemini dibatasi ke
-  `local`/`test`; production hanya mengizinkan `disabled` atau OpenAI. Nilai
-  konfigurasi provider lain bukan bukti adapter runtime.
+- `ModelGateway` memiliki registry/factory provider dengan OpenAI sebagai adapter
+  aktif saat ini. `disabled` adalah default fail-closed; nilai konfigurasi provider
+  lain bukan bukti bahwa adapter telah diregistrasi atau disetujui.
 - `ToolExecutor` menjalankan handler typed yang terdaftar dan approved; agent
   tidak mendapat akses langsung ke database, credential, filesystem, SDK
   provider, atau HTTP bebas.

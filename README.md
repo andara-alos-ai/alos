@@ -1,82 +1,114 @@
-# ALOS / GENESIS
+# ALOS
 
-ALOS adalah satu enterprise platform untuk operasi perusahaan. Di dalam ALOS,
-**ARA** adalah AI workspace yang dipakai user, sedangkan **GENESIS** adalah AI
-control plane, Capability/Agent Factory, dan pengelola shared runtime. Agent,
-skill, workflow, serta capability lain bukan aplikasi atau service terpisah.
+ALOS adalah enterprise operating platform PT Andara Rejo Makmur. Repository ini
+menampung satu platform dalam bentuk **monorepo + modular monolith**: aplikasi web,
+backend, runtime AI, governance, definitions, persistence, dan deployment foundation.
 
-## Arsitektur singkat
+**ARA** adalah AI workspace yang berhadapan langsung dengan user: percakapan,
+contextual assistance, pencarian, drafting, dan bantuan dokumen. **GENESIS** adalah AI
+control plane serta Capability/Agent Factory: menganalisis kebutuhan, memilih bentuk
+capability, menghasilkan DRAFT, mengumpulkan evidence validasi, dan menyerahkan versi
+tepat ke governance. GENESIS bukan chatbot, role manusia, Director, atau pemegang
+otoritas bisnis final.
 
-| Lapisan | Tanggung jawab | Implementasi saat ini |
-| --- | --- | --- |
-| ARA | Workspace AI untuk percakapan, konteks, dan pekerjaan user | Presentasi web tersedia; integrasi penuh ARA dengan API masih target |
-| GENESIS | Analisis requirement, resolusi capability, draft, evidence, dan governance handoff | Factory persisten tersedia; handoff release baru lengkap untuk proposal yang memuat Agent |
-| Platform | Enforcement, API, registry, governance, runtime, audit, job | FastAPI modular monolith |
-| Data | State transaksional dan traceability | Satu PostgreSQL dengan migration append-only |
-| Presentation | UI ARA, Factory, governance, registry, dan operasi | Next.js; bukan security boundary |
-
-Model hanya dipanggil melalui `ModelGateway`; tool hanya dieksekusi melalui
-`ToolExecutor`. Adapter runtime yang ada adalah OpenAI serta Gemini
-(`local`/`test` saja). Tidak ada adapter runtime Anthropic atau local model.
-
-## Factory lifecycle
+## Arsitektur dan dependency direction
 
 ```text
-Requirement
-→ GENESIS Analyze
-→ Resolve capability
-→ Generate DRAFT
-→ automated validation/test/eval/security
-→ IT Review
-→ Submit to Director
-→ Director APPROVE / REJECT
-→ Release
-→ Active
-→ Monitor / Suspend / Rollback
+User → Operational UI / ARA → ALOS Backend
+                               ├─ Identity, RBAC, Scope
+                               ├─ Operational Domains
+                               ├─ GENESIS Factory
+                               ├─ Capability Registry / Skills / Memory
+                               ├─ Shared Agent Runtime
+                               ├─ ModelGateway → Provider Adapter
+                               └─ ToolExecutor → Approved Execution Backend
 ```
 
-`CREATE`/`DRAFT`, `APPROVE`, `RELEASE`, dan `ACTIVE` adalah keputusan berbeda.
-GENESIS tidak boleh self-approve atau self-release. Target organisasi hanya
-mewajibkan Divisi IT sebagai technical/operator reviewer dan Director sebagai
-pengambil keputusan final. Backend branch saat ini masih mempertahankan
-workflow release legacy lima-duty untuk kompatibilitas; lihat
-[governance model](docs/governance/governance-model.md).
+Factory bersifat **capability-first**. Requirement dapat diselesaikan sebagai Agent,
+Skill, Workflow, Rule, Validator, Report, Human Task, Schedule, Event Handler,
+connector/tool requirement, atau composite. Agent dipilih hanya bila reasoning atau
+autonomy diperlukan. Agent bukan package/aplikasi tersendiri, melainkan logical,
+versioned artifact yang terdiri dari Contract, prompt, logical model route, Skill,
+Tool, permission, scope, test/eval, dan runtime configuration. Semua Agent memakai
+shared Agent Runtime.
 
-## Security boundaries
+Boundary platform:
 
-- Backend adalah enforcement authority; UI hanya presentation dan workflow aid.
-- Organization, workspace, division, project, serta tenant scope divalidasi
-  server-side.
-- Tool, permission, model route, budget, lifecycle, kill switch, cancellation,
-  release, dan rollback ditegakkan deterministik.
-- Maker tidak boleh menyetujui perubahan material buatannya sendiri.
-- Review/reject terikat version; active version dan rollback target harus tepat.
-- Release, version, evidence, rollback, dan audit harus dapat ditelusuri.
+- `capabilities/` adalah katalog authoritative untuk availability, backing tool,
+  scope, risk, classification, configuration, dan lifecycle capability.
+- `skills/` mengelola Skill berversi dan hanya memuat versi ACTIVE yang authorized.
+- `memory/` menyimpan dan mengambil memory dengan organization/workspace/tenant serta
+  optional division/project scope, classification, retention, expiry, dan lineage.
+- `runtime/` menegakkan contract, context budget, tool policy, delegation, audit,
+  cancellation, dan execution limit tanpa mengetahui SDK provider.
+- `model_gateway/` memetakan logical route `light`, `standard`, atau `critical` ke
+  provider/model server-side. OpenAI adalah adapter aktif saat ini; provider baru
+  ditambahkan melalui adapter dan registry, bukan melalui perubahan Runtime/Factory.
+- `tools/` adalah satu-satunya jalur eksekusi Tool. PydanticAI hanya berinteraksi
+  melalui ALOS adapter dan `ToolExecutor`.
+- `release/` menjaga evidence, keputusan manusia, release, active version, suspend,
+  dan rollback. Automated validation bukan human approval.
 
-## Repository map
+Lifecycle governance memisahkan `CREATE/DRAFT`, `APPROVE`, `RELEASE`, dan `ACTIVE`.
+Target organisasi adalah automated validation → IT Review → Director decision →
+Release → Active. Backend legacy multi-duty tetap dipertahankan sebagai compatibility
+behavior sampai migrasi terpisah selesai.
+
+## Prinsip keamanan inti
+
+- Backend adalah enforcement authority; UI dan LLM bukan permission engine.
+- Permission, RBAC, scope, classification, budget, dan lifecycle divalidasi server-side.
+- Semua provider model melalui `ModelGateway`; semua Tool/connector melalui `ToolExecutor`.
+- Child delegation tidak boleh memperluas scope, permission, Tool, atau budget parent.
+- Material change tidak boleh self-approve dan semua execution material harus auditable.
+- Secret, production data, dan dokumen rahasia tidak boleh masuk repository.
+
+## Peta repository
 
 ```text
-apps/web/                 Next.js presentation
-services/platform/        FastAPI platform, GENESIS, governance, runtime
-infra/database/           migration 001-036 (immutable)
-infra/compose/            local, staging, dan production Compose manifests
-infra/systemd/            native VPS services
-infra/proxy/              Caddy configuration
-definitions/              versioned declarative contracts
-scripts/                  database, deployment, dan validation utilities
-docs/                     dokumentasi teknis kanonik dan archive
+.github/                  governance, templates, dependency updates, quality CI
+apps/web/                 Next.js presentation layer
+services/platform/src/alos/
+  ara/                    user-facing AI workspace
+  genesis/factory/        capability-first control plane
+  capabilities/           authoritative capability catalog
+  skills/                 governed Skill versions
+  memory/                 scoped semantic memory
+  runtime/                shared Agent Runtime and context/delegation boundaries
+  model_gateway/          routes, policy, pricing, factory, provider adapters
+  tools/                  registry and enforced execution
+  release/                governance and release lifecycle
+  jobs/                   scheduler, worker, long-running work foundation
+  persistence/            database connection and migration runner
+definitions/              declarative, versioned contracts (tanpa dummy definition)
+infra/database/           immutable append-only SQL migrations
+infra/                    Compose, Docker, proxy, environment, systemd
+scripts/                  database, deployment, and validation utilities
+data/                     synthetic/sanitized development and test artifacts only
+docs/                     active technical docs and preserved archive
 ```
 
-Branch pengembangan aktif: **`epic/genesis-agent-factory`**. Branch `develop`
-hanya comparison baseline lama untuk lesson learned governance/UAT, bukan
-branch aktif pekerjaan ini. Migration `001`–`036` tidak boleh diubah atau
-di-rename; migration baru harus append-only.
+## Technology stack
 
-## Local quality commands
+- Web: Next.js, React, TypeScript, Vitest, ESLint.
+- Platform: Python 3.12+, FastAPI, Pydantic, PydanticAI, SQLAlchemy/psycopg.
+- Data: PostgreSQL + pgvector; SQL migration append-only.
+- Delivery: pnpm workspace, Docker/Compose, Caddy, systemd, GitHub Actions.
 
-Setelah dependency terpasang (`pnpm install --frozen-lockfile` dan
-`python -m pip install -e "services/platform[dev]"`), jalankan dari repository
-root:
+## Local development
+
+Prasyarat: Node.js 22+, pnpm 11, Python 3.12, dan PostgreSQL/pgvector untuk
+integration test. Salin `.env.example` menjadi `.env` dan isi hanya credential lokal;
+`.env` tidak boleh di-commit.
+
+```powershell
+pnpm install --frozen-lockfile
+python -m pip install -e "services/platform[dev]"
+pnpm dev:web
+pnpm dev:api
+```
+
+Quality gate:
 
 ```powershell
 pnpm lint
@@ -85,18 +117,22 @@ pnpm test
 pnpm build
 ```
 
-Untuk integration test PostgreSQL, hidupkan service lokal, set
-`ALOS_RUN_POSTGRES_TESTS=1`, lalu jalankan:
+Untuk PostgreSQL integration test, gunakan disposable database, set
+`ALOS_RUN_POSTGRES_TESTS=1`, jalankan fresh migration, lalu backend suite. Migration
+existing tidak boleh diubah/rename; migration baru harus append-only.
 
-```powershell
-python -m pytest services/platform/tests
-```
+## Dokumentasi, data, dan branch
 
-Detail setup dan quality gate ada di
-[panduan development](docs/development/README.md).
+Mulai dari [peta dokumentasi](docs/README.md), [system overview](docs/architecture/system-overview.md),
+[ARA](docs/architecture/ara.md), [capability model](docs/architecture/capability-model.md),
+[ModelGateway](docs/architecture/model-gateway.md), [context runtime](docs/architecture/context-runtime.md),
+dan [security model](docs/security/security-model.md). Dokumen archive adalah historical
+evidence, bukan status implementasi aktif.
 
-Mulai dari [peta dokumentasi kanonik](docs/README.md), lalu baca
-[system overview](docs/architecture/system-overview.md),
-[GENESIS Factory](docs/architecture/genesis-agent-factory.md),
-[Agent Runtime](docs/architecture/agent-runtime.md), dan
-[lifecycle governance](docs/governance/agent-lifecycle.md).
+Kebijakan data ada di [data/README.md](data/README.md). Branch
+`epic/genesis-agent-factory` adalah source of truth selama pekerjaan arsitektur ini;
+setelah PR disetujui, `main` menjadi canonical integration branch dan pekerjaan baru
+memakai short-lived feature branch.
+
+Repository ini dilisensikan dengan [MIT License](LICENSE), Copyright (c) 2026
+PT Andara Rejo Makmur.

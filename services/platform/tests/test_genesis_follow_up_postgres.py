@@ -9,6 +9,22 @@ import pytest
 from psycopg import sql
 
 from alos.agents.registry import AgentRegistryRepository, LocalBootstrapRequest
+from alos.ara.assistance.document_analysis import (
+    GenesisDocumentAnalysisRequest,
+    GenesisDocumentAnalysisService,
+)
+from alos.ara.assistance.document_workflow import (
+    GenesisDocumentResearchRequest,
+    GenesisDocumentWorkflowRepository,
+)
+from alos.ara.assistance.follow_up import (
+    GenesisFollowUpBlocked,
+    GenesisFollowUpFailed,
+    GenesisFollowUpRepository,
+    GenesisFollowUpRequest,
+    GenesisFollowUpService,
+)
+from alos.ara.conversations.repository import GenesisHistoryRepository
 from alos.audit.reader import AuditReader
 from alos.config import Settings, get_settings
 from alos.documents.center import (
@@ -17,22 +33,6 @@ from alos.documents.center import (
     DocumentDraftRequest,
     DocumentReviewDecisionRequest,
 )
-from alos.genesis.document_analysis import (
-    GenesisDocumentAnalysisRequest,
-    GenesisDocumentAnalysisService,
-)
-from alos.genesis.document_workflow import (
-    GenesisDocumentResearchRequest,
-    GenesisDocumentWorkflowRepository,
-)
-from alos.genesis.follow_up import (
-    GenesisFollowUpBlocked,
-    GenesisFollowUpFailed,
-    GenesisFollowUpRepository,
-    GenesisFollowUpRequest,
-    GenesisFollowUpService,
-)
-from alos.genesis.history import GenesisHistoryRepository
 from alos.model_gateway import FakeModelGateway, ModelGateway, ModelResponse, ModelUsage
 from alos.persistence.database import psycopg_url
 from alos.persistence.migrations import apply_migrations

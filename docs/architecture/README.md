@@ -3,6 +3,10 @@
 Dokumen aktif:
 
 - [System overview](system-overview.md)
+- [ARA boundary](ara.md)
+- [Capability model](capability-model.md)
+- [ModelGateway](model-gateway.md)
+- [Context Runtime](context-runtime.md)
 - [GENESIS Capability/Agent Factory](genesis-agent-factory.md)
 - [Shared Agent Runtime](agent-runtime.md)
 

@@ -50,7 +50,7 @@ def test_persistent_cancel_request_is_queryable_across_repository_instances() ->
                     "required": ["summary"],
                     "properties": {"summary": {"type": "string"}},
                 },
-                model_policy={"provider": "gemini", "max_output_tokens": 256},
+                model_policy={"max_output_tokens": 256},
                 tool_keys=[],
                 permission_keys=[],
                 evidence_requirements=["cancellation fixture"],

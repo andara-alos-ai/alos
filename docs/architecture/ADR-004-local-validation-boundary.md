@@ -11,9 +11,10 @@ hasil uji sebagai approval atau production readiness.
 
 ## Decision
 
-- `local`/`test` dapat memakai Gemini dan bootstrap identity khusus development.
-- Staging/production menolak Gemini. Adapter OpenAI atau provider `disabled`
-  adalah konfigurasi yang valid sesuai environment policy.
+- `local`/`test` memakai provider `disabled`, fake gateway yang di-inject oleh test,
+  atau adapter yang benar-benar terdaftar; fake gateway bukan konfigurasi runtime.
+- Staging/production saat ini hanya menerima adapter OpenAI yang disetujui atau
+  provider `disabled`.
 - Runtime test-mode dapat menjalankan exact Agent Version `DRAFT` di local,
   test, atau staging untuk menghasilkan evidence. Bila exact version tidak
   diberikan, version `ACTIVE` diprioritaskan.

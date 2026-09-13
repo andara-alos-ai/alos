@@ -5,9 +5,15 @@ import httpx
 import pytest
 
 from alos.config import Settings
-from alos.model_gateway import ModelGatewayError, ModelGatewayTimeoutError, ModelRequest
-from alos.model_gateway_factory import create_model_gateway
-from alos.openai_gateway import OpenAIModelGateway
+from alos.model_gateway import (
+    ModelGatewayError,
+    ModelGatewayPolicyError,
+    ModelGatewayTimeoutError,
+    ModelRequest,
+    create_model_gateway,
+    registered_providers,
+)
+from alos.model_gateway.providers.openai import OpenAIModelGateway
 
 
 def openai_settings(**overrides: object) -> Settings:
@@ -150,3 +156,19 @@ def test_factory_selects_openai_gateway() -> None:
         assert isinstance(gateway, OpenAIModelGateway)
     finally:
         close()
+
+
+def test_factory_registry_exposes_only_implemented_adapters_and_fails_closed() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        auth_signing_secret="a" * 32,
+        llm_provider="future-provider",
+        llm_api_key="test-only-key",
+        llm_model="future-model",
+    )
+
+    assert registered_providers() == frozenset({"openai"})
+    with pytest.raises(ModelGatewayPolicyError) as raised:
+        create_model_gateway(settings)
+    assert raised.value.code == "PROVIDER_UNAVAILABLE"

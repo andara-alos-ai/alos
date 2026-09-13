@@ -50,9 +50,9 @@ ALOS_LLM_DAILY_OUTPUT_TOKEN_LIMIT=2400
 ALOS_LLM_DAILY_COST_CAP_USD=5.00
 ```
 
-OpenAI adalah adapter staging yang tersedia. Gemini ditolak pada staging dan
-hanya boleh dipakai di `local`/`test`. Tidak ada adapter runtime Anthropic atau
-local model; jangan mengonfigurasi nilai tersebut sebagai fallback aktif.
+OpenAI adalah adapter staging yang tersedia saat ini. Provider lain belum memiliki
+adapter runtime yang diregistrasi/disetujui; jangan mengonfigurasinya sebagai
+fallback aktif.
 
 Raw model name hanya berada pada environment backend. Agent Contract memilih
 route `light`, `standard`, atau `critical`. `store=false` adalah provider

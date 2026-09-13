@@ -84,7 +84,7 @@ def test_runtime_requires_actor_claim_and_factory_tenant_lineage() -> None:
                     "required": ["summary"],
                     "properties": {"summary": {"type": "string"}},
                 },
-                model_policy={"provider": "gemini", "max_output_tokens": 256},
+                model_policy={"max_output_tokens": 256},
                 tool_keys=[],
                 permission_keys=[],
                 evidence_requirements=["tenant run fixture"],
@@ -148,9 +148,9 @@ def test_runtime_requires_actor_claim_and_factory_tenant_lineage() -> None:
             environment="test",
             database_url=temporary_url,
             auth_signing_secret="a" * 32,
-            llm_provider="gemini",
+            llm_provider="openai",
             llm_api_key="test-only-key",
-            llm_model="gemini-3.7-flash",
+            llm_model="gpt-5.6-luna",
             llm_max_output_tokens=256,
             llm_daily_request_limit=10,
             llm_daily_output_token_limit=3_000,
@@ -161,8 +161,8 @@ def test_runtime_requires_actor_claim_and_factory_tenant_lineage() -> None:
                 FakeModelGateway(
                     [
                         ModelResponse(
-                            provider="gemini",
-                            model="gemini-3.7-flash",
+                            provider="openai",
+                            model="gpt-5.6-luna",
                             output_text='{"summary":"tenant A fixture"}',
                             usage=ModelUsage(input_tokens=5, output_tokens=5),
                             latency_milliseconds=1,

@@ -1,0 +1,45 @@
+name: Architecture change
+description: Usulkan perubahan boundary, dependency direction, atau platform foundation.
+title: "[Architecture]: "
+labels: [architecture]
+body:
+  - type: textarea
+    id: context
+    attributes: {label: Context}
+    validations: {required: true}
+  - type: textarea
+    id: limitation
+    attributes: {label: Current limitation}
+    validations: {required: true}
+  - type: textarea
+    id: proposal
+    attributes: {label: Proposed change}
+    validations: {required: true}
+  - type: textarea
+    id: boundaries
+    attributes: {label: Affected boundaries}
+    validations: {required: true}
+  - type: textarea
+    id: security
+    attributes: {label: Security impact}
+    validations: {required: true}
+  - type: textarea
+    id: data
+    attributes: {label: Data impact}
+    validations: {required: true}
+  - type: textarea
+    id: compatibility
+    attributes: {label: Compatibility impact}
+    validations: {required: true}
+  - type: textarea
+    id: migration
+    attributes: {label: Migration plan}
+    validations: {required: true}
+  - type: textarea
+    id: tests
+    attributes: {label: Test plan}
+    validations: {required: true}
+  - type: textarea
+    id: rollback
+    attributes: {label: Rollback plan}
+    validations: {required: true}

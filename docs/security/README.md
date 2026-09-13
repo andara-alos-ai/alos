@@ -2,6 +2,7 @@
 
 Security model kanonik berada pada:
 
+- [Security model](security-model.md)
 - [Governance model](../governance/governance-model.md)
 - [Roles and access](../governance/roles-and-access.md)
 - [Agent lifecycle](../governance/agent-lifecycle.md)

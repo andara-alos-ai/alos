@@ -9,8 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from alos import main
-from alos.config import Settings
-from alos.genesis.follow_up import (
+from alos.ara.assistance.follow_up import (
     GenesisFollowUpBlocked,
     GenesisFollowUpFailed,
     GenesisFollowUpModelExecution,
@@ -24,7 +23,8 @@ from alos.genesis.follow_up import (
     _PreparedFollowUp,
     build_follow_up_input,
 )
-from alos.genesis.history import GenesisMessageRecord
+from alos.ara.conversations.repository import GenesisMessageRecord
+from alos.config import Settings
 from alos.identity import HumanRole
 from alos.main import app
 from alos.model_gateway import FakeModelGateway, ModelGateway, ModelResponse, ModelUsage

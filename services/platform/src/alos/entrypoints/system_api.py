@@ -6,8 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
+from alos.ara.assistance.uploads import object_storage_is_ready
 from alos.config import get_settings
-from alos.genesis.uploads import object_storage_is_ready
 from alos.identity.authentication import (
     AuthenticationError,
     AuthenticationPrincipal,
