@@ -566,6 +566,7 @@ def test_release_lifecycle_enforces_sod_kill_switch_and_rollback() -> None:
                 "RELEASED",
                 "ACTIVE",
                 "SUSPENDED",
+                "ACTIVE",
                 "ROLLED_BACK",
             ]
             audit_actions = {
