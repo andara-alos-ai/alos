@@ -1,6 +1,10 @@
 """Stable public surface for the provider-neutral ALOS ModelGateway."""
 
-from alos.model_gateway.factory import create_model_gateway, registered_providers
+from alos.model_gateway.factory import (
+    create_guarded_model_gateway,
+    create_model_gateway,
+    registered_providers,
+)
 from alos.model_gateway.gateway import (
     FakeModelGateway,
     ModelGateway,
@@ -25,5 +29,5 @@ __all__ = [
     "ModelGateway", "ModelGatewayBudgetError", "ModelGatewayError",
     "ModelGatewayPolicyError", "ModelGatewayTimeoutError", "ModelRequest",
     "ModelResponse", "ModelRoute", "ModelUsage", "RetryingModelGateway", "UsageBudget",
-    "create_model_gateway", "registered_providers",
+    "create_guarded_model_gateway", "create_model_gateway", "registered_providers",
 ]

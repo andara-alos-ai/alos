@@ -11,8 +11,13 @@ from psycopg import sql
 from alos import main
 from alos.audit.reader import AuditReader
 from alos.config import Settings
-from alos.identity.authentication import BootstrapError, IdentityAuthenticationRepository
-from alos.identity.models import HumanRole
+from alos.identity.authentication import (
+    BootstrapError,
+    IdentityAuthenticationRepository,
+    PasswordLoginRequest,
+    RegisterUserRequest,
+)
+from alos.identity.models import DivisionCode, HumanRole
 from alos.persistence.database import psycopg_url
 from alos.persistence.migrations import apply_migrations
 from alos.security import tokens
@@ -38,6 +43,57 @@ def _settings(database_url: str) -> Settings:
         llm_daily_cost_cap_usd=Decimal("0.25"),
         llm_max_output_tokens=1_200,
     )
+
+
+def test_register_user_and_login_flow(monkeypatch: pytest.MonkeyPatch) -> None:
+    base_url = psycopg_url(main.get_settings().database_url)
+    database_name = f"alos_register_{uuid4().hex}"
+    maintenance_url = base_url.rsplit("/", 1)[0] + "/postgres"
+    temporary_url = base_url.rsplit("/", 1)[0] + f"/{database_name}"
+    with psycopg.connect(maintenance_url, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+    try:
+        repository_root = Path(__file__).resolve().parents[3]
+        apply_migrations(temporary_url, repository_root / "infra" / "database")
+        settings = _settings(temporary_url)
+        repository = IdentityAuthenticationRepository(temporary_url)
+        repository.bootstrap_director(
+            email="admin@company.test",
+            password="ALOS staging password with enough entropy",
+            display_name="ALOS Director",
+            workspace_key="ALOS_GOVERNANCE",
+            workspace_name="ALOS Governance",
+            settings=settings,
+        )
+        admin_actor = repository.authenticate(
+            PasswordLoginRequest(
+                email="admin@company.test",
+                password="ALOS staging password with enough entropy",
+            )
+        )
+        request = RegisterUserRequest(
+            email="member@company.test",
+            display_name="IT Team Member",
+            password="StrongPassword123!",
+            confirm_password="StrongPassword123!",
+            division_code=DivisionCode.IT,
+            roles=[HumanRole.DIVISION_MEMBER],
+        )
+        created = repository.register_user(admin_actor, request)
+        assert created.email == "member@company.test"
+        assert created.roles == [HumanRole.DIVISION_MEMBER]
+        assert created.division_codes == [DivisionCode.IT]
+        principal = repository.authenticate(
+            PasswordLoginRequest(
+                email="member@company.test",
+                password="StrongPassword123!",
+            )
+        )
+        assert principal.email == "member@company.test"
+        assert principal.roles == [HumanRole.DIVISION_MEMBER]
+    finally:
+        with psycopg.connect(maintenance_url, autocommit=True) as connection:
+            connection.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database_name)))
 
 
 def test_staging_password_session_and_governance_api(monkeypatch: pytest.MonkeyPatch) -> None:

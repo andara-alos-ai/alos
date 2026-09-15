@@ -11,7 +11,7 @@ import hashlib
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -91,6 +91,10 @@ class SourceRegistrationRequest(BaseModel):
     classification: SourceClassification = "INTERNAL"
     version_label: str = Field(min_length=1, max_length=100)
     locator: str | None = Field(default=None, max_length=2_000)
+    retrieved_at: datetime | None = None
+    lineage: dict[str, Any] = Field(default_factory=dict)
+    reliability: float = Field(default=1.0, ge=0, le=1)
+    freshness: str = Field(default="UNKNOWN", min_length=1, max_length=40)
     content: str = Field(min_length=1, max_length=200_000)
     source_vault_policy_id: UUID | None = None
     vault_attestation: bool = False
@@ -115,6 +119,10 @@ class SourceVersionRecord(BaseModel):
     version_label: str
     sha256: str
     locator: str | None
+    retrieved_at: datetime
+    lineage: dict[str, Any]
+    reliability: float
+    freshness: str
     citation_count: int
     source_vault_policy_id: UUID | None = None
 
@@ -218,8 +226,8 @@ class SourceRegistryRepository:
                     """
                     INSERT INTO sources.versions (
                         source_id, version_label, sha256, locator, source_vault_policy_id,
-                        vault_attested_by_user_id
-                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                        vault_attested_by_user_id, retrieved_at, lineage, reliability, freshness
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING source_version_id
                     """,
                     (
@@ -229,6 +237,10 @@ class SourceRegistryRepository:
                         request.locator,
                         request.source_vault_policy_id,
                         actor_user_id if request.vault_attestation else None,
+                        request.retrieved_at,
+                        Jsonb(request.lineage),
+                        request.reliability,
+                        request.freshness,
                     ),
                 ).fetchone()
             except UniqueViolation as error:
@@ -283,6 +295,10 @@ class SourceRegistryRepository:
                 version_label=request.version_label,
                 sha256=content_sha,
                 locator=request.locator,
+                retrieved_at=request.retrieved_at or datetime.now(UTC),
+                lineage=request.lineage,
+                reliability=request.reliability,
+                freshness=request.freshness,
                 citation_count=len(chunks),
                 source_vault_policy_id=request.source_vault_policy_id,
             )
@@ -309,6 +325,8 @@ class SourceRegistryRepository:
                 """
                 SELECT version.source_version_id, version.version_label, version.sha256,
                        version.locator, version.source_vault_policy_id,
+                       version.retrieved_at, version.lineage, version.reliability,
+                       version.freshness,
                        count(chunk.source_chunk_id) AS citation_count
                 FROM sources.versions AS version
                 LEFT JOIN sources.content_chunks AS chunk
@@ -349,6 +367,10 @@ class SourceRegistryRepository:
                 version_label=version["version_label"],
                 sha256=version["sha256"],
                 locator=version["locator"],
+                retrieved_at=version["retrieved_at"],
+                lineage=version["lineage"],
+                reliability=version["reliability"],
+                freshness=version["freshness"],
                 citation_count=version["citation_count"],
                 source_vault_policy_id=version["source_vault_policy_id"],
             )
@@ -444,7 +466,8 @@ class SourceRegistryRepository:
                        source.source_id, version.source_version_id, source.workspace_id,
                        source.source_key, source.name, source.source_type, source.classification,
                        source.status, version.version_label, version.sha256, version.locator,
-                       version.source_vault_policy_id,
+                       version.source_vault_policy_id, version.retrieved_at, version.lineage,
+                       version.reliability, version.freshness,
                        count(chunk.source_chunk_id) OVER (PARTITION BY version.source_version_id)
                          AS citation_count
                 FROM sources.sources AS source

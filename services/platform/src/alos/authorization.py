@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 
 from alos.identity import DataScope, DivisionCode, HumanRole
+from alos.identity.models import ContextBundle
 from alos.security.tokens import ActorContext
 
 
@@ -97,6 +98,14 @@ def require_agent_request(actor: ActorContext, division_code: DivisionCode | str
     if not any(role in allowed for role in actor.roles):
         deny("role is not permitted to request an agent")
     require_division(actor, division_code)
+
+
+def verify_context_boundaries(actor: ActorContext, context: ContextBundle) -> None:
+    if context.scope != effective_data_scope(actor):
+        deny("context scope exceeds actor's permitted scope")
+    for permission in context.permissions:
+        if permission not in actor.permissions:
+            deny(f"context requires permission {permission} which actor lacks")
 
 
 def deny(detail: str) -> None:

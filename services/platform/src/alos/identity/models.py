@@ -1,4 +1,9 @@
 from enum import StrEnum
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
 
 
 class DivisionCode(StrEnum):
@@ -33,3 +38,24 @@ class DataScope(StrEnum):
 
 class SystemActor(StrEnum):
     GENESIS = "GENESIS"
+
+
+class SourceRequirement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_key: str
+    evidence_refs: list[str]
+    max_tokens: int | None = None
+
+
+class ContextBundle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: str
+    lifecycle_status: str
+    owner_user_id: UUID
+    risk_level: str
+    scope: DataScope
+    tools: list[str]
+    permissions: list[str]
+    sources: list[SourceRequirement] = Field(default_factory=list)
+    budget_usd: float | None = None
+    token_limit: int | None = None

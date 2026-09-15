@@ -25,13 +25,7 @@ from alos.genesis.factory.persistence import (
 )
 from alos.genesis.factory.pipeline import FactoryDependencyResolver
 from alos.genesis.factory.service import FactoryAnalysisError, GenesisFactoryService
-from alos.model_gateway import (
-    GuardedModelGateway,
-    ModelGatewayPolicyError,
-    RetryingModelGateway,
-    UsageBudget,
-    create_model_gateway,
-)
+from alos.model_gateway import ModelGatewayPolicyError, create_guarded_model_gateway
 from alos.release.governance import ReleaseGovernanceError, ReleaseGovernanceRepository
 from alos.runtime.agentic import (
     ALOSModelAdapter,
@@ -64,16 +58,12 @@ class GatewayRequirementAnalyzer:
         context: ExecutionContext,
         limits: ExecutionLimits,
     ) -> RequirementUnderstanding:
-        delegate, close_gateway = create_model_gateway(self._settings)
+        gateway, close_gateway = create_guarded_model_gateway(
+            self._settings,
+            request_limit=limits.max_model_steps,
+            output_token_limit=limits.max_output_tokens,
+        )
         try:
-            gateway = GuardedModelGateway(
-                RetryingModelGateway(delegate, self._settings.llm_max_retries),
-                self._settings,
-                UsageBudget(
-                    request_limit=limits.max_model_steps,
-                    output_token_limit=limits.max_output_tokens,
-                ),
-            )
             model = ALOSModelAdapter(
                 gateway,
                 model_name=self._settings.llm_model_standard,

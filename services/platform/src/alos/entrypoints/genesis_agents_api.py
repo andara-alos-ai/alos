@@ -18,13 +18,7 @@ from alos.genesis.agent_designer import (
     GenesisAgentDesignerError,
     ModelAgentDesignGenerator,
 )
-from alos.model_gateway import (
-    GuardedModelGateway,
-    ModelGatewayPolicyError,
-    RetryingModelGateway,
-    UsageBudget,
-    create_model_gateway,
-)
+from alos.model_gateway import ModelGatewayPolicyError, create_guarded_model_gateway
 from alos.release.governance import ReleaseGovernanceError, ReleaseGovernanceRepository
 from alos.security.tokens import ActorContext, get_current_actor
 
@@ -69,11 +63,10 @@ def create_genesis_agent_designer(
         generator = DeterministicAgentDesignGenerator()
     else:
         try:
-            delegate, close_gateway = create_model_gateway(settings)
-            gateway = GuardedModelGateway(
-                RetryingModelGateway(delegate, settings.llm_max_retries),
+            gateway, close_gateway = create_guarded_model_gateway(
                 settings,
-                UsageBudget(request_limit=1, output_token_limit=settings.llm_max_output_tokens),
+                request_limit=1,
+                output_token_limit=settings.llm_max_output_tokens,
             )
             generator = ModelAgentDesignGenerator(
                 gateway,

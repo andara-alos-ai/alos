@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: alos
       POSTGRES_USER: alos
-      POSTGRES_PASSWORD: ${ALOS_POSTGRES_PASSWORD:-change-me}
+      POSTGRES_PASSWORD: ${ALOS_POSTGRES_PASSWORD:-andara-alos}
     ports:
       - "127.0.0.1:${ALOS_POSTGRES_PORT:-5433}:5432"
     volumes:

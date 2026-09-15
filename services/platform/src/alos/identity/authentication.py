@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from alos.config import Settings
 from alos.identity.models import DataScope, DivisionCode, HumanRole
@@ -53,6 +53,32 @@ class PasswordLoginRequest(BaseModel):
     @classmethod
     def validate_email(cls, value: str) -> str:
         return normalize_email(value)
+
+
+class RegisterUserRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=5, max_length=254)
+    display_name: str = Field(min_length=2, max_length=200)
+    password: str = Field(min_length=12, max_length=256)
+    confirm_password: str = Field(min_length=12, max_length=256)
+    division_code: DivisionCode
+    roles: list[HumanRole] = Field(min_length=1, max_length=10)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return normalize_email(value)
+
+    @model_validator(mode="after")
+    def validate_password_and_roles(self) -> "RegisterUserRequest":
+        if self.password != self.confirm_password:
+            raise ValueError("password and confirmation do not match")
+        if not self.roles:
+            raise ValueError("at least one role is required")
+        if HumanRole.DIRECTOR in self.roles and len(self.roles) != 1:
+            raise ValueError("DIRECTOR role must be assigned alone")
+        return self
 
 
 class AuthenticationPrincipal(BaseModel):
@@ -644,6 +670,110 @@ class IdentityAuthenticationRepository:
                 workspace_id=workspace["workspace_id"],
                 workspace_key=workspace["workspace_key"],
             )
+
+    def register_user(
+        self,
+        actor: ActorContext,
+        request: RegisterUserRequest,
+    ) -> AuthenticationPrincipal:
+        """Allow admin-level users to create a password-based account for a division."""
+        actor_roles = {HumanRole(role) for role in actor.roles}
+        if not actor_roles.intersection({HumanRole.DIRECTOR, HumanRole.IT_ADMIN}):
+            raise AuthenticationError("only directors or IT admins can register users")
+        if HumanRole.DIRECTOR in request.roles and actor_roles != {HumanRole.DIRECTOR}:
+            raise AuthenticationError("only a director may assign the DIRECTOR role")
+        if HumanRole.IT_ADMIN in request.roles and not actor_roles.intersection({HumanRole.DIRECTOR, HumanRole.IT_ADMIN}):
+            raise AuthenticationError("only a director or IT admin may assign IT_ADMIN")
+
+        normalized_email = normalize_email(request.email)
+        with self._transaction() as connection:
+            division = connection.execute(
+                """
+                SELECT division_id FROM identity.divisions
+                WHERE organization_id = %s AND code = %s
+                """,
+                (actor.organization_id, request.division_code.value),
+            ).fetchone()
+            if division is None:
+                raise AuthenticationError("division does not exist for this organization")
+            existing = connection.execute(
+                """
+                SELECT user_id FROM identity.users
+                WHERE organization_id = %s AND lower(email) = %s
+                LIMIT 1
+                """,
+                (actor.organization_id, normalized_email),
+            ).fetchone()
+            if existing is not None:
+                raise AuthenticationError("email already registered")
+
+            password_hash = hash_password(request.password)
+            user = connection.execute(
+                """
+                INSERT INTO identity.users (organization_id, email, display_name, status)
+                VALUES (%s, %s, %s, 'ACTIVE')
+                RETURNING user_id, organization_id, email, display_name, status
+                """,
+                (actor.organization_id, normalized_email, request.display_name.strip()),
+            ).fetchone()
+            if user is None:
+                raise AuthenticationError("user registration failed")
+
+            connection.execute(
+                """
+                INSERT INTO identity.user_credentials (user_id, password_hash, failed_attempt_count,
+                                                        locked_until, password_changed_at)
+                VALUES (%s, %s, 0, NULL, now())
+                """,
+                (user["user_id"], password_hash),
+            )
+            membership_rows = connection.execute(
+                """
+                SELECT workspace_id
+                FROM workspace.workspaces
+                WHERE organization_id = %s AND division_id = %s AND status = 'ACTIVE'
+                ORDER BY created_at ASC, workspace_id ASC
+                """,
+                (actor.organization_id, division["division_id"]),
+            ).fetchall()
+            for membership in membership_rows:
+                access_level = "EDITOR" if any(
+                    role in {HumanRole.DIRECTOR, HumanRole.DIVISION_LEAD, HumanRole.IT_ADMIN, HumanRole.IT_LEAD}
+                    for role in request.roles
+                ) else "VIEWER"
+                connection.execute(
+                    """
+                    INSERT INTO workspace.memberships (workspace_id, user_id, access_level)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (workspace_id, user_id)
+                    DO UPDATE SET access_level = EXCLUDED.access_level
+                    """,
+                    (membership["workspace_id"], user["user_id"], access_level),
+                )
+            for role in request.roles:
+                connection.execute(
+                    """
+                    INSERT INTO identity.role_assignments (user_id, division_id, role_code)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (user["user_id"], division["division_id"], role.value),
+                )
+            self._append_audit(
+                connection,
+                organization_id=actor.organization_id,
+                actor_user_id=actor.user_id,
+                action="USER_REGISTERED",
+                entity_type="USER",
+                entity_id=user["user_id"],
+                correlation_id=uuid4(),
+                reason="Admin-created user registration completed",
+                metadata={
+                    "email": normalized_email,
+                    "division_code": request.division_code.value,
+                    "roles": ",".join(role.value for role in request.roles),
+                },
+            )
+            return self._principal(connection, user)
 
     @staticmethod
     def _record_failed_login(connection: psycopg.Connection[Any], user_id: UUID) -> None:

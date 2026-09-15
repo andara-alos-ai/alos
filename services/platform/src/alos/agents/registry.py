@@ -21,6 +21,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from alos.genesis.governed_foundations import Scope
 from alos.persistence.database import psycopg_url
 
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
@@ -103,6 +104,7 @@ class AgentContract(BaseModel):
     agent_key: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,79}$")
     name: str = Field(min_length=1, max_length=200)
     workspace_id: UUID
+    scope: Scope | None = None
     parent_agent_key: str | None = None
     purpose: str = Field(min_length=1, max_length=10_000)
     risk_level: RiskLevel
@@ -135,6 +137,8 @@ class AgentContract(BaseModel):
             raise ValueError("high and critical agents require human approval")
         if not self.forbidden_actions:
             raise ValueError("an Agent Contract must define forbidden actions")
+        if self.scope is not None and self.scope.workspace_id != self.workspace_id:
+            raise ValueError("agent contract scope must belong to its workspace")
         return self
 
 

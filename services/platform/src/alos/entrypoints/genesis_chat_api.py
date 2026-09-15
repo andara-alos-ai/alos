@@ -29,12 +29,9 @@ from alos.capabilities.registry import CapabilityRegistryRepository
 from alos.config import Settings, get_settings
 from alos.identity import DataScope
 from alos.model_gateway import (
-    GuardedModelGateway,
     ModelGateway,
     ModelGatewayError,
-    RetryingModelGateway,
-    UsageBudget,
-    create_model_gateway,
+    create_guarded_model_gateway,
 )
 from alos.operational.repository import OperationalRepository
 from alos.security.tokens import ActorContext, get_current_actor
@@ -236,11 +233,10 @@ def _chat_service(settings: Settings) -> tuple[GenesisChatService, Callable[[], 
 
     gateway: ModelGateway | None = None
     try:
-        delegate, close_gateway = create_model_gateway(settings)
-        gateway = GuardedModelGateway(
-            RetryingModelGateway(delegate, settings.llm_max_retries),
+        gateway, close_gateway = create_guarded_model_gateway(
             settings,
-            UsageBudget(request_limit=1, output_token_limit=settings.llm_max_output_tokens),
+            request_limit=1,
+            output_token_limit=settings.llm_max_output_tokens,
         )
     except ModelGatewayError:
         # Conversation context and deterministic no-source behaviour remain safe

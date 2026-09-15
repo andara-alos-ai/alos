@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     api_max_request_bytes: int = Field(default=30 * 1024 * 1024, ge=1024)
     api_rate_limit_per_minute: int = Field(default=300, ge=10, le=100_000)
     web_origin: str = "http://localhost:3000"
-    database_url: str = "postgresql+psycopg://alos:change-me@127.0.0.1:5433/alos"
+    database_url: str = "postgresql+psycopg://alos:andara-alos@127.0.0.1:5433/alos"
 
     auth_issuer: str = "alos-local"
     auth_audience: str = "alos-platform"

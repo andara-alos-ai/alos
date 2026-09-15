@@ -32,10 +32,8 @@ from alos.documents.center import DocumentCenterRepository
 from alos.executive_dashboard import ExecutiveDashboardRepository
 from alos.identity.authentication import IdentityAuthenticationRepository
 from alos.model_gateway import (
-    GuardedModelGateway,
     ModelGatewayPolicyError,
-    RetryingModelGateway,
-    UsageBudget,
+    create_guarded_model_gateway,
     create_model_gateway,
 )
 from alos.permissions.registry import PermissionRegistryRepository
@@ -65,19 +63,13 @@ def get_agent_draft_builder() -> AgentDraftBuilder:
 def get_agent_runtime() -> AgentRuntime:
     settings = get_settings()
     try:
-        delegate, close_gateway = create_model_gateway(settings)
+        gateway, close_gateway = create_guarded_model_gateway(
+            settings,
+            request_limit=settings.agentic_max_model_steps,
+            output_token_limit=settings.llm_max_output_tokens * settings.agentic_max_model_steps,
+        )
     except ModelGatewayPolicyError as error:
         raise AgentRuntimeBlocked(str(error)) from error
-    gateway = GuardedModelGateway(
-        RetryingModelGateway(delegate, settings.llm_max_retries),
-        settings,
-        UsageBudget(
-            request_limit=settings.agentic_max_model_steps,
-            output_token_limit=(
-                settings.llm_max_output_tokens * settings.agentic_max_model_steps
-            ),
-        ),
-    )
     return AgentRuntime(
         AgentRuntimeRepository(settings.database_url, settings),
         gateway,

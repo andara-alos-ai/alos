@@ -12,6 +12,7 @@ from alos.identity.authentication import (
     AuthenticationError,
     AuthenticationPrincipal,
     PasswordLoginRequest,
+    RegisterUserRequest,
 )
 from alos.persistence.database import database_is_ready
 from alos.security.middleware import metrics
@@ -73,6 +74,22 @@ def readiness() -> dict[str, str]:
 @router.post("/api/v1/auth/local-token")
 def create_local_token(request: LocalTokenRequest) -> dict[str, str]:
     return {"access_token": issue_local_token(request, _main_settings()), "token_type": "bearer"}
+
+
+@router.post("/api/v1/users/register", response_model=AuthenticationPrincipal)
+def register_user(
+    request: RegisterUserRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> AuthenticationPrincipal:
+    """Create a user account from an authenticated admin/IT-admin session."""
+    try:
+        principal = _main_identity_repository().register_user(actor, request)
+    except AuthenticationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+    return principal
 
 
 @router.post("/api/v1/auth/login", response_model=AuthenticationPrincipal)

@@ -1,0 +1,5278 @@
+{
+  "info": {
+    "name": "ALOS API",
+    "description": "Postman collection generated from the FastAPI OpenAPI schema.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "item": [
+    {
+      "name": "List Capabilities",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/capabilities",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "capabilities"
+          ],
+          "query": [
+            {
+              "key": "domain",
+              "value": "string",
+              "description": ""
+            },
+            {
+              "key": "configured_only",
+              "value": true,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Resolve Capabilities",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"capability_keys\": [\n    \"string\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/capabilities/resolve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "capabilities",
+            "resolve"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Typed Tools",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/tools/catalog",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "tools",
+            "catalog"
+          ],
+          "query": [
+            {
+              "key": "capability_key",
+              "value": "string",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Tasks",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/tasks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "tasks"
+          ],
+          "query": [
+            {
+              "key": "status",
+              "value": "string",
+              "description": ""
+            },
+            {
+              "key": "project_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            },
+            {
+              "key": "search",
+              "value": "string",
+              "description": ""
+            },
+            {
+              "key": "page",
+              "value": 1,
+              "description": ""
+            },
+            {
+              "key": "page_size",
+              "value": 1,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Task",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"division_code\": \"FINANCE\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"title\": \"Title\",\n  \"description\": \"Description\",\n  \"status\": \"DRAFT\",\n  \"priority\": \"LOW\",\n  \"due_date\": \"2026-09-15\",\n  \"assignee_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"owner_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"evidence_required\": true,\n  \"idempotency_key\": \"string\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/tasks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "tasks"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Task",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/tasks/:task_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "tasks",
+            "{task_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Task",
+      "description": "",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/tasks/:task_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "tasks",
+            "{task_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update Task Status",
+      "description": "",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"DRAFT\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/tasks/:task_id/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "tasks",
+            "{task_id}",
+            "status"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Evidence",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/evidence",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "evidence"
+          ],
+          "query": [
+            {
+              "key": "task_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            },
+            {
+              "key": "project_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Evidence",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"division_code\": \"FINANCE\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"task_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"document_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"object_key\": \"string\",\n  \"classification\": \"PUBLIC\",\n  \"metadata\": {\n    \"value\": \"Metadata\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/evidence",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "evidence"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Findings",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/findings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "findings"
+          ],
+          "query": [
+            {
+              "key": "status",
+              "value": "string",
+              "description": ""
+            },
+            {
+              "key": "severity",
+              "value": "string",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Finding",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"division_code\": \"FINANCE\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_kind\": \"DOCUMENT\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"title\": \"Title\",\n  \"description\": \"Description\",\n  \"severity\": \"LOW\",\n  \"recommendation\": \"Recommendation\",\n  \"citation_refs\": [\n    {}\n  ],\n  \"owner_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"due_date\": \"2026-09-15\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/findings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "findings"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update Finding Status",
+      "description": "",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"OPEN\",\n  \"resolution\": \"string\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/findings/:finding_id/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "findings",
+            "{finding_id}",
+            "status"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Finding",
+      "description": "",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/findings/:finding_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "findings",
+            "{finding_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Proposed Actions",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/proposed-actions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "proposed-actions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Proposed Action",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"division_code\": \"FINANCE\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"action_type\": \"TASK_CREATE\",\n  \"payload\": {\n    \"value\": \"Payload\"\n  },\n  \"risk_level\": \"LOW\",\n  \"title\": \"Title\",\n  \"description\": \"Description\",\n  \"urgency\": \"NORMAL\",\n  \"idempotency_key\": \"Idempotency Key\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/proposed-actions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "proposed-actions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Execute Proposed Action",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"payload_digest\": \"Payload Digest\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/proposed-actions/:proposed_action_id/execute",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "proposed-actions",
+            "{proposed_action_id}",
+            "execute"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Approvals",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/approvals",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "approvals"
+          ],
+          "query": [
+            {
+              "key": "status",
+              "value": "string",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Approval",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"division_code\": \"FINANCE\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"approval_kind\": \"BUSINESS\",\n  \"subject_type\": \"Subject Type\",\n  \"subject_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"payload_digest\": \"Payload Digest\",\n  \"title\": \"Title\",\n  \"description\": \"Description\",\n  \"urgency\": \"NORMAL\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/approvals",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "approvals"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Decide Approval",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"APPROVED\",\n  \"payload_digest\": \"Payload Digest\",\n  \"notes\": \"Notes\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/approvals/:approval_request_id/decision",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "approvals",
+            "{approval_request_id}",
+            "decision"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Report Definitions",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/report-definitions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "report-definitions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Report Definition",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"division_code\": \"FINANCE\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"name\": \"Name\",\n  \"template_key\": \"Template Key\",\n  \"scope\": \"COMPANY\",\n  \"period\": \"Period\",\n  \"sections\": [\n    \"string\"\n  ],\n  \"data_sources\": [\n    \"string\"\n  ],\n  \"review_required\": true,\n  \"recipient_user_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/report-definitions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "report-definitions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Configure Report Schedule",
+      "description": "",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"schedule_expression\": \"Schedule Expression\",\n  \"timezone\": \"Timezone\",\n  \"next_run_at\": \"2026-09-15T00:00:00Z\",\n  \"confirm\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/report-definitions/:report_definition_id/schedule",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "report-definitions",
+            "{report_definition_id}",
+            "schedule"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Report Definition",
+      "description": "",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/report-definitions/:report_definition_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "report-definitions",
+            "{report_definition_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Reports",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/reports",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "reports"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Report",
+      "description": "",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/reports/:report_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "reports",
+            "{report_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Generate Report",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"idempotency_key\": \"Idempotency Key\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/report-definitions/:report_definition_id/generate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "report-definitions",
+            "{report_definition_id}",
+            "generate"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Division Records",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/divisions/:division_code/records",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "divisions",
+            "{division_code}",
+            "records"
+          ],
+          "query": [
+            {
+              "key": "record_type",
+              "value": "string",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Division Record",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"record_type\": \"Record Type\",\n  \"record_key\": \"Record Key\",\n  \"title\": \"Title\",\n  \"classification\": \"PUBLIC\",\n  \"payload\": {\n    \"value\": \"Payload\"\n  },\n  \"effective_date\": \"2026-09-15\",\n  \"expires_at\": \"2026-09-15T00:00:00Z\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/divisions/:division_code/records",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "divisions",
+            "{division_code}",
+            "records"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Global Search",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/search",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "search"
+          ],
+          "query": [
+            {
+              "key": "q",
+              "value": "Q",
+              "description": ""
+            },
+            {
+              "key": "limit",
+              "value": 1,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Operational Dashboard",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/dashboard/operational",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "dashboard",
+            "operational"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Executive Dashboard",
+      "description": "Return a read-only company snapshot from the Director's accessible workspaces.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/executive-dashboard",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "executive-dashboard"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Divisions Overview",
+      "description": "Return division health derived only from the actor's accessible workspaces.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/divisions/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "divisions",
+            "overview"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Project Portfolio",
+      "description": "Return the filtered project portfolio without crossing workspace boundaries.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/projects/portfolio",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "projects",
+            "portfolio"
+          ],
+          "query": [
+            {
+              "key": "division_code",
+              "value": "string",
+              "description": ""
+            },
+            {
+              "key": "status",
+              "value": "ON_TRACK",
+              "description": ""
+            },
+            {
+              "key": "category",
+              "value": "string",
+              "description": ""
+            },
+            {
+              "key": "date_from",
+              "value": "2026-09-15",
+              "description": ""
+            },
+            {
+              "key": "date_to",
+              "value": "2026-09-15",
+              "description": ""
+            },
+            {
+              "key": "search",
+              "value": "string",
+              "description": ""
+            },
+            {
+              "key": "page",
+              "value": 1,
+              "description": ""
+            },
+            {
+              "key": "page_size",
+              "value": 1,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Workspaces",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/workspaces",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "workspaces"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Compare Documents",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sources\": [\n    {\n      \"document_id\": \"00000000-0000-0000-0000-000000000000\",\n      \"version_number\": 1\n    }\n  ],\n  \"create_findings\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/documents/compare",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "compare"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Revision Draft",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"source_version_number\": 1,\n  \"title\": \"string\",\n  \"revised_content\": \"Revised Content\",\n  \"reason\": \"Reason\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/documents/:document_id/revision-drafts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "{document_id}",
+            "revision-drafts"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Agent From Business Request",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"requirement\": \"Requirement\",\n  \"agent_key\": \"string\",\n  \"name\": \"string\",\n  \"division_scope\": [\n    \"FINANCE\"\n  ],\n  \"parent_agent_key\": \"string\",\n  \"deterministic\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/agent-requests",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "agent-requests"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Conversations",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            },
+            {
+              "key": "limit",
+              "value": 1,
+              "description": ""
+            },
+            {
+              "key": "include_archived",
+              "value": true,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Genesis Conversation",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"title\": \"string\",\n  \"context_mode\": \"AUTO\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Rename Conversation",
+      "description": "",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Title\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Archive Conversation",
+      "description": "",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Genesis Conversation",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Active Agents",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/active-agents",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "active-agents"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            },
+            {
+              "key": "limit",
+              "value": 1,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Context Options",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/context-options",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "context-options"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            },
+            {
+              "key": "entity_type",
+              "value": "DOCUMENT",
+              "description": ""
+            },
+            {
+              "key": "search",
+              "value": "Search",
+              "description": ""
+            },
+            {
+              "key": "limit",
+              "value": 1,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Conversation Context",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id/context",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}",
+            "context"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Attach Conversation Context",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"entity_type\": \"DOCUMENT\",\n  \"entity_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_version\": \"string\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id/context",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}",
+            "context"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Remove Conversation Context",
+      "description": "",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id/context/:conversation_context_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}",
+            "context",
+            "{conversation_context_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Run Conversation Turn",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"content\": \"Content\",\n  \"context_mode\": \"AUTO\",\n  \"attachments\": [\n    {\n      \"entity_type\": \"DOCUMENT\",\n      \"entity_id\": \"00000000-0000-0000-0000-000000000000\",\n      \"source_version\": \"string\"\n    }\n  ],\n  \"preferred_agent_key\": \"string\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id/turns",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}",
+            "turns"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Factory Request",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"division_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"tenant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"requirement\": \"Requirement\",\n  \"source_type\": \"DIRECT\",\n  \"source_research_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"owner_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"idempotency_key\": \"Idempotency Key\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/factory/requests",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "factory",
+            "requests"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Factory Requests",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/factory/requests",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "factory",
+            "requests"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            },
+            {
+              "key": "status",
+              "value": "REQUEST",
+              "description": ""
+            },
+            {
+              "key": "limit",
+              "value": 1,
+              "description": ""
+            },
+            {
+              "key": "offset",
+              "value": 1,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Factory Request",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/factory/requests/:request_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "factory",
+            "requests",
+            "{request_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Analyze Factory Request",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_key\": \"string\",\n  \"name\": \"string\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/factory/requests/:request_id/analyze",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "factory",
+            "requests",
+            "{request_id}",
+            "analyze"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Configure Agent Schedule",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"agent_key\": \"Agent Key\",\n  \"division_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"tenant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"schedule_expression\": \"Schedule Expression\",\n  \"timezone\": \"Timezone\",\n  \"input\": {\n    \"value\": \"Input\"\n  },\n  \"requested_tool_keys\": [\n    \"string\"\n  ],\n  \"enabled\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agent-schedules",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agent-schedules"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Agent Schedules",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agent-schedules",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agent-schedules"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Set Agent Schedule State",
+      "description": "",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"enabled\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agent-schedules/:schedule_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agent-schedules",
+            "{schedule_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Jobs",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/jobs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "jobs"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": 1,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Cancel Job",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/jobs/:job_id/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "jobs",
+            "{job_id}",
+            "cancel"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Notifications",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/notifications",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "notifications"
+          ],
+          "query": [
+            {
+              "key": "unread_only",
+              "value": true,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Read Notification",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/notifications/:notification_id/read",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "notifications",
+            "{notification_id}",
+            "read"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Background Services",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/system/background-services",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "system",
+            "background-services"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Integration Status",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/integrations/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "integrations",
+            "status"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Project",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"division_code\": \"FINANCE\",\n  \"code\": \"Code\",\n  \"name\": \"Name\",\n  \"category\": \"Category\",\n  \"owner_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"status\": \"ON_TRACK\",\n  \"progress_percent\": 1.5,\n  \"start_date\": \"2026-09-15\",\n  \"deadline\": \"2026-09-15\",\n  \"budget_planned\": 1.5,\n  \"currency\": \"Currency\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/projects",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "projects"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update Project",
+      "description": "",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"ON_TRACK\",\n  \"progress_percent\": 1.5,\n  \"deadline\": \"2026-09-15\",\n  \"budget_spent\": 1.5\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/projects/:project_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "projects",
+            "{project_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Project",
+      "description": "",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/projects/:project_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "projects",
+            "{project_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Project Milestone",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Title\",\n  \"due_date\": \"2026-09-15\",\n  \"status\": \"ON_TRACK\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/projects/:project_id/milestones",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "projects",
+            "{project_id}",
+            "milestones"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update Project Milestone",
+      "description": "",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"ON_TRACK\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/project-milestones/:milestone_id/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "project-milestones",
+            "{milestone_id}",
+            "status"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Project Issue",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"division_code\": \"FINANCE\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"title\": \"Title\",\n  \"description\": \"Description\",\n  \"severity\": \"LOW\",\n  \"owner_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"due_date\": \"2026-09-15\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/project-issues",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "project-issues"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update Project Issue",
+      "description": "",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"OPEN\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/project-issues/:issue_id/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "project-issues",
+            "{issue_id}",
+            "status"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Record Release Decision",
+      "description": "A Director records the human decision; PENDING is the safe initial state.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"decision\": \"PENDING\",\n  \"commit_sha\": \"Commit Sha\",\n  \"release_version\": \"Release Version\",\n  \"technical_readiness\": \"PASS\",\n  \"uat_report_reference\": \"string\",\n  \"restore_evidence_reference\": \"string\",\n  \"known_limitations\": [\n    \"string\"\n  ],\n  \"hardening_backlog\": [\n    \"string\"\n  ],\n  \"notes\": \"Notes\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/readiness/decisions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "readiness",
+            "decisions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Release Decisions",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/readiness/decisions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "readiness",
+            "decisions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Health",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Readiness",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/health/ready",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "ready"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Local Token",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"organization_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"roles\": [\n    \"DIRECTOR\"\n  ],\n  \"division_codes\": [\n    \"FINANCE\"\n  ],\n  \"workspace_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"tenant_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"data_scope\": \"COMPANY\",\n  \"permissions\": [\n    \"string\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/local-token",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "local-token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Register User",
+      "description": "Create a user account from an authenticated admin/IT-admin session.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"Email\",\n  \"display_name\": \"Display Name\",\n  \"password\": \"Password\",\n  \"confirm_password\": \"Confirm Password\",\n  \"division_code\": \"FINANCE\",\n  \"roles\": [\n    \"DIRECTOR\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/users/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "users",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Login",
+      "description": "Create an HttpOnly, same-site browser session without returning its token to JavaScript.",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"Email\",\n  \"password\": \"Password\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Logout",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/logout",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "logout"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Whoami",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/whoami",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "whoami"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Model Policy",
+      "description": "Model names are operational policy, while API credentials remain server-only secrets.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/governance/model-policy",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "governance",
+            "model-policy"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Bootstrap Local Registry Context",
+      "description": "Create a local-only human/workspace context for the authenticated Agent Registry Builder.",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"Email\",\n  \"display_name\": \"Display Name\",\n  \"workspace_key\": \"Workspace Key\",\n  \"workspace_name\": \"Workspace Name\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/local/bootstrap",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "local",
+            "bootstrap"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Bootstrap Local Release Review Team",
+      "description": "Issue local-only test tokens for distinct release lifecycle duties.",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/local/release-review-team",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "local",
+            "release-review-team"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Add Genesis Message",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"content\": \"Content\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id/messages",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}",
+            "messages"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Genesis Messages",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id/messages",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}",
+            "messages"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Genesis Follow Up",
+      "description": "Return one idempotent, source-bound Genesis reply without advancing workflow.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"correlation_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"content\": \"Content\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id/follow-ups",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}",
+            "follow-ups"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Genesis Artifacts",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/conversations/:conversation_id/artifacts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "conversations",
+            "{conversation_id}",
+            "artifacts"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Genesis Document Analysis",
+      "description": "Bind one approved internal document to a reviewable Genesis analysis DRAFT.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_document_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"prompt\": \"Prompt\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/document-analysis",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "document-analysis"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Upload Genesis Document",
+      "description": "Store a bounded original file and preview; it is not model-readable yet.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"file\": \"File\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/uploads",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "uploads"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Genesis Uploads",
+      "description": "List upload metadata and previews without exposing raw binaries.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/uploads",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "uploads"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Genesis Upload",
+      "description": "Read one upload's integrity metadata and bounded text preview.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/uploads/:upload_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "uploads",
+            "{upload_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Withdraw Genesis Upload",
+      "description": "Erase an unpromoted upload while retaining only its immutable audit event.",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/uploads/:upload_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "uploads",
+            "{upload_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Document Draft From Genesis Upload",
+      "description": "Promote one complete upload to a checklist-bound canonical DRAFT only.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"string\",\n  \"category\": \"Category\",\n  \"classification\": \"PUBLIC\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/uploads/:upload_id/document-draft",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "uploads",
+            "{upload_id}",
+            "document-draft"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Genesis Document Workflows",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/document-workflows",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "document-workflows"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Genesis Document Workflow",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/document-workflows/:workflow_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "document-workflows",
+            "{workflow_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Genesis Document Rnd",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"focus\": \"Focus\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/document-workflows/:workflow_id/rnd",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "document-workflows",
+            "{workflow_id}",
+            "rnd"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Genesis Document Checklist",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/document-workflows/:workflow_id/checklist",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "document-workflows",
+            "{workflow_id}",
+            "checklist"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Genesis Completion Draft",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"completion_intent\": \"Completion Intent\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/document-workflows/:workflow_id/completion-draft",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "document-workflows",
+            "{workflow_id}",
+            "completion-draft"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Genesis Agent Proposal",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"objective\": \"Objective\",\n  \"name\": \"string\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/document-workflows/:workflow_id/agent-proposal",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "document-workflows",
+            "{workflow_id}",
+            "agent-proposal"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Genesis Governance Handoff",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"note\": \"Note\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/document-workflows/:workflow_id/governance-handoff",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "document-workflows",
+            "{workflow_id}",
+            "governance-handoff"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Document Draft",
+      "description": "Create a canonical human document DRAFT; no publication occurs here.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"title\": \"Title\",\n  \"content\": \"Content\",\n  \"category\": \"Category\",\n  \"classification\": \"PUBLIC\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/documents/drafts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "drafts"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Genesis Document Draft",
+      "description": "Record a human requirement, then let Genesis prepare only a document skeleton DRAFT.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"title\": \"Title\",\n  \"requirement\": \"Requirement\",\n  \"category\": \"Category\",\n  \"classification\": \"PUBLIC\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/genesis/document-drafts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "genesis",
+            "document-drafts"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Documents",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/documents",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Document",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/documents/:document_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "{document_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Complete Document Checklist Item",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"notes\": \"Notes\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/documents/:document_id/checklist/:check_key/complete",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "{document_id}",
+            "checklist",
+            "{check_key}",
+            "complete"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Submit Document For Review",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/documents/:document_id/submit-review",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "{document_id}",
+            "submit-review"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Approve Document",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"notes\": \"Notes\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/documents/:document_id/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "{document_id}",
+            "approve"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Reject Document",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"notes\": \"Notes\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/documents/:document_id/reject",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "{document_id}",
+            "reject"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Register Tool Draft",
+      "description": "A maker can only register a read-only Tool Registry draft.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tool_key\": \"Tool Key\",\n  \"name\": \"Name\",\n  \"risk_level\": \"LOW\",\n  \"manifest\": {\n    \"value\": \"Manifest\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/tools",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "tools"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Tools",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/tools",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "tools"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Approve Tool",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/tools/:tool_key/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "tools",
+            "{tool_key}",
+            "approve"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Register Permission Policy Draft",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"agent_key\": \"Agent Key\",\n  \"semantic_version\": \"Semantic Version\",\n  \"permission_key\": \"Permission Key\",\n  \"effect\": \"ALLOW\",\n  \"resource_scope\": {\n    \"value\": \"Resource Scope\"\n  },\n  \"capability_key\": \"string\",\n  \"tool_key\": \"string\",\n  \"access_mode\": \"READ\",\n  \"resource_type\": \"Resource Type\",\n  \"division_scope\": \"00000000-0000-0000-0000-000000000000\",\n  \"project_scope\": \"00000000-0000-0000-0000-000000000000\",\n  \"classification\": \"PUBLIC\",\n  \"conditions\": {\n    \"value\": \"Conditions\"\n  },\n  \"approval_required\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/permission-policies",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "permission-policies"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Permission Policies",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/permission-policies",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "permission-policies"
+          ],
+          "query": [
+            {
+              "key": "agent_key",
+              "value": "string",
+              "description": ""
+            },
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Approve Permission Policy",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/permission-policies/:permission_policy_id/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "permission-policies",
+            "{permission_policy_id}",
+            "approve"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Agent Draft",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"agent_key\": \"Agent Key\",\n  \"name\": \"Name\",\n  \"objective\": \"Objective\",\n  \"parent_agent_key\": \"string\",\n  \"risk_level\": \"LOW\",\n  \"input_schema\": {\n    \"value\": \"Input Schema\"\n  },\n  \"output_schema\": {\n    \"value\": \"Output Schema\"\n  },\n  \"model_policy\": {\n    \"value\": \"Model Policy\"\n  },\n  \"tool_keys\": [\n    \"string\"\n  ],\n  \"permission_keys\": [\n    \"string\"\n  ],\n  \"approval_required\": true,\n  \"timeout_seconds\": 1,\n  \"data_classification\": \"PUBLIC\",\n  \"forbidden_actions\": [\n    \"string\"\n  ],\n  \"kpis\": [\n    {}\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agents/drafts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agents",
+            "drafts"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Design Agent Draft",
+      "description": "Genesis Designer is allowed to create a draft only, never an active agent.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"agent_key\": \"string\",\n  \"name\": \"string\",\n  \"requirement\": \"Requirement\",\n  \"parent_agent_key\": \"string\",\n  \"conversation_id\": \"00000000-0000-0000-0000-000000000000\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/designer/agent-drafts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "designer",
+            "agent-drafts"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update Agent Draft",
+      "description": "",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"agent_key\": \"Agent Key\",\n  \"name\": \"Name\",\n  \"objective\": \"Objective\",\n  \"parent_agent_key\": \"string\",\n  \"risk_level\": \"LOW\",\n  \"input_schema\": {\n    \"value\": \"Input Schema\"\n  },\n  \"output_schema\": {\n    \"value\": \"Output Schema\"\n  },\n  \"model_policy\": {\n    \"value\": \"Model Policy\"\n  },\n  \"tool_keys\": [\n    \"string\"\n  ],\n  \"permission_keys\": [\n    \"string\"\n  ],\n  \"approval_required\": true,\n  \"timeout_seconds\": 1,\n  \"data_classification\": \"PUBLIC\",\n  \"forbidden_actions\": [\n    \"string\"\n  ],\n  \"kpis\": [\n    {}\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agents/:agent_key/draft",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agents",
+            "{agent_key}",
+            "draft"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Agent Draft",
+      "description": "Delete only mutable draft data; governed evidence always wins over deletion.",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agents/:agent_key/draft",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agents",
+            "{agent_key}",
+            "draft"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Agents",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agents",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agents"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Agent",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agents/:agent_key",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agents",
+            "{agent_key}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Validation Controls",
+      "description": "Show draft/approved validation controls to the maker and independent reviewers.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/validation/controls",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "validation",
+            "controls"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Run Validation Fixture",
+      "description": "Run one approved, source-enabled validation fixture through the shared Runtime.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"agent_key\": \"DAILY_BRIEF\",\n  \"input\": {\n    \"value\": \"Input\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/validation/runs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "validation",
+            "runs"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Validation Agent Drafts",
+      "description": "Create only the three reviewed validation pilot contracts as Registry DRAFTs.\n\nThis endpoint does not approve a tool or policy, call a model, or release\nan agent. Repeating it is safe when the current draft already matches.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/validation/agents/drafts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "validation",
+            "agents",
+            "drafts"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Validation Control Drafts",
+      "description": "Prepare unapproved read-only Tool and Permission Policy DRAFTs for validation.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/validation/controls/drafts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "validation",
+            "controls",
+            "drafts"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Configure Source Vault",
+      "description": "Set the Validation source boundary; this is metadata, not a Drive connection.",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"allowed_root_url\": \"Allowed Root Url\",\n  \"excluded_folder_url\": \"Excluded Folder Url\",\n  \"reason\": \"Reason\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/workspaces/:workspace_id/source-vault",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "workspaces",
+            "{workspace_id}",
+            "source-vault"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Source Vault",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/workspaces/:workspace_id/source-vault",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "workspaces",
+            "{workspace_id}",
+            "source-vault"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Source Versions",
+      "description": "Read source metadata and verification state without exposing source content.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/workspaces/:workspace_id/sources",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "workspaces",
+            "{workspace_id}",
+            "sources"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Register Source Version",
+      "description": "Register a textual source version; it is not retrievable until human verification.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_key\": \"Source Key\",\n  \"name\": \"Name\",\n  \"source_type\": \"DOCX\",\n  \"classification\": \"PUBLIC\",\n  \"version_label\": \"Version Label\",\n  \"locator\": \"string\",\n  \"content\": \"Content\",\n  \"source_vault_policy_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vault_attestation\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/sources",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "sources"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Verify Source Version",
+      "description": "An explicit human gate makes a source eligible for Runtime evidence retrieval.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reason\": \"Reason\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/sources/:source_key/verify",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "sources",
+            "{source_key}",
+            "verify"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Search Source Evidence",
+      "description": "Show deterministic source citations that an approved read-only tool can retrieve.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/workspaces/:workspace_id/sources/evidence",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "workspaces",
+            "{workspace_id}",
+            "sources",
+            "evidence"
+          ],
+          "query": [
+            {
+              "key": "query",
+              "value": "Query",
+              "description": ""
+            },
+            {
+              "key": "limit",
+              "value": 1,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Retire Agent",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agents/:agent_key/retire",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agents",
+            "{agent_key}",
+            "retire"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Run Agent",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"division_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"project_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"tenant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"input\": {\n    \"value\": \"Input\"\n  },\n  \"requested_tool_keys\": [\n    \"string\"\n  ],\n  \"tool_calls\": [\n    {\n      \"tool_key\": \"Tool Key\",\n      \"arguments\": {\n        \"value\": \"Arguments\"\n      },\n      \"idempotency_key\": \"string\"\n    }\n  ],\n  \"testing\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agents/:agent_key/runs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agents",
+            "{agent_key}",
+            "runs"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Cancel Agent Run",
+      "description": "Request durable cancellation for a queued or running Agent Run.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agent-runs/:agent_run_id/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agent-runs",
+            "{agent_run_id}",
+            "cancel"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Workspace Runs",
+      "description": "Read-only execution telemetry for the future operations dashboard.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/workspaces/:workspace_id/runs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "workspaces",
+            "{workspace_id}",
+            "runs"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": 1,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Workspace Usage",
+      "description": "Read the same persisted daily ledger used by the cost guardrail.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/workspaces/:workspace_id/usage/daily",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "workspaces",
+            "{workspace_id}",
+            "usage",
+            "daily"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Audit Events",
+      "description": "Only designated control roles may inspect the organization audit trail.",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/audit-events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "audit-events"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": 1,
+              "description": ""
+            },
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Workspace Budget",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/workspaces/:workspace_id/budget",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "workspaces",
+            "{workspace_id}",
+            "budget"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Set Workspace Budget",
+      "description": "",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"daily_request_limit\": 1,\n  \"daily_output_token_limit\": 1,\n  \"daily_cost_cap_usd\": 1.5\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/workspaces/:workspace_id/budget",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "workspaces",
+            "{workspace_id}",
+            "budget"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Release Request",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workspace_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"tenant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"requirement\": \"Requirement\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/agents/:agent_key/release-requests",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "agents",
+            "{agent_key}",
+            "release-requests"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Release Requests",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests"
+          ],
+          "query": [
+            {
+              "key": "workspace_id",
+              "value": "00000000-0000-0000-0000-000000000000",
+              "description": ""
+            },
+            {
+              "key": "limit",
+              "value": 1,
+              "description": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Release Request Detail",
+      "description": "",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Register Release Test Case",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"test_key\": \"Test Key\",\n  \"category\": \"POSITIVE\",\n  \"input_fixture\": {\n    \"value\": \"Input Fixture\"\n  },\n  \"expected_assertions\": {\n    \"value\": \"Expected Assertions\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/test-cases",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "test-cases"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update Release Test Case",
+      "description": "",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"test_key\": \"Test Key\",\n  \"category\": \"POSITIVE\",\n  \"input_fixture\": {\n    \"value\": \"Input Fixture\"\n  },\n  \"expected_assertions\": {\n    \"value\": \"Expected Assertions\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/test-cases/:test_key",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "test-cases",
+            "{test_key}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Release Test Case",
+      "description": "",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/test-cases/:test_key",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "test-cases",
+            "{test_key}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Execute Release Test Case",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/test-cases/:test_key/execute",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "test-cases",
+            "{test_key}",
+            "execute"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Submit Release For Review",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/submit-review",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "submit-review"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Review Release Request",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"gate\": \"BUSINESS\",\n  \"decision\": \"APPROVED\",\n  \"notes\": \"Notes\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/reviews",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "reviews"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Approve Release Request",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "approve"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Release Approved Request",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/release",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "release"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Activate Released Request",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": null,
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/activate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "activate"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Suspend Release Request",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"Reason\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/suspend",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "suspend"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Activate Kill Switch",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"Reason\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/kill-switch",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "kill-switch"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Clear Kill Switch",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"Reason\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/clear-kill-switch",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "clear-kill-switch"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Rollback Release Request",
+      "description": "",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "authorization",
+            "value": "string",
+            "description": ""
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"target_semantic_version\": \"Target Semantic Version\",\n  \"reason\": \"Reason\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/release-requests/:change_request_id/rollback",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "release-requests",
+            "{change_request_id}",
+            "rollback"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ]
+}

@@ -113,9 +113,24 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-        )
+        if request.url.path in {"/docs", "/docs/", "/redoc", "/redoc/"} or request.url.path.endswith(
+            "/openapi.json"
+        ):
+            csp = (
+                "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https://fastapi.tiangolo.com https://cdn.jsdelivr.net; "
+                "font-src 'self' data: https://cdn.jsdelivr.net; "
+                "connect-src 'self' https://cdn.jsdelivr.net; object-src 'none'; "
+                "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+            )
+        else:
+            csp = (
+                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                "script-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; "
+                "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+            )
+        response.headers["Content-Security-Policy"] = csp
         if self._settings.environment in {"staging", "production"}:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         logger.info(

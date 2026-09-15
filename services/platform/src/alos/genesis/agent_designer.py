@@ -19,6 +19,7 @@ from alos.capabilities.registry import (
     CapabilityResolutionRequest,
     TypedToolRecord,
 )
+from alos.genesis.governed_foundations import Scope
 from alos.identity import DivisionCode, HumanRole
 from alos.model_gateway import ModelGateway, ModelRequest
 from alos.release.governance import (
@@ -273,6 +274,10 @@ class GenesisAgentDesigner:
             agent_key=proposal.agent_key,
             name=proposal.name,
             workspace_id=request.workspace_id,
+            scope=Scope(
+                organization_id=actor.organization_id,
+                workspace_id=request.workspace_id,
+            ),
             parent_agent_key=request.parent_agent_key,
             purpose=proposal.objective,
             risk_level=normalized_risk,
