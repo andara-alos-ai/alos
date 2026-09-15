@@ -107,9 +107,11 @@ const contextTypes: ContextEntityType[] = [
 export function GenesisChat({
   actor,
   initialQuery = "",
+  initialMode,
 }: {
   actor: SessionActor;
   initialQuery?: string;
+  initialMode?: ContextMode;
 }) {
   const [workspaceId, setWorkspaceId] = useState(actor.workspace_ids[0] ?? "");
   const [conversations, setConversations] = useState<GenesisConversation[]>([]);
@@ -137,7 +139,15 @@ export function GenesisChat({
   const [contextSearch, setContextSearch] = useState("");
   const [contextOptions, setContextOptions] = useState<GenesisContextOption[]>([]);
   const [loadingContext, setLoadingContext] = useState(false);
-  const [mode, setMode] = useState<ContextMode>("AUTO");
+  const [mode, setMode] = useState<ContextMode>(() => {
+    const requested =
+      initialMode ??
+      (typeof window === "undefined"
+        ? null
+        : new URLSearchParams(window.location.search).get("mode"));
+    const validModes: ContextMode[] = ["AUTO", "INTERNAL", "EXTERNAL", "INTERNAL_AND_EXTERNAL"];
+    return validModes.includes(requested as ContextMode) ? (requested as ContextMode) : "AUTO";
+  });
   const [prompt, setPrompt] = useState(
     () =>
       initialQuery ||

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import type { SessionActor } from "@/lib/governance";
 
 export type RndDomainKey =
@@ -101,24 +103,50 @@ export function RndWorkspace({ actor }: RndViewsProps) {
         </p>
       </article>
 
-      <article aria-label="Sumber Riset" className="alos-panel alos-rnd-source-card">
+      <article aria-label="Entry Point Riset Internal dan External" className="alos-panel alos-rnd-source-card">
         <div className="alos-panel-title">
-          <p className="alos-dash-kicker">SUMBER</p>
+          <p className="alos-dash-kicker">MULAI RISET</p>
           <h3>Internal &amp; External Research</h3>
         </div>
-        <div className="alos-rnd-source-types">
-          <div>
-            <strong>Internal</strong>
-            <p>Dokumen perusahaan, data internal, laporan, dan evidence historis sesuai role/scope/classification.</p>
-          </div>
-          <div>
-            <strong>External</strong>
-            <p>Sumber resmi dan connector yang disetujui. Diperlakukan sebagai untrusted information dan tidak memberi authority baru.</p>
-          </div>
+        <div className="alos-rnd-source-entry-grid">
+          <article aria-label="Riset Internal" className="alos-rnd-source-entry">
+            <div className="alos-rnd-source-entry-head">
+              <strong>Internal</strong>
+              <span className="alos-rnd-source-badge trusted">Authority ALOS</span>
+            </div>
+            <p>
+              Dokumen perusahaan, data internal, laporan, dan evidence historis sesuai
+              role/scope/classification Anda. Dapat dijadikan dasar Finding dan Recommendation.
+            </p>
+            <Link
+              className="alos-rnd-source-entry-action"
+              href="/genesis?mode=INTERNAL"
+            >
+              Mulai riset internal via GENESIS →
+            </Link>
+          </article>
+          <article aria-label="Riset External" className="alos-rnd-source-entry">
+            <div className="alos-rnd-source-entry-head">
+              <strong>External</strong>
+              <span className="alos-rnd-source-badge untrusted">Untrusted, tanpa authority</span>
+            </div>
+            <p>
+              Sumber resmi dan connector yang disetujui organisasi. Selalu diperlakukan sebagai
+              untrusted information: tidak memberi authority baru dan tidak pernah otomatis
+              mengubah production tanpa review manusia.
+            </p>
+            <Link
+              className="alos-rnd-source-entry-action"
+              href="/genesis?mode=INTERNAL_AND_EXTERNAL"
+            >
+              Mulai riset internal + external via GENESIS →
+            </Link>
+          </article>
         </div>
         <p className="alos-empty-copy">
-          Sumber, citation, dan reliability/freshness akan tampil di sini setelah Research
-          Orchestrator dan source registry (H7) tersedia.
+          Entry point ini membuka percakapan GENESIS dengan mode sumber yang sudah dipilih.
+          Source registry, reliability, dan freshness metadata khusus domain R&amp;D akan tampil
+          di sini setelah Research Orchestrator (H7) tersedia.
         </p>
       </article>
 

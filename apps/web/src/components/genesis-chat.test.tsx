@@ -38,4 +38,23 @@ describe("GENESIS workspace", () => {
     expect(html).not.toContain("Jawaban ringkas");
     expect(html).not.toContain("auto create task");
   });
+
+  it("honours an initialMode so an entry point (e.g. from R&D) can preselect Internal + External sources", () => {
+    const html = renderToStaticMarkup(
+      <GenesisChat actor={actor} initialMode="INTERNAL_AND_EXTERNAL" />,
+    );
+
+    expect(html).toContain('title="Internal ALOS"');
+    expect(html).toContain('title="Internal + external"');
+    expect(html).toContain("Internal + external");
+  });
+
+  it("falls back to AUTO for an invalid initialMode instead of silently failing", () => {
+    const html = renderToStaticMarkup(
+      // @ts-expect-error deliberately invalid mode to prove the safe fallback
+      <GenesisChat actor={actor} initialMode="NOT_A_MODE" />,
+    );
+
+    expect(html).toContain("Percakapan");
+  });
 });

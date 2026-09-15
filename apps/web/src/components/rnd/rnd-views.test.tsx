@@ -49,6 +49,14 @@ describe("RndWorkspace Presentation Component", () => {
     expect(html).toContain("untrusted information");
   });
 
+  it("provides an interactive entry point that opens GENESIS with the right source mode preselected", () => {
+    const html = renderToStaticMarkup(createElement(RndWorkspace, { actor: mockActor }));
+    expect(html).toContain('href="/genesis?mode=INTERNAL"');
+    expect(html).toContain('href="/genesis?mode=INTERNAL_AND_EXTERNAL"');
+    expect(html).toContain("Authority ALOS");
+    expect(html).toContain("Untrusted, tanpa authority");
+  });
+
   it("states the baseline/no-mock-data limitation explicitly", () => {
     const html = renderToStaticMarkup(createElement(RndWorkspace, { actor: mockActor }));
     expect(html).toContain("baseline H1");

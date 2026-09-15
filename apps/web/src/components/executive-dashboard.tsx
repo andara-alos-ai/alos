@@ -16,7 +16,7 @@ import {
   type DashboardProfile,
 } from "@/lib/dashboard-access";
 import { DocumentCenter } from "@/components/document-center";
-import { AraViews } from "@/components/ara/ara-views";
+import { GenesisChat } from "@/components/genesis-chat";
 import { RndWorkspace } from "@/components/rnd/rnd-views";
 import { OperationalModuleDashboard } from "@/components/operational-modules";
 import {
@@ -297,7 +297,7 @@ function ModuleDashboard({ actor, module }: { actor: SessionActor; module: Dashb
 }
 
 function GenesisDashboard({ actor }: { actor: SessionActor }) {
-  return <AraViews actor={actor} />;
+  return <GenesisChat actor={actor} />;
 }
 
 function RndDashboard({ actor }: { actor: SessionActor }) {
