@@ -1,35 +1,61 @@
 # ============================================================
 # ALOS CODEOWNERS
 # PT Andara Rejo Makmur
+# MVP 2 — AI / BACKEND / FRONTEND OWNERSHIP
 # ============================================================
 #
-# Current repository owner:
+# ROLE OWNERS
+#
+# AI / Architecture
 # @reynaldptandararejomakmur
 #
-# Untuk fase ALOS Repository Architecture v1, repository-wide
-# review sementara dimiliki oleh Architecture / AI / Technical Lead.
+# Backend / Platform
+# @karinanoob
 #
-# Setelah ownership tim stabil, area Frontend dan Backend/Platform
-# dapat ditambahkan dengan GitHub username/team yang terverifikasi.
+# Frontend / Product Experience
+# @andaratimbhasyim-creator
 #
-# Jangan menggunakan placeholder @OWNER_* sebagai CODEOWNER aktif
-# karena GitHub hanya menerima user/team yang benar-benar tersedia.
+# IMPORTANT
+# - CODEOWNERS menggunakan GitHub username, bukan display name.
+# - main adalah canonical integration branch.
+# - Perubahan dilakukan melalui short-lived branch + Pull Request.
+# - Area SHARED membutuhkan cross-role review.
+# - Existing database migrations bersifat immutable.
 # ============================================================
 
 
 # ------------------------------------------------------------
-# DEFAULT OWNER
+# DEFAULT / ARCHITECTURE OWNER
 # ------------------------------------------------------------
+#
+# File yang belum memiliki ownership lebih spesifik
+# sementara masuk ke Architecture / AI owner.
+#
 
 * @reynaldptandararejomakmur
 
 
-# ------------------------------------------------------------
-# ARCHITECTURE / AI / GENESIS
-# ------------------------------------------------------------
+# ============================================================
+# REPOSITORY / DOCUMENTATION GENERAL
+# ============================================================
+
+/docs/                                       @reynaldptandararejomakmur @karinanoob @andaratimbhasyim-creator
+
+/.github/                                    @reynaldptandararejomakmur
+
+/README.md                                   @reynaldptandararejomakmur
+/SECURITY.md                                 @reynaldptandararejomakmur @karinanoob
+/CONTRIBUTING.md                             @reynaldptandararejomakmur
+/LICENSE                                     @reynaldptandararejomakmur
+/CHANGELOG.md                                @reynaldptandararejomakmur
+
+
+# ============================================================
+# AI / ARCHITECTURE / GENESIS
+# PRIMARY OWNER: REYNALD
+# ============================================================
 
 /services/platform/src/alos/genesis/         @reynaldptandararejomakmur
-/services/platform/src/alos/runtime/         @reynaldptandararejomakmur
 /services/platform/src/alos/model_gateway/   @reynaldptandararejomakmur
 /services/platform/src/alos/capabilities/    @reynaldptandararejomakmur
 /services/platform/src/alos/skills/          @reynaldptandararejomakmur
@@ -37,96 +63,180 @@
 /services/platform/src/alos/agents/          @reynaldptandararejomakmur
 /services/platform/src/alos/evals/           @reynaldptandararejomakmur
 
-/definitions/                                @reynaldptandararejomakmur
 
-/docs/architecture/                          @reynaldptandararejomakmur
-
-
-# ------------------------------------------------------------
-# SECURITY / GOVERNANCE / PERMISSIONS
-# ------------------------------------------------------------
-
-/services/platform/src/alos/security/        @reynaldptandararejomakmur
-/services/platform/src/alos/permissions/     @reynaldptandararejomakmur
-/services/platform/src/alos/tools/           @reynaldptandararejomakmur
-/services/platform/src/alos/release/         @reynaldptandararejomakmur
-/services/platform/src/alos/audit/           @reynaldptandararejomakmur
-
-/docs/governance/                            @reynaldptandararejomakmur
-/docs/security/                              @reynaldptandararejomakmur
-
-
-# ------------------------------------------------------------
+# ============================================================
 # BACKEND / PLATFORM
-# ------------------------------------------------------------
+# PRIMARY OWNER: SHANDIKA (@karinanoob)
+# ============================================================
 
-/services/platform/src/alos/identity/        @reynaldptandararejomakmur
-/services/platform/src/alos/operational/     @reynaldptandararejomakmur
-/services/platform/src/alos/portfolio/       @reynaldptandararejomakmur
-/services/platform/src/alos/documents/       @reynaldptandararejomakmur
-/services/platform/src/alos/research/        @reynaldptandararejomakmur
-/services/platform/src/alos/jobs/            @reynaldptandararejomakmur
-/services/platform/src/alos/persistence/     @reynaldptandararejomakmur
-/services/platform/src/alos/entrypoints/     @reynaldptandararejomakmur
+/services/platform/src/alos/identity/        @karinanoob
+/services/platform/src/alos/operational/     @karinanoob
+/services/platform/src/alos/documents/       @karinanoob
+/services/platform/src/alos/sources/         @karinanoob
+/services/platform/src/alos/jobs/            @karinanoob
+/services/platform/src/alos/persistence/     @karinanoob
+/services/platform/src/alos/entrypoints/     @karinanoob
 
-/infra/                                      @reynaldptandararejomakmur
-/scripts/                                    @reynaldptandararejomakmur
+/services/platform/src/alos/portfolio.py     @karinanoob
+
+/infra/                                      @karinanoob
+/scripts/                                    @karinanoob
 
 
-# ------------------------------------------------------------
+# ============================================================
 # FRONTEND / PRODUCT EXPERIENCE
-# ------------------------------------------------------------
+# PRIMARY OWNER: HASYM
+# ============================================================
 
-/apps/web/                                   @reynaldptandararejomakmur
-
-
-# ------------------------------------------------------------
-# DOCUMENTATION / REPOSITORY GOVERNANCE
-# ------------------------------------------------------------
-
-/docs/                                       @reynaldptandararejomakmur
-/.github/                                    @reynaldptandararejomakmur
-
-/README.md                                   @reynaldptandararejomakmur
-/SECURITY.md                                 @reynaldptandararejomakmur
-/CONTRIBUTING.md                             @reynaldptandararejomakmur
-/LICENSE                                     @reynaldptandararejomakmur
-/CHANGELOG.md                                @reynaldptandararejomakmur
+/apps/web/                                   @andaratimbhasyim-creator
 
 
-# ------------------------------------------------------------
+# ============================================================
+# SHARED — AI + BACKEND
+# ============================================================
+#
+# Bagian berikut membutuhkan sinkronisasi AI dan Backend.
+# Diletakkan SETELAH primary ownership karena CODEOWNERS
+# menggunakan matching rule yang paling akhir.
+#
+
+# Agent execution:
+# AI    = orchestration / reasoning / delegation semantics
+# BE    = persistence / limits / cancellation / enforcement
+
+/services/platform/src/alos/runtime/         @reynaldptandararejomakmur @karinanoob
+
+
+# Research:
+# AI    = orchestration / analysis / finding / recommendation
+# BE    = source / retrieval / persistence / audit / backlog
+
+/services/platform/src/alos/research/        @reynaldptandararejomakmur @karinanoob
+
+
+# ARA:
+# AI    = behavior / context / AI interaction
+# BE    = API / auth / persistence
+
+/services/platform/src/alos/ara/             @reynaldptandararejomakmur @karinanoob
+
+
+# Shared system contracts
+
+/definitions/                                @reynaldptandararejomakmur @karinanoob
+
+
+# Shared application wiring
+
+/services/platform/src/alos/config.py        @reynaldptandararejomakmur @karinanoob
+/services/platform/src/alos/dependencies.py  @karinanoob @reynaldptandararejomakmur
+/services/platform/src/alos/main.py          @karinanoob @reynaldptandararejomakmur
+/services/platform/src/alos/authorization.py @karinanoob @reynaldptandararejomakmur
+
+/.env.example                                @karinanoob @reynaldptandararejomakmur
+
+
+# ============================================================
+# SECURITY / PERMISSIONS / TOOLS / GOVERNANCE
+# BACKEND PRIMARY + AI / ARCHITECTURE REVIEW
+# ============================================================
+
+/services/platform/src/alos/security/        @karinanoob @reynaldptandararejomakmur
+/services/platform/src/alos/permissions/     @karinanoob @reynaldptandararejomakmur
+/services/platform/src/alos/tools/           @karinanoob @reynaldptandararejomakmur
+/services/platform/src/alos/release/         @karinanoob @reynaldptandararejomakmur
+/services/platform/src/alos/audit/           @karinanoob @reynaldptandararejomakmur
+
+
+# ============================================================
 # DATABASE / MIGRATIONS
-# ------------------------------------------------------------
+# BACKEND PRIMARY + ARCHITECTURE REVIEW
+# ============================================================
 #
-# Migration existing bersifat immutable.
-# Perubahan migration baru tetap memerlukan review owner repository.
+# Existing migration:
+# - tidak boleh diedit;
+# - tidak boleh di-rename;
+# - tidak boleh dihapus.
+#
+# Schema change dibuat melalui migration baru secara append-only.
+#
 
-/infra/database/                             @reynaldptandararejomakmur
+/infra/database/                             @karinanoob @reynaldptandararejomakmur
 
 
 # ============================================================
-# FUTURE TEAM OWNERSHIP
+# FRONTEND + BACKEND SHARED DEPENDENCIES
 # ============================================================
 #
-# Setelah username GitHub engineer terverifikasi, pembagian dapat
-# dikembangkan misalnya:
+# Perubahan dependency harus memiliki alasan dan test.
 #
-# /apps/web/ @USERNAME_FRONTEND @reynaldptandararejomakmur
+
+/package.json                                @andaratimbhasyim-creator @karinanoob
+/pnpm-lock.yaml                              @andaratimbhasyim-creator @karinanoob
+
+
+# ============================================================
+# AI + BACKEND PYTHON DEPENDENCIES
+# ============================================================
+
+/pyproject.toml                              @reynaldptandararejomakmur @karinanoob
+
+
+# ============================================================
+# DOCUMENTATION — SPECIFIC OWNERSHIP
+# ============================================================
 #
-# /services/platform/src/alos/persistence/ @USERNAME_BACKEND @reynaldptandararejomakmur
-# /services/platform/src/alos/jobs/        @USERNAME_BACKEND @reynaldptandararejomakmur
-# /infra/                                  @USERNAME_BACKEND @reynaldptandararejomakmur
+# Specific rules ditempatkan setelah /docs/
+# agar tidak tertimpa generic documentation ownership.
 #
-# Area sensitif seperti:
+
+/docs/architecture/                          @reynaldptandararejomakmur @karinanoob
+/docs/governance/                            @karinanoob @reynaldptandararejomakmur
+/docs/security/                              @karinanoob @reynaldptandararejomakmur
+
+
+# ============================================================
+# OWNERSHIP SUMMARY
+# ============================================================
 #
-# - GENESIS
-# - Runtime
-# - ModelGateway
-# - Security
-# - Permissions
-# - ToolExecutor
-# - Governance / Release
+# AI — @reynaldptandararejomakmur
+#   GENESIS
+#   AI Agent
+#   Capability
+#   Skill
+#   Memory semantics
+#   ModelGateway semantics
+#   Evals
+#   Research Intelligence semantics
 #
-# tetap sebaiknya mempertahankan Architecture / AI owner sebagai
-# salah satu required reviewer.
+# BACKEND — @karinanoob
+#   Identity
+#   API
+#   Persistence
+#   Permission
+#   Security
+#   Tools
+#   Release
+#   Audit
+#   Jobs
+#   Source
+#   Infrastructure
+#   Database
+#
+# FRONTEND — @andaratimbhasyim-creator
+#   apps/web
+#   ARA UI
+#   GENESIS UI
+#   R&D UI
+#   Director UI
+#   Monitoring UI
+#
+# SHARED AI + BACKEND
+#   Runtime
+#   Research
+#   ARA backend
+#   Contracts
+#   Security-sensitive execution
+#   Governance
+#
 # ============================================================
