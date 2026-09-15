@@ -3,13 +3,13 @@ import type { ReactNode } from "react";
 
 import type { GovernanceUiError } from "@/lib/governance-errors";
 
-export type GovernanceArea = "overview" | "agents" | "releases";
+export type GovernanceArea = "overview" | "agents" | "releases" | "factory";
 
 export function GovernanceNavigation({ active }: { active: GovernanceArea }) {
   return (
     <nav className="governance-navigation" aria-label="Governance dan Agent Control">
       <div><span>Governance</span><Link aria-current={active === "overview" ? "page" : undefined} className={active === "overview" ? "active" : ""} href="/governance?view=overview">Overview</Link></div>
-      <div><span>Agent Control</span><Link aria-current={active === "agents" ? "page" : undefined} className={active === "agents" ? "active" : ""} href="/agents">Agents</Link><Link aria-current={active === "releases" ? "page" : undefined} className={active === "releases" ? "active" : ""} href="/releases?view=request">Release Requests</Link><Link href="/releases?view=tests">Test &amp; Evidence</Link><Link href="/releases?view=reviews">Reviews &amp; Approval</Link></div>
+      <div><span>Agent Control</span><Link aria-current={active === "factory" ? "page" : undefined} className={active === "factory" ? "active" : ""} href="/factory">GENESIS Factory</Link><Link aria-current={active === "agents" ? "page" : undefined} className={active === "agents" ? "active" : ""} href="/agents">Agents</Link><Link aria-current={active === "releases" ? "page" : undefined} className={active === "releases" ? "active" : ""} href="/releases?view=request">Release Requests</Link><Link href="/releases?view=tests">Test &amp; Evidence</Link><Link href="/releases?view=reviews">Reviews &amp; Approval</Link></div>
       <div><span>Controls</span><Link href="/governance?view=permissions">Permissions</Link><Link href="/governance?view=runtime">Runtime &amp; Monitoring</Link><Link href="/governance?view=budget">Budget</Link><Link href="/releases?view=safety">Kill Switch / Rollback</Link><Link href="/governance?view=audit">Audit Trail</Link></div>
     </nav>
   );

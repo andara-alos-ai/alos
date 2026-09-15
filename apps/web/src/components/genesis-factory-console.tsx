@@ -3,7 +3,10 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { apiRequest, withQuery } from "@/lib/api-client";
+import { GovernanceNavigation } from "@/components/governance-control-ui";
+import { formatRoleLabel } from "@/lib/dashboard-access";
 import {
+  canRequestFactoryCapability,
   factoryMissingDependencies,
   factoryStatusLabel,
   factoryStatusTone,
@@ -117,36 +120,60 @@ export function GenesisFactoryConsole({ actor }: { actor: SessionActor }) {
   }
 
   const selected = requests.find((item) => item.factory_request_id === selectedId) ?? requests[0];
+  const canRequest = canRequestFactoryCapability(actor.roles);
 
   if (loading) return <section className="alos-content">Memuat GENESIS Factory…</section>;
 
   return (
-    <section className="alos-content genesis-factory-console">
+    <section className="alos-content dashboard-shell genesis-factory-console">
+      <header className="dashboard-header registry-header">
+        <div>
+          <p className="eyebrow">ALOS / GENESIS FACTORY</p>
+          <h1>Factory Contract</h1>
+          <p className="muted">
+            Requirement, capability decision, dan DRAFT mengikuti contract backend. UI ini tidak
+            pernah menjadi authority lifecycle, tools, atau tests.
+          </p>
+        </div>
+        <div className="header-actions">
+          <span className="role-badge">{formatRoleLabel(actor.roles)}</span>
+        </div>
+      </header>
+
+      <GovernanceNavigation active="factory" />
+
       <div className="alos-panel">
         <div className="alos-panel-title">
           <p className="alos-kicker">GENESIS FACTORY</p>
           <h3>Requirement Baru</h3>
           <p>Masukkan kebutuhan bisnis. Backend tetap authoritative atas lifecycle, tools, tests, dan governance.</p>
         </div>
-        <form onSubmit={(event) => void createRequest(event)}>
-          <label>
-            Workspace
-            <select onChange={(event) => setWorkspaceId(event.target.value)} value={workspaceId}>
-              {actor.workspace_ids.map((id) => <option key={id} value={id}>{id}</option>)}
-            </select>
-          </label>
-          <label>
-            Requirement
-            <textarea minLength={10} onChange={(event) => setRequirement(event.target.value)} required value={requirement} />
-          </label>
-          <label>
-            Idempotency key
-            <input onChange={(event) => setIdempotencyKey(event.target.value)} placeholder="Kosongkan untuk generate" value={idempotencyKey} />
-          </label>
-          <button disabled={saving || requirement.trim().length < 10} type="submit">
-            {saving ? "Menyimpan…" : "Create Factory Request"}
-          </button>
-        </form>
+        {canRequest ? (
+          <form onSubmit={(event) => void createRequest(event)}>
+            <label>
+              Workspace
+              <select onChange={(event) => setWorkspaceId(event.target.value)} value={workspaceId}>
+                {actor.workspace_ids.map((id) => <option key={id} value={id}>{id}</option>)}
+              </select>
+            </label>
+            <label>
+              Requirement
+              <textarea minLength={10} onChange={(event) => setRequirement(event.target.value)} required value={requirement} />
+            </label>
+            <label>
+              Idempotency key
+              <input onChange={(event) => setIdempotencyKey(event.target.value)} placeholder="Kosongkan untuk generate" value={idempotencyKey} />
+            </label>
+            <button disabled={saving || requirement.trim().length < 10} type="submit">
+              {saving ? "Menyimpan…" : "Create Factory Request"}
+            </button>
+          </form>
+        ) : (
+          <p className="safe-note">
+            Pembuatan requirement baru tersedia untuk Director, Lead Divisi, dan Anggota Divisi.
+            Role Anda saat ini hanya dapat membaca requirement dan capability decision yang ada.
+          </p>
+        )}
         {notice ? <p className="genesis-factory-notice">{notice}</p> : null}
       </div>
 
@@ -178,9 +205,13 @@ export function GenesisFactoryConsole({ actor }: { actor: SessionActor }) {
 
       {selected ? (
         <div className="alos-panel genesis-factory-actions">
-          <button disabled={analyzing || selected.status === "BLOCKED"} onClick={() => void analyzeSelected()} type="button">
-            {analyzing ? "Analyzing…" : "Analyze Requirement"}
-          </button>
+          {canRequest ? (
+            <button disabled={analyzing || selected.status === "BLOCKED"} onClick={() => void analyzeSelected()} type="button">
+              {analyzing ? "Analyzing…" : "Analyze Requirement"}
+            </button>
+          ) : (
+            <p className="safe-note">Analisis requirement tersedia untuk Director, Lead Divisi, dan Anggota Divisi.</p>
+          )}
           <small>Factory tidak pernah auto-activate. Release dan governance tetap melalui jalur yang ada.</small>
         </div>
       ) : null}
@@ -196,7 +227,7 @@ export function GenesisFactoryConsole({ actor }: { actor: SessionActor }) {
   );
 }
 
-function FactoryDetail({ request }: { request: FactoryRequest | undefined }) {
+export function FactoryDetail({ request }: { request: FactoryRequest | undefined }) {
   if (!request) return <p className="genesis-factory-empty">Pilih request untuk melihat detail.</p>;
   const missing = factoryMissingDependencies(request);
   return (

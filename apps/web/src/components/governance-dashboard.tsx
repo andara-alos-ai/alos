@@ -220,6 +220,7 @@ export function GovernanceDashboard() {
         </div>
         <div className="header-actions">
           <span className="role-badge">{formatRoleLabel(data.actor.roles)}</span>
+          <Link className="secondary-button button-link" href="/factory">GENESIS Factory</Link>
           {data.actor.roles.includes("IT_LEAD") ? <Link className="secondary-button button-link" href="/agents">Agent Registry</Link> : null}
           {data.actor.roles.some((role) => ["DIRECTOR", "IT_LEAD", "QA_SECURITY"].includes(role)) ? <Link className="secondary-button button-link" href="/validation">Source Vault &amp; UAT</Link> : null}
           <Link className="secondary-button button-link" href="/releases">Release</Link>
