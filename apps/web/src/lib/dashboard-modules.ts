@@ -125,6 +125,15 @@ export const dashboardModules = {
     secondaryPanel: "Agen Aktif",
     emptyMessage: "Mulai dengan kebutuhan bisnis yang jelas. GENESIS hanya membuat DRAFT dan tidak dapat menjalankan atau mengubah sistem tanpa proses review.",
   },
+  rnd: {
+    title: "Research & Intelligence",
+    description: "Riset internal dan eksternal serta empat domain R&D bisnis. Recommendation R&D bukan keputusan final dan tidak mengubah production secara otomatis.",
+    searchPlaceholder: "Cari finding, sumber, atau domain riset…",
+    metrics: [],
+    primaryPanel: "Sumber & Finding",
+    secondaryPanel: "Backlog Candidate",
+    emptyMessage: "R&D workspace ini baru menampilkan navigasi dan konsep dasar. Finding, recommendation, dan backlog akan tampil setelah backend Research & Intelligence (H2 dan seterusnya) tersedia.",
+  },
   settings: {
     title: "Settings & Administration",
     description: "Kelola pengaturan akun, sistem, dan preferensi platform ALOS.",

@@ -15,6 +15,7 @@ import { DocumentViews } from "@/components/documents/document-views";
 import { ReportViews } from "@/components/reports/report-views";
 import { FindingViews } from "@/components/findings/finding-views";
 import { AraViews } from "@/components/ara/ara-views";
+import { RndWorkspace } from "@/components/rnd/rnd-views";
 import type { ExecutiveDashboardSnapshot } from "@/lib/executive-dashboard";
 import type { OperationalDashboard } from "@/lib/operational";
 import type { DashboardProfile } from "@/lib/dashboard-access";
@@ -901,6 +902,19 @@ const araProfile: DashboardProfile = {
   governanceVisible: true,
 };
 
+const rndProfile: DashboardProfile = {
+  persona: "it_lead",
+  roleLabel: "IT Lead",
+  scopeTitle: "Research & Intelligence",
+  scopeDescription: "Riset internal dan eksternal serta empat domain R&D bisnis",
+  homeTitle: "Research & Intelligence",
+  homeDescription: "Riset internal dan eksternal serta empat domain R&D bisnis. Recommendation R&D bukan keputusan final dan tidak mengubah production secara otomatis.",
+  homeEyebrow: "ALOS / RND",
+  homeLabel: "IT Operations",
+  divisionLabel: "IT Operations",
+  governanceVisible: true,
+};
+
 const sampleApprovalsOperationalData: OperationalDashboard = {
   generated_at: "2026-09-10T15:00:00Z",
   scope: "IT_OPERATIONS",
@@ -1027,7 +1041,8 @@ function PreviewDashboardInner() {
     | "documents"
     | "reports"
     | "findings"
-    | "ara" =
+    | "ara"
+    | "rnd" =
     roleParam === "director" ||
     roleParam === "member" ||
     roleParam === "divisions" ||
@@ -1037,7 +1052,8 @@ function PreviewDashboardInner() {
     roleParam === "documents" ||
     roleParam === "reports" ||
     roleParam === "findings" ||
-    roleParam === "ara"
+    roleParam === "ara" ||
+    roleParam === "rnd"
       ? roleParam
       : "lead";
 
@@ -1062,12 +1078,16 @@ function PreviewDashboardInner() {
                       ? reportsProfile
                       : viewRole === "findings"
                         ? findingsProfile
-                        : araProfile;
+                        : viewRole === "rnd"
+                          ? rndProfile
+                          : araProfile;
 
   const activeNavHref =
     viewRole === "ara"
       ? "/genesis"
-      : viewRole === "findings"
+      : viewRole === "rnd"
+        ? "/rnd"
+        : viewRole === "findings"
         ? "/findings"
         : viewRole === "reports"
           ? "/reports"
@@ -1169,6 +1189,12 @@ function PreviewDashboardInner() {
         >
           ARA Workspace (ARA View)
         </Link>
+        <Link
+          className={`alos-tab-btn ${viewRole === "rnd" ? "active" : ""}`}
+          href="/preview-dashboard?role=rnd"
+        >
+          R&amp;D (Research &amp; Intelligence View)
+        </Link>
       </div>
 
       {viewRole === "director" && <ExecutiveView dashboard={sampleDirectorSnapshot} />}
@@ -1186,6 +1212,7 @@ function PreviewDashboardInner() {
       {viewRole === "reports" && <ReportViews actor={mockActor} />}
       {viewRole === "findings" && <FindingViews actor={mockActor} />}
       {viewRole === "ara" && <AraViews actor={mockActor} />}
+      {viewRole === "rnd" && <RndWorkspace actor={mockActor} />}
     </AppShell>
   );
 }

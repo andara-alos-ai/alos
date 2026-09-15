@@ -17,6 +17,7 @@ import {
 } from "@/lib/dashboard-access";
 import { DocumentCenter } from "@/components/document-center";
 import { AraViews } from "@/components/ara/ara-views";
+import { RndWorkspace } from "@/components/rnd/rnd-views";
 import { OperationalModuleDashboard } from "@/components/operational-modules";
 import {
   DivisionsOverviewDashboard,
@@ -109,7 +110,7 @@ export function ExecutiveDashboard({ module }: ExecutiveDashboardProps) {
     page?.description ??
     profile?.homeDescription ??
     "Satu ruang kerja untuk melihat kondisi perusahaan, keputusan, dan aksi yang telah terdaftar.";
-  const isFocusedWorkspace = module === "documents" || module === "genesis";
+  const isFocusedWorkspace = module === "documents" || module === "genesis" || module === "rnd";
   const isCustomHeroModule =
     isFocusedWorkspace ||
     module === "divisions" ||
@@ -279,6 +280,7 @@ function ExecutiveDashboardLoading() {
 
 function ModuleDashboard({ actor, module }: { actor: SessionActor; module: DashboardModuleKey }) {
   if (module === "genesis") return <GenesisDashboard actor={actor} />;
+  if (module === "rnd") return <RndDashboard actor={actor} />;
   if (module === "settings") return <SettingsDashboard actor={actor} />;
   if (module === "documents") return <DocumentCenter actor={actor} mode="documents" />;
   if (module === "divisions") return <DivisionsOverviewDashboard />;
@@ -296,6 +298,10 @@ function ModuleDashboard({ actor, module }: { actor: SessionActor; module: Dashb
 
 function GenesisDashboard({ actor }: { actor: SessionActor }) {
   return <AraViews actor={actor} />;
+}
+
+function RndDashboard({ actor }: { actor: SessionActor }) {
+  return <RndWorkspace actor={actor} />;
 }
 
 function SettingsDashboard({ actor }: { actor: SessionActor }) {

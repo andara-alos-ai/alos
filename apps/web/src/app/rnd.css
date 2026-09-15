@@ -1,0 +1,82 @@
+/* R&D Workspace — baseline styling (H1 navigation/IA scope)
+   Extends shared alos-content/alos-panel primitives from globals.css. */
+
+.alos-rnd-workspace {
+  display: grid;
+  gap: 22px;
+}
+
+.alos-inline-notice {
+  background: var(--alos-status-warning-bg, #fdf3dc);
+  border: 1px solid var(--alos-status-warning-border, #f4dfa6);
+  border-radius: 10px;
+  color: var(--alos-status-warning-text, #ad7410);
+  font-size: 0.92rem;
+  margin: 0;
+  padding: 12px 16px;
+}
+
+.alos-rnd-domain-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.alos-rnd-domain-card p {
+  color: var(--alos-text-secondary, #536761);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+
+.alos-rnd-flow-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 14px 0;
+  padding: 0;
+}
+
+.alos-rnd-flow-list li {
+  border-left: 3px solid var(--alos-forest-400, #2fb197);
+  display: grid;
+  gap: 2px;
+  padding: 4px 0 4px 14px;
+}
+
+.alos-rnd-flow-list strong {
+  color: var(--alos-text-primary, #11231f);
+  font-size: 0.94rem;
+}
+
+.alos-rnd-flow-list span {
+  color: var(--alos-text-secondary, #536761);
+  font-size: 0.88rem;
+}
+
+.alos-rnd-flow-note {
+  color: var(--alos-text-muted, #82948e);
+  font-size: 0.85rem;
+  margin: 4px 0 0;
+}
+
+.alos-rnd-source-types {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin: 14px 0;
+}
+
+.alos-rnd-source-types strong {
+  color: var(--alos-text-primary, #11231f);
+  display: block;
+  font-size: 0.92rem;
+  margin-bottom: 4px;
+}
+
+.alos-rnd-source-types p {
+  color: var(--alos-text-secondary, #536761);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin: 0;
+}

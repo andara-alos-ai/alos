@@ -107,6 +107,30 @@ describe("AppShell Component Suite", () => {
     expect(html).toContain("/governance");
   });
 
+  it("hides R&D navigation for normal division member (same gating as Governance)", () => {
+    const html = renderToStaticMarkup(
+      <Sidebar
+        actor={{ ...mockActor, roles: ["MEMBER"] }}
+        profile={mockMemberProfile}
+      />,
+    );
+
+    expect(html).not.toContain(">R&amp;D<");
+    expect(html).not.toContain('href="/rnd"');
+  });
+
+  it("displays R&D navigation for authorized director and IT leadership", () => {
+    const html = renderToStaticMarkup(
+      <Sidebar
+        actor={mockActor}
+        profile={mockDirectorProfile}
+      />,
+    );
+
+    expect(html).toContain(">R&amp;D<");
+    expect(html).toContain('href="/rnd"');
+  });
+
   it("displays pending approvals badge count when items require attention", () => {
     const html = renderToStaticMarkup(
       <Sidebar
