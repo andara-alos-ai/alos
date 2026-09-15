@@ -137,6 +137,15 @@ class ResearchStatus(StrEnum):
     CLOSED = "CLOSED"
 
 
+class ResearchDomain(StrEnum):
+    """Official R&D taxonomy shared by governed GENESIS capabilities."""
+
+    TECHNOLOGY = "TECHNOLOGY"
+    PROPERTY_BUSINESS_MODEL = "PROPERTY_BUSINESS_MODEL"
+    CORPORATE_MANAGEMENT = "CORPORATE_MANAGEMENT"
+    PROPERTY_MARKET = "PROPERTY_MARKET"
+
+
 class ResearchProject(BaseModel):
     """Domain-neutral research record; no technology-specific fields are required."""
 

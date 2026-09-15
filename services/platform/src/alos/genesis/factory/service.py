@@ -18,7 +18,7 @@ from alos.genesis.factory.persistence import (
     FactoryStatus,
 )
 from alos.genesis.factory.pipeline import (
-    AgentContractFactory,
+    CapabilityProposalFactory,
     FactoryDependencyResolver,
     GeneratedTest,
 )
@@ -63,7 +63,7 @@ class GenesisFactoryService:
         self._analyzer = analyzer
         self._implementation_resolver = ImplementationTypeResolver()
         self._dependency_resolver = dependency_resolver
-        self._contract_factory = AgentContractFactory()
+        self._proposal_factory = CapabilityProposalFactory()
         self._agent_registry = agent_registry
         self._releases = releases
         self._limits = limits
@@ -118,9 +118,13 @@ class GenesisFactoryService:
                 limits=self._limits,
             )
             decision = self._implementation_resolver.resolve(understanding)
-            resolution = self._dependency_resolver.resolve(decision.required_capabilities)
+            resolution = self._dependency_resolver.resolve(
+                decision.required_capabilities,
+                requires_connector=understanding.requires_connector,
+                requires_tool_execution=understanding.requires_tool_execution,
+            )
             digest = sha256(request.requirement.encode("utf-8")).hexdigest().upper()
-            proposal = self._contract_factory.create(
+            proposal = self._proposal_factory.create(
                 understanding,
                 decision,
                 resolution,

@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from alos.genesis.governed_foundations import ResearchDomain
+
 
 class ImplementationType(StrEnum):
     AGENT = "AGENT"
@@ -30,6 +32,26 @@ class TriggerKind(StrEnum):
     CONDITIONAL = "CONDITIONAL"
 
 
+class SourceKind(StrEnum):
+    """Trust boundary for information used by a proposed capability."""
+
+    INTERNAL = "INTERNAL"
+    EXTERNAL = "EXTERNAL"
+
+
+class SourceRequirement(BaseModel):
+    """Semantic source needs only; this model never grants access or authority."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: SourceKind
+    purpose: str = Field(min_length=3, max_length=2_000)
+    provenance_required: bool = True
+    citation_required: bool = True
+    freshness_required: bool = False
+    reliability_required: bool = True
+
+
 class RequirementUnderstanding(BaseModel):
     """Semantically extracted facts; no implementation choice is made here."""
 
@@ -42,12 +64,22 @@ class RequirementUnderstanding(BaseModel):
     desired_outputs: tuple[str, ...] = ()
     deterministic_constraints: tuple[str, ...] = ()
     material_actions: tuple[str, ...] = ()
+    source_requirements: tuple[SourceRequirement, ...] = ()
     evidence_requirements: tuple[str, ...] = ()
     requires_reasoning: bool = False
     requires_research: bool = False
     requires_validation: bool = False
     requires_human_judgment: bool = False
+    requires_connector: bool = False
+    requires_tool_execution: bool = False
+    research_domain: ResearchDomain | None = None
     ambiguity_notes: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_research_domain(self) -> RequirementUnderstanding:
+        if self.research_domain is not None and not self.requires_research:
+            raise ValueError("research_domain requires requires_research=true")
+        return self
 
 
 class ImplementationDecision(BaseModel):
@@ -71,4 +103,34 @@ class ImplementationDecision(BaseModel):
             raise ValueError("COMPOSITE decisions require at least two components")
         if self.implementation_type != ImplementationType.COMPOSITE and self.components:
             raise ValueError("components are only valid for COMPOSITE decisions")
+        return self
+
+
+class CapabilityDraft(BaseModel):
+    """Governed generic DRAFT produced for every implementation decision."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    capability_type: ImplementationType
+    components: tuple[ImplementationType, ...] = ()
+    purpose: str = Field(min_length=5, max_length=10_000)
+    rationale: str = Field(min_length=10, max_length=2_000)
+    required_capabilities: tuple[str, ...] = ()
+    required_data: tuple[str, ...] = ()
+    required_tools: tuple[str, ...] = ()
+    required_permissions: tuple[str, ...] = ()
+    source_requirements: tuple[SourceRequirement, ...] = ()
+    evidence_requirements: tuple[str, ...] = ()
+    risk: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    human_gate_required: bool
+    test_requirements: tuple[str, ...] = ()
+    ambiguity_notes: tuple[str, ...] = ()
+    limitations: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_composition(self) -> CapabilityDraft:
+        if self.capability_type == ImplementationType.COMPOSITE and len(self.components) < 2:
+            raise ValueError("COMPOSITE drafts require at least two components")
+        if self.capability_type != ImplementationType.COMPOSITE and self.components:
+            raise ValueError("components are only valid for COMPOSITE drafts")
         return self

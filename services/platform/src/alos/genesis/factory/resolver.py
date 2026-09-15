@@ -52,6 +52,10 @@ class ImplementationTypeResolver:
             selected.append(ImplementationType.SCHEDULE)
         elif requirement.trigger_kind == TriggerKind.EVENT:
             selected.append(ImplementationType.EVENT_HANDLER)
+        if requirement.requires_connector:
+            selected.append(ImplementationType.CONNECTOR_REQUIREMENT)
+        if requirement.requires_tool_execution:
+            selected.append(ImplementationType.TOOL_REQUIREMENT)
         if not selected:
             selected.append(
                 ImplementationType.SKILL

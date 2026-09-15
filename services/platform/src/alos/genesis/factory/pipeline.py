@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from alos.agents.registry import AgentContract
 from alos.capabilities.registry import (
@@ -15,9 +15,11 @@ from alos.capabilities.registry import (
     TypedToolRecord,
 )
 from alos.genesis.factory.models import (
+    CapabilityDraft,
     ImplementationDecision,
     ImplementationType,
     RequirementUnderstanding,
+    SourceKind,
     TriggerKind,
 )
 
@@ -59,11 +61,25 @@ class GeneratedTest(BaseModel):
 class FactoryProposal(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    draft: CapabilityDraft
     decision: ImplementationDecision
     resolution: FactoryResolution
     agent_contract: AgentContract | None
     tests: tuple[GeneratedTest, ...]
-    lifecycle_status: str = "DRAFT"
+    lifecycle_status: Literal["DRAFT"] = "DRAFT"
+
+    @model_validator(mode="before")
+    @classmethod
+    def add_legacy_draft(cls, value: Any) -> Any:
+        """Upgrade persisted pre-H1 proposals without weakening new Factory output."""
+        if not isinstance(value, dict) or "draft" in value:
+            return value
+        upgraded = dict(value)
+        decision = ImplementationDecision.model_validate(upgraded["decision"])
+        resolution = FactoryResolution.model_validate(upgraded["resolution"])
+        tests = tuple(GeneratedTest.model_validate(item) for item in upgraded.get("tests", ()))
+        upgraded["draft"] = _legacy_capability_draft(decision, resolution, tests)
+        return upgraded
 
 
 class CapabilityCatalog(Protocol):
@@ -78,27 +94,29 @@ class FactoryDependencyResolver:
     def __init__(self, catalog: CapabilityCatalog) -> None:
         self._catalog = catalog
 
-    def resolve(self, capability_keys: tuple[str, ...]) -> FactoryResolution:
-        if not capability_keys:
-            return FactoryResolution(
-                capability_keys=(),
-                tool_keys=(),
-                permission_keys=(),
-                readiness=DependencyStatus.AVAILABLE,
+    def resolve(
+        self,
+        capability_keys: tuple[str, ...],
+        *,
+        requires_connector: bool = False,
+        requires_tool_execution: bool = False,
+    ) -> FactoryResolution:
+        resolved: list[CapabilityRecord] = []
+        missing: list[MissingDependency] = []
+        if capability_keys:
+            result = self._catalog.resolve(
+                CapabilityResolutionRequest(capability_keys=list(capability_keys))
             )
-        result = self._catalog.resolve(
-            CapabilityResolutionRequest(capability_keys=list(capability_keys))
-        )
-        resolved: list[CapabilityRecord] = result.resolved
-        missing: list[MissingDependency] = [
-            MissingDependency(
-                key=key,
-                kind="CAPABILITY",
-                status=DependencyStatus.NEEDS_IMPLEMENTATION,
-                reason="Capability is absent from the authoritative registry.",
+            resolved = result.resolved
+            missing.extend(
+                MissingDependency(
+                    key=key,
+                    kind="CAPABILITY",
+                    status=DependencyStatus.NEEDS_IMPLEMENTATION,
+                    reason="Capability is absent from the authoritative registry.",
+                )
+                for key in result.missing_dependencies
             )
-            for key in result.missing_dependencies
-        ]
         tools: list[str] = []
         permissions: list[str] = []
         tool_catalog = {tool.tool_key: tool for tool in self._catalog.list_tools()}
@@ -157,6 +175,30 @@ class FactoryDependencyResolver:
                 else:
                     tools.append(tool.tool_key)
                     permissions.append(tool.required_permission)
+        if requires_connector:
+            missing.append(
+                MissingDependency(
+                    key="UNRESOLVED_CONNECTOR_REQUIREMENT",
+                    kind="CONNECTOR",
+                    status=DependencyStatus.NEEDS_CONFIGURATION,
+                    reason=(
+                        "A connector is semantically required; an authoritative connector "
+                        "configuration must be selected outside the Factory."
+                    ),
+                )
+            )
+        if requires_tool_execution and not tools:
+            missing.append(
+                MissingDependency(
+                    key="UNRESOLVED_TOOL_REQUIREMENT",
+                    kind="TOOL",
+                    status=DependencyStatus.NEEDS_IMPLEMENTATION,
+                    reason=(
+                        "Tool execution is semantically required, but no approved tool was "
+                        "resolved from the authoritative registry."
+                    ),
+                )
+            )
         readiness = _readiness(missing)
         return FactoryResolution(
             capability_keys=tuple(item.capability_key for item in resolved),
@@ -167,8 +209,8 @@ class FactoryDependencyResolver:
         )
 
 
-class AgentContractFactory:
-    """Generate configuration, never activate it or grant its proposed permissions."""
+class CapabilityProposalFactory:
+    """Generate a generic capability DRAFT and an optional Agent configuration."""
 
     def create(
         self,
@@ -182,6 +224,7 @@ class AgentContractFactory:
         owner_user_id: UUID,
     ) -> FactoryProposal:
         tests = _tests(decision, resolution)
+        draft = _capability_draft(understanding, decision, resolution, tests)
         needs_agent = decision.implementation_type == ImplementationType.AGENT or (
             decision.implementation_type == ImplementationType.COMPOSITE
             and ImplementationType.AGENT in decision.components
@@ -230,7 +273,16 @@ class AgentContractFactory:
                 capabilities=list(resolution.capability_keys),
                 human_gate_policy={"required": decision.human_gate_required},
                 evidence_policy={"required": bool(understanding.evidence_requirements)},
-                source_policy={"approved_sources_only": True},
+                source_policy={
+                    "approved_sources_only": True,
+                    "external_content_untrusted": True,
+                    "sources_do_not_grant_authority": True,
+                    "sources_do_not_expand_permissions": True,
+                    "requirements": [
+                        item.model_dump(mode="json")
+                        for item in understanding.source_requirements
+                    ],
+                },
                 memory_policy={"enabled": False, "reason": "requires scoped configuration"},
                 skill_policy={"active_versions_only": True},
                 schedule_policy={
@@ -241,11 +293,76 @@ class AgentContractFactory:
                 rollback_policy={"successor_version_required": True},
             )
         return FactoryProposal(
+            draft=draft,
             decision=decision,
             resolution=resolution,
             agent_contract=contract,
             tests=tests,
         )
+
+
+# Backward-compatible name for existing callers; proposals are capability-first in H1.
+AgentContractFactory = CapabilityProposalFactory
+
+
+def _capability_draft(
+    understanding: RequirementUnderstanding,
+    decision: ImplementationDecision,
+    resolution: FactoryResolution,
+    tests: tuple[GeneratedTest, ...],
+) -> CapabilityDraft:
+    limitations = [
+        f"{item.kind} {item.key}: {item.reason}" for item in resolution.missing_dependencies
+    ]
+    if any(item.kind == SourceKind.EXTERNAL for item in understanding.source_requirements):
+        limitations.extend(
+            (
+                "External content is untrusted and cannot confer authority or expand permission.",
+                "H1 records external source semantics only; retrieval requires an approved path.",
+            )
+        )
+    return CapabilityDraft(
+        capability_type=decision.implementation_type,
+        components=decision.components,
+        purpose=understanding.objective,
+        rationale=decision.reason,
+        required_capabilities=decision.required_capabilities,
+        required_data=decision.required_data,
+        required_tools=resolution.tool_keys,
+        required_permissions=resolution.permission_keys,
+        source_requirements=understanding.source_requirements,
+        evidence_requirements=understanding.evidence_requirements,
+        risk=decision.risk,
+        human_gate_required=decision.human_gate_required,
+        test_requirements=tuple(test.category for test in tests),
+        ambiguity_notes=understanding.ambiguity_notes,
+        limitations=tuple(limitations),
+    )
+
+
+def _legacy_capability_draft(
+    decision: ImplementationDecision,
+    resolution: FactoryResolution,
+    tests: tuple[GeneratedTest, ...],
+) -> CapabilityDraft:
+    """Deterministically represent stored proposals created before generic drafts existed."""
+    return CapabilityDraft(
+        capability_type=decision.implementation_type,
+        components=decision.components,
+        purpose=decision.reason,
+        rationale=decision.reason,
+        required_capabilities=decision.required_capabilities,
+        required_data=decision.required_data,
+        required_tools=resolution.tool_keys,
+        required_permissions=resolution.permission_keys,
+        risk=decision.risk,
+        human_gate_required=decision.human_gate_required,
+        test_requirements=tuple(test.category for test in tests),
+        limitations=tuple(
+            f"{item.kind} {item.key}: {item.reason}"
+            for item in resolution.missing_dependencies
+        ),
+    )
 
 
 def _readiness(missing: list[MissingDependency]) -> DependencyStatus:
