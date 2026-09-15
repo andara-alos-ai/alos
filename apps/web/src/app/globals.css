@@ -1501,3 +1501,31 @@ th { color: #aac0d5; font-weight: 700; }
   .genesis-selected-chips { flex-wrap: wrap; }
   .genesis-clear-context { margin-left: 0; }
 }
+
+/* Capability Registry view (Governance > Capabilities) */
+.alos-dash-kicker { color: #72d6b3; font-size: .68rem; font-weight: 700; letter-spacing: .09em; margin: 0 0 4px; text-transform: uppercase; }
+.alos-loading-inline { color: #adc1d4; }
+.alos-status-pill { border-radius: 99px; display: inline-block; font-size: .68rem; font-weight: 700; padding: 4px 10px; white-space: nowrap; }
+.alos-status-pill.success { background: #173c33; color: #96e8c8; }
+.alos-status-pill.warning { background: #4a3a12; color: #f2cf7c; }
+.alos-status-pill.danger { background: #4a1e22; color: #f5a3ac; }
+.alos-status-pill.info { background: #1c3350; color: #9fc4ee; }
+.alos-capability-layout { display: grid; gap: 16px; grid-template-columns: minmax(230px, .9fr) minmax(0, 1.4fr); }
+.alos-capability-list { display: grid; gap: 14px; max-height: 560px; overflow-y: auto; }
+.alos-capability-domain-group { display: grid; gap: 6px; }
+.alos-capability-row { align-items: center; background: #101c30; border: 1px solid #223a55; border-radius: 10px; color: inherit; cursor: pointer; display: flex; font: inherit; gap: 10px; justify-content: space-between; padding: 10px 12px; text-align: left; width: 100%; }
+.alos-capability-row:hover { border-color: #3a5c82; }
+.alos-capability-row.selected { border-color: #72d6b3; box-shadow: 0 0 0 1px #72d6b3 inset; }
+.alos-capability-row strong { color: #f1f6ff; display: block; font-size: .8rem; }
+.alos-capability-row small { color: #9eb5ca; font-size: .68rem; }
+.alos-capability-detail { background: #0d1826; border: 1px solid #223a55; border-radius: 12px; padding: 16px 18px; }
+.alos-capability-detail-head { align-items: flex-start; display: flex; justify-content: space-between; gap: 12px; }
+.alos-capability-detail-head h3 { color: #f1f6ff; margin: 0; }
+.alos-capability-purpose { color: #c4d5e5; line-height: 1.55; margin: 10px 0 4px; }
+.alos-capability-tool-list { display: grid; gap: 8px; list-style: none; margin: 10px 0 0; padding: 0; }
+.alos-capability-tool-list li { align-items: center; background: #101c30; border: 1px solid #223a55; border-radius: 8px; display: flex; justify-content: space-between; padding: 8px 10px; }
+.alos-capability-tool-list strong { color: #f1f6ff; font-size: .78rem; }
+.alos-capability-tool-list span { color: #9eb5ca; font-size: .68rem; }
+@media (max-width: 900px) {
+  .alos-capability-layout { grid-template-columns: minmax(0, 1fr); }
+}
