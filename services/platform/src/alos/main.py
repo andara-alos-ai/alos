@@ -222,8 +222,18 @@ class AgentDesignerRequest(BaseModel):
             objective=self.requirement,
             parent_agent_key=self.parent_agent_key,
             risk_level="LOW",
-            input_schema={"type": "object"},
-            output_schema={"type": "object"},
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                },
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                },
+            },
             model_policy={
                 "provider": get_settings().llm_provider,
                 "model_route": "light",

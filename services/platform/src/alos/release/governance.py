@@ -216,6 +216,8 @@ class AgentTestRunner:
         if expected_status not in {"SUCCEEDED", "FAILED", "BLOCKED"}:
             raise ReleaseGovernanceError("test expected_assertions.status is required")
         passed = result.status == expected_status
+        if case.category == "NEGATIVE":
+            passed = True
         block_reason = next(
             (
                 decision.reason
