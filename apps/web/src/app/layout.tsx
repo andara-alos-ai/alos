@@ -5,6 +5,7 @@ import "./globals.css";
 import "./shell.css";
 import "./portfolio.css";
 import "./genesis.css";
+import "./rnd.css";
 
 export const metadata: Metadata = {
   title: "ALOS | Andara Leverage Operating System",

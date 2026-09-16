@@ -5,7 +5,7 @@ import { dashboardModules, isDashboardModuleKey } from "./dashboard-modules";
 describe("dashboard module routing", () => {
   it("keeps the operational modules explicitly allowlisted", () => {
     expect(Object.keys(dashboardModules)).toEqual([
-      "divisions", "projects", "tasks", "approvals", "documents", "reports", "findings", "genesis", "settings",
+      "divisions", "projects", "tasks", "approvals", "documents", "reports", "findings", "genesis", "rnd", "settings",
     ]);
   });
 

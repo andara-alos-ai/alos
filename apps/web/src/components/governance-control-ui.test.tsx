@@ -12,6 +12,13 @@ describe("Governance control UI", () => {
     expect(html).toContain("Runtime &amp; Monitoring");
   });
 
+  it("links to the GENESIS Factory console and marks it active", () => {
+    const html = renderToStaticMarkup(<GovernanceNavigation active="factory" />);
+    expect(html).toContain('href="/factory"');
+    expect(html).toContain("GENESIS Factory");
+    expect(html).toContain('aria-current="page"');
+  });
+
   it("renders what happened, why, next action, and a reference id", () => {
     const html = renderToStaticMarkup(<GovernanceFeedback error={{ title: "Aksi diblokir", reason: "Role tidak sesuai.", nextAction: "Gunakan Checker independen.", status: 403, correlationId: "corr-403" }} notice="" />);
     expect(html).toContain("Aksi diblokir");

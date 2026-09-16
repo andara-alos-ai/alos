@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canReadFactoryRequests,
+  canRequestFactoryCapability,
   factoryMissingDependencies,
   factoryStatusLabel,
   type FactoryRequest,
@@ -57,5 +59,23 @@ describe("genesis factory presentation", () => {
 
   it("surfaces missing dependencies from the authoritative resolution", () => {
     expect(factoryMissingDependencies(base)).toEqual(["records.read"]);
+  });
+
+  it("mirrors the backend require_agent_request authority for submitting/analyzing requirements", () => {
+    expect(canRequestFactoryCapability(["DIRECTOR"])).toBe(true);
+    expect(canRequestFactoryCapability(["DIVISION_LEAD"])).toBe(true);
+    expect(canRequestFactoryCapability(["DIVISION_OWNER"])).toBe(true);
+    expect(canRequestFactoryCapability(["DIVISION_MEMBER"])).toBe(true);
+    expect(canRequestFactoryCapability(["IT_LEAD"])).toBe(false);
+    expect(canRequestFactoryCapability(["QA_SECURITY"])).toBe(false);
+    expect(canRequestFactoryCapability([])).toBe(false);
+  });
+
+  it("gates Factory console read access like Governance/Agent Registry visibility", () => {
+    expect(canReadFactoryRequests(["IT_LEAD"])).toBe(true);
+    expect(canReadFactoryRequests(["DIRECTOR"])).toBe(true);
+    expect(canReadFactoryRequests(["DIVISION_MEMBER"])).toBe(true);
+    expect(canReadFactoryRequests(["QA_SECURITY"])).toBe(true);
+    expect(canReadFactoryRequests([])).toBe(false);
   });
 });

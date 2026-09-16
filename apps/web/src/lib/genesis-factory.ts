@@ -98,3 +98,25 @@ export function factoryMissingDependencies(request: FactoryRequest): string[] {
   const explicit = (resolution.missing_dependencies ?? []).map((item) => item.key);
   return [...new Set(explicit)].sort();
 }
+
+/**
+ * Match the backend `require_agent_request` authority: Director, Division
+ * Lead/Owner, and Division Member may submit and analyze a Factory
+ * requirement. This mirrors backend authority; it does not replace it — the
+ * API still rejects any role this check would incorrectly allow.
+ */
+export function canRequestFactoryCapability(roles: readonly string[]): boolean {
+  return roles.some((role) =>
+    ["DIRECTOR", "DIVISION_LEAD", "DIVISION_OWNER", "DIVISION_MEMBER"].includes(role),
+  );
+}
+
+/**
+ * Read access mirrors Governance/Agent Registry visibility so the Factory
+ * console does not become a second, differently-gated surface.
+ */
+export function canReadFactoryRequests(roles: readonly string[]): boolean {
+  return roles.some((role) =>
+    ["DIRECTOR", "DIVISION_LEAD", "DIVISION_OWNER", "DIVISION_MEMBER", "IT_LEAD", "QA_SECURITY", "BUSINESS_REVIEWER", "TECHNICAL_REVIEWER"].includes(role),
+  );
+}

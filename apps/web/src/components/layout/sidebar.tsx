@@ -89,6 +89,7 @@ export function Sidebar({
   ];
 
   const isAraActive = activeNavHref ? activeNavHref === "/genesis" : pathname.startsWith("/genesis");
+  const isRndActive = activeNavHref ? activeNavHref === "/rnd" : pathname.startsWith("/rnd");
   const isGovernanceActive = activeNavHref
     ? activeNavHref === "/governance"
     : pathname.startsWith("/governance") ||
@@ -161,6 +162,22 @@ export function Sidebar({
             <span className="alos-nav-label">ARA Workspace</span>
           </Link>
         </div>
+
+        {/* Research & Intelligence (Restricted to Authorized Roles, same as Governance) */}
+        {profile?.governanceVisible ? (
+          <div className="alos-sidebar-section">
+            <Link
+              aria-current={isRndActive ? "page" : undefined}
+              className={`alos-nav-item alos-nav-item-rnd ${isRndActive ? "active" : ""}`}
+              href="/rnd"
+            >
+              <span className="alos-nav-icon-wrap" aria-hidden="true">
+                <RndFlaskIcon active={isRndActive} />
+              </span>
+              <span className="alos-nav-label">R&amp;D</span>
+            </Link>
+          </div>
+        ) : null}
 
         {/* Governance & Agent Control (Restricted to Authorized Roles) */}
         {profile?.governanceVisible ? (
@@ -357,6 +374,15 @@ function AraStarIcon({ active }: { active: boolean }) {
       {/* 4-point golden star */}
       <path d="M12 2c.8 4.2 3.8 7.2 8 8-4.2.8-7.2 3.8-8 8-.8-4.2-3.8-7.2-8-8 4.2-.8 7.2-3.8 8-8z" />
       <path d="M19 16c.3 1.5 1.5 2.7 3 3-1.5.3-2.7 1.5-3 3-.3-1.5-1.5-2.7-3-3 1.5-.3 2.7-1.5 3-3z" opacity="0.75" />
+    </svg>
+  );
+}
+
+function RndFlaskIcon({ active }: { active: boolean }) {
+  return (
+    <svg fill="none" height="19" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? "2.2" : "1.8"} viewBox="0 0 24 24" width="19">
+      <path d="M9 3h6M10 3v6.5L4.8 18a1.6 1.6 0 0 0 1.36 2.4h11.68A1.6 1.6 0 0 0 19.2 18L14 9.5V3" />
+      <path d="M7.5 15h9" />
     </svg>
   );
 }

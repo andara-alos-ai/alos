@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, apiRequest as api } from "@/lib/api-client";
+import { CapabilityView } from "@/components/capabilities/capability-views";
 import { GovernanceFeedback, GovernanceNavigation } from "@/components/governance-control-ui";
 import { normalizeGovernanceError, type GovernanceUiError } from "@/lib/governance-errors";
 import type { ReleaseRequest } from "@/lib/release-governance";
 import type { AgentRecord } from "@/lib/agent-registry";
 import { runtimeNextAction } from "@/lib/governance-errors";
+import type { CapabilityRecord, TypedToolRecord } from "@/lib/capabilities";
 
 import { formatRoleLabel } from "@/lib/dashboard-access";
 import {
@@ -38,6 +40,8 @@ type DashboardData = {
   agents: AgentRecord[];
   permissions: PermissionPolicy[];
   tools: ToolRecord[];
+  capabilities: CapabilityRecord[];
+  typedTools: TypedToolRecord[];
 };
 
 type PermissionPolicy = { permission_policy_id: string; agent_version_id: string; permission_key: string; effect: string; capability_key: string | null; tool_key: string | null; access_mode: string; resource_type: string; division_scope: string | null; lifecycle_status: string; approved_by_user_id: string | null };
@@ -51,7 +55,7 @@ export function GovernanceDashboard() {
   const [workspaceId, setWorkspaceId] = useState("");
   const [error, setError] = useState<GovernanceUiError | null>(null);
   const [notice, setNotice] = useState("");
-  const [view, setView] = useState<"overview" | "permissions" | "runtime" | "budget" | "audit">("overview");
+  const [view, setView] = useState<"overview" | "capabilities" | "permissions" | "runtime" | "budget" | "audit">("overview");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ requests: "", tokens: "", cost: "" });
@@ -60,7 +64,7 @@ export function GovernanceDashboard() {
 
   const loadWorkspace = useCallback(async (selectedWorkspaceId: string, base?: Foundation) => {
     const foundation = base ?? (await loadFoundation());
-    const [budget, usage, runs, auditResult, releases, agents, permissions, tools] = await Promise.all([
+    const [budget, usage, runs, auditResult, releases, agents, permissions, tools, capabilities, typedTools] = await Promise.all([
       api<Budget>(`/api/v1/workspaces/${selectedWorkspaceId}/budget`),
       api<Usage>(`/api/v1/workspaces/${selectedWorkspaceId}/usage/daily`),
       api<Run[]>(`/api/v1/workspaces/${selectedWorkspaceId}/runs?limit=12`),
@@ -69,8 +73,10 @@ export function GovernanceDashboard() {
       api<AgentRecord[]>(`/api/v1/agents?workspace_id=${encodeURIComponent(selectedWorkspaceId)}`),
       api<PermissionPolicy[]>(`/api/v1/permission-policies?workspace_id=${encodeURIComponent(selectedWorkspaceId)}`),
       api<ToolRecord[]>("/api/v1/tools"),
+      api<CapabilityRecord[]>("/api/v1/capabilities"),
+      api<TypedToolRecord[]>("/api/v1/tools/catalog"),
     ]);
-    setData({ ...foundation, budget, usage, runs, releases, agents, permissions: permissions.filter((permission) => permission.agent_version_id && agents.some((agent) => agent.versions.some((version) => version.agent_version_id === permission.agent_version_id))), tools, ...auditResult });
+    setData({ ...foundation, budget, usage, runs, releases, agents, permissions: permissions.filter((permission) => permission.agent_version_id && agents.some((agent) => agent.versions.some((version) => version.agent_version_id === permission.agent_version_id))), tools, capabilities, typedTools, ...auditResult });
     setForm({
       requests: String(budget.daily_request_limit),
       tokens: String(budget.daily_output_token_limit),
@@ -81,7 +87,7 @@ export function GovernanceDashboard() {
   useEffect(() => {
     const viewTimer = window.setTimeout(() => {
       const requested = new URLSearchParams(window.location.search).get("view");
-      if (["overview", "permissions", "runtime", "budget", "audit"].includes(requested ?? "")) setView(requested as "overview" | "permissions" | "runtime" | "budget" | "audit");
+      if (["overview", "capabilities", "permissions", "runtime", "budget", "audit"].includes(requested ?? "")) setView(requested as "overview" | "capabilities" | "permissions" | "runtime" | "budget" | "audit");
     }, 0);
     async function initialize() {
       try {
@@ -220,6 +226,7 @@ export function GovernanceDashboard() {
         </div>
         <div className="header-actions">
           <span className="role-badge">{formatRoleLabel(data.actor.roles)}</span>
+          <Link className="secondary-button button-link" href="/factory">GENESIS Factory</Link>
           {data.actor.roles.includes("IT_LEAD") ? <Link className="secondary-button button-link" href="/agents">Agent Registry</Link> : null}
           {data.actor.roles.some((role) => ["DIRECTOR", "IT_LEAD", "QA_SECURITY"].includes(role)) ? <Link className="secondary-button button-link" href="/validation">Source Vault &amp; UAT</Link> : null}
           <Link className="secondary-button button-link" href="/releases">Release</Link>
@@ -229,7 +236,7 @@ export function GovernanceDashboard() {
 
       <GovernanceNavigation active="overview" />
       <nav className="governance-subnav" aria-label="Area kontrol governance">
-        {(["overview", "permissions", "runtime", "budget", "audit"] as const).map((item) => <button aria-current={view === item ? "page" : undefined} className={view === item ? "active" : ""} key={item} onClick={() => changeView(item)} type="button">{{ overview: "Overview", permissions: "Permissions", runtime: "Runtime & Monitoring", budget: "Budget", audit: "Audit Trail" }[item]}</button>)}
+        {(["overview", "capabilities", "permissions", "runtime", "budget", "audit"] as const).map((item) => <button aria-current={view === item ? "page" : undefined} className={view === item ? "active" : ""} key={item} onClick={() => changeView(item)} type="button">{{ overview: "Overview", capabilities: "Capabilities", permissions: "Permissions", runtime: "Runtime & Monitoring", budget: "Budget", audit: "Audit Trail" }[item]}</button>)}
       </nav>
 
       <section className="workspace-bar" aria-label="Pemilihan workspace">
@@ -271,6 +278,8 @@ export function GovernanceDashboard() {
           <article className="panel"><p className="eyebrow">RECENT GOVERNANCE ACTIVITY</p><h2>Perubahan terakhir</h2>{data.audit.length ? <ol className="audit-list">{data.audit.slice(0, 5).map((event) => <li key={event.audit_event_id}><strong>{event.action}</strong><span>{event.reason}</span><time>{formatDateTime(event.occurred_at)}</time></li>)}</ol> : <p className="empty-state">Belum ada governance activity pada workspace ini.</p>}</article>
         </section>
       </> : null}
+
+      {view === "capabilities" ? <section className="dashboard-grid lower-grid governance-single-panel"><article className="panel"><div className="panel-heading"><div><p className="eyebrow">CAPABILITY REGISTRY</p><h2>Purpose, status, dan readiness Capability yang tersedia untuk Agent</h2></div><span className="permission-readonly">Registry bersumber langsung dari backend, tanpa raw JSON</span></div><CapabilityView capabilities={data.capabilities} tools={data.typedTools} loading={false} /></article></section> : null}
 
       {view === "permissions" ? <section className="dashboard-grid lower-grid governance-single-panel"><article className="panel"><div className="panel-heading"><div><p className="eyebrow">PERMISSIONS</p><h2>Akses yang diizinkan dan ditolak</h2></div><span className="permission-readonly">Contract tidak memberi izin otomatis</span></div>{data.permissions.length ? <div className="table-wrap"><table><thead><tr><th>Permission</th><th>Capability</th><th>Tool</th><th>Access Mode</th><th>Effect</th><th>Status</th><th>Approved By</th></tr></thead><tbody>{data.permissions.map((permission) => <tr key={permission.permission_policy_id}><td>{permission.permission_key}</td><td>{permission.capability_key ?? "—"}</td><td>{permission.tool_key ?? "—"}</td><td>{permission.access_mode}</td><td>{permission.effect}</td><td><span className={`lifecycle-pill lifecycle-${permission.lifecycle_status.toLowerCase()}`}>{permission.lifecycle_status}</span></td><td>{permission.approved_by_user_id?.slice(0, 8) ?? "Belum disetujui"}</td></tr>)}</tbody></table></div> : <p className="empty-state">Belum ada Permission Policy. Agent dengan kebutuhan akses akan tetap NEEDS_CONFIGURATION.</p>}<h3>Tool Registry</h3><div className="table-wrap"><table><thead><tr><th>Tool</th><th>Risk</th><th>Access</th><th>Lifecycle</th></tr></thead><tbody>{data.tools.map((tool) => <tr key={tool.tool_definition_id}><td>{tool.name}<br /><small>{tool.tool_key}</small></td><td>{tool.risk_level}</td><td>{String(tool.manifest.access_mode ?? "—")}</td><td>{tool.lifecycle_status}</td></tr>)}</tbody></table></div></article></section> : null}
 
