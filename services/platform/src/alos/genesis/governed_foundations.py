@@ -32,6 +32,26 @@ class Scope(BaseModel):
         return hierarchical_scope_contains and self.tenant_id == other.tenant_id
 
 
+class SourceKind(StrEnum):
+    """Trust boundary for information used by a governed capability."""
+
+    INTERNAL = "INTERNAL"
+    EXTERNAL = "EXTERNAL"
+
+
+class SourceRequirement(BaseModel):
+    """Semantic source needs only; this model never grants access or authority."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: SourceKind
+    purpose: str = Field(min_length=3, max_length=2_000)
+    provenance_required: bool = True
+    citation_required: bool = True
+    freshness_required: bool = False
+    reliability_required: bool = True
+
+
 class MemoryKind(StrEnum):
     WORKING = "WORKING"
     CONVERSATION = "CONVERSATION"

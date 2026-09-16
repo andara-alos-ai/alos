@@ -7,7 +7,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from alos.genesis.governed_foundations import ResearchDomain
+from alos.genesis.governed_foundations import (
+    ResearchDomain,
+    SourceRequirement,
+)
+from alos.genesis.governed_foundations import SourceKind as SourceKind
 
 
 class ImplementationType(StrEnum):
@@ -30,26 +34,6 @@ class TriggerKind(StrEnum):
     SCHEDULED = "SCHEDULED"
     EVENT = "EVENT"
     CONDITIONAL = "CONDITIONAL"
-
-
-class SourceKind(StrEnum):
-    """Trust boundary for information used by a proposed capability."""
-
-    INTERNAL = "INTERNAL"
-    EXTERNAL = "EXTERNAL"
-
-
-class SourceRequirement(BaseModel):
-    """Semantic source needs only; this model never grants access or authority."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: SourceKind
-    purpose: str = Field(min_length=3, max_length=2_000)
-    provenance_required: bool = True
-    citation_required: bool = True
-    freshness_required: bool = False
-    reliability_required: bool = True
 
 
 class RequirementUnderstanding(BaseModel):
