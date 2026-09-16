@@ -20,6 +20,23 @@
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 14px;
+}
+
+.alos-rnd-domain-card {
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.alos-rnd-domain-card:hover {
+  border-color: var(--alos-forest-400, #2fb197);
+}
+
+.alos-rnd-domain-card.selected {
+  border-color: var(--alos-forest-500, #1f8f78);
+  box-shadow: 0 0 0 1px var(--alos-forest-500, #1f8f78) inset;
 }
 
 .alos-rnd-domain-card p {
@@ -27,6 +44,87 @@
   font-size: 0.92rem;
   line-height: 1.5;
   margin: 8px 0 0;
+}
+
+.alos-rnd-domain-status-card p {
+  color: var(--alos-text-secondary, #536761);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+
+.alos-rnd-status-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin: 16px 0;
+}
+
+.alos-rnd-status-cell {
+  background: var(--alos-surface-subtle, #f5f8f3);
+  border: 1px solid var(--alos-border-subtle, #d9e3d5);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.alos-rnd-status-cell strong {
+  color: var(--alos-text-primary, #11231f);
+  font-size: 0.88rem;
+}
+
+.alos-rnd-status-count {
+  color: #93610d;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.alos-rnd-status-cell small {
+  color: var(--alos-text-muted, #82948e);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.alos-rnd-glossary-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 14px;
+}
+
+.alos-rnd-glossary-entry {
+  background: var(--alos-surface-subtle, #f5f8f3);
+  border: 1px solid var(--alos-border-subtle, #d9e3d5);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.alos-rnd-glossary-entry h4 {
+  color: var(--alos-text-primary, #11231f);
+  font-size: 0.94rem;
+  margin: 0 0 8px;
+}
+
+.alos-rnd-glossary-entry dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.alos-rnd-glossary-entry dt {
+  color: var(--alos-forest-500, #1f8f78);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.alos-rnd-glossary-entry dd {
+  color: var(--alos-text-secondary, #536761);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin: 2px 0 0;
 }
 
 .alos-rnd-flow-list {

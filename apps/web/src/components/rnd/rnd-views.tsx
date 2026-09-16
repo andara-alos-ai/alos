@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
 import type { SessionActor } from "@/lib/governance";
 
@@ -58,11 +59,58 @@ export const rndToBacklogFlow: RndFlowStage[] = [
   { stage: "Production Backlog", description: "Approved work item, dapat diteruskan ke eksekusi terkontrol." },
 ];
 
+// Explicit, per-concept glossary so a user never has to infer the difference
+// between Finding, Recommendation, Backlog Candidate, and Production Backlog
+// from the linear flow alone. Each entry states what it IS, who owns the
+// authority over it, and what it explicitly is NOT — this is the acceptance
+// criterion for M2-H01-FE-05 ("memahami perbedaan ... tanpa raw schema").
+export type RndStatusConcept = {
+  key: "FINDING" | "RECOMMENDATION" | "BACKLOG_CANDIDATE" | "PRODUCTION_BACKLOG";
+  label: string;
+  whatItIs: string;
+  authority: string;
+  whatItIsNot: string;
+};
+
+export const rndStatusConcepts: RndStatusConcept[] = [
+  {
+    key: "FINDING",
+    label: "R&D Finding",
+    whatItIs: "Temuan riset per domain, didukung evidence dan citation sumber internal/eksternal.",
+    authority: "Dicatat oleh peneliti/Agent riset; tidak memerlukan approval untuk dicatat.",
+    whatItIsNot: "Bukan operational finding (compliance/audit) dan bukan keputusan atau tindakan.",
+  },
+  {
+    key: "RECOMMENDATION",
+    label: "Recommendation",
+    whatItIs: "Usulan tindakan yang disusun dari satu atau lebih R&D Finding.",
+    authority: "Disusun oleh peneliti/Agent riset; masih berupa usulan tertulis.",
+    whatItIsNot: "Belum executable dan tidak mengubah sistem, kebijakan, atau production secara otomatis.",
+  },
+  {
+    key: "BACKLOG_CANDIDATE",
+    label: "Backlog Candidate",
+    whatItIs: "Draft work item yang diturunkan dari Recommendation yang dipandang layak ditindaklanjuti.",
+    authority: "Diajukan oleh Business/Domain Owner; masih berstatus draft.",
+    whatItIsNot: "Belum masuk antrian eksekusi production dan belum mengikat sumber daya tim.",
+  },
+  {
+    key: "PRODUCTION_BACKLOG",
+    label: "Production Backlog",
+    whatItIs: "Work item yang telah melalui Review dan disetujui untuk dieksekusi secara terkontrol.",
+    authority: "Disetujui oleh Business/Domain Owner dan IT; Director untuk item material.",
+    whatItIsNot: "Bukan hasil otomatis dari Finding atau Recommendation; selalu melalui gate Review manusia.",
+  },
+];
+
 export type RndViewsProps = {
   actor: SessionActor;
 };
 
 export function RndWorkspace({ actor }: RndViewsProps) {
+  const [selectedDomain, setSelectedDomain] = useState<RndDomainKey>(rndDomains[0].key);
+  const activeDomain = rndDomains.find((domain) => domain.key === selectedDomain) ?? rndDomains[0];
+
   return (
     <section aria-label="Research & Intelligence" className="alos-content alos-rnd-workspace">
       <p className="alos-inline-notice" role="note">
@@ -71,17 +119,81 @@ export function RndWorkspace({ actor }: RndViewsProps) {
         tersedia pada hari kerja berikutnya.
       </p>
 
-      <div className="alos-rnd-domain-grid">
-        {rndDomains.map((domain) => (
-          <article aria-label={domain.label} className="alos-panel alos-rnd-domain-card" key={domain.key}>
-            <div className="alos-panel-title">
-              <p className="alos-dash-kicker">{domain.key}</p>
-              <h3>{domain.label}</h3>
+      <article aria-label="Pilih Domain R&D" className="alos-panel alos-rnd-domain-picker">
+        <div className="alos-panel-title">
+          <p className="alos-dash-kicker">EMPAT DOMAIN R&amp;D</p>
+          <h3>Pilih domain untuk melihat konteks risetnya</h3>
+        </div>
+        <div className="alos-rnd-domain-grid" role="tablist" aria-label="Domain R&D">
+          {rndDomains.map((domain) => (
+            <button
+              aria-current={domain.key === selectedDomain ? "true" : undefined}
+              aria-label={domain.label}
+              className={`alos-panel alos-rnd-domain-card ${domain.key === selectedDomain ? "selected" : ""}`}
+              key={domain.key}
+              onClick={() => setSelectedDomain(domain.key)}
+              role="tab"
+              type="button"
+            >
+              <div className="alos-panel-title">
+                <p className="alos-dash-kicker">{domain.key}</p>
+                <h3>{domain.label}</h3>
+              </div>
+              <p>{domain.description}</p>
+            </button>
+          ))}
+        </div>
+      </article>
+
+      <article aria-label={`Status riset domain ${activeDomain.label}`} className="alos-panel alos-rnd-domain-status-card">
+        <div className="alos-panel-title">
+          <p className="alos-dash-kicker">STATUS DOMAIN TERPILIH</p>
+          <h3>{activeDomain.label}</h3>
+        </div>
+        <p>{activeDomain.description}</p>
+        <div className="alos-rnd-status-grid">
+          {rndStatusConcepts.map((concept) => (
+            <div className="alos-rnd-status-cell" key={concept.key}>
+              <strong>{concept.label}</strong>
+              <span className="alos-rnd-status-count">Belum terhubung</span>
+              <small>Menunggu backend Research &amp; Intelligence (M2-H01-BE-06).</small>
             </div>
-            <p>{domain.description}</p>
-          </article>
-        ))}
-      </div>
+          ))}
+        </div>
+        <p className="alos-empty-copy">
+          Jumlah dan daftar {activeDomain.label} untuk setiap status akan tampil di sini setelah
+          contract ResearchRequest, R&amp;D Finding, Recommendation, dan Backlog (M2-H01-BE-06)
+          tersedia. Angka tidak dibuat-buat sebelum sumber data kanonis terhubung.
+        </p>
+      </article>
+
+      <article aria-label="Perbedaan Finding, Recommendation, Backlog Candidate, dan Production Backlog" className="alos-panel alos-rnd-glossary-card">
+        <div className="alos-panel-title">
+          <p className="alos-dash-kicker">GLOSARIUM STATUS</p>
+          <h3>Finding, Recommendation, Backlog Candidate, dan Production Backlog tidak sama</h3>
+        </div>
+        <div className="alos-rnd-glossary-grid">
+          {rndStatusConcepts.map((concept) => (
+            <article aria-label={concept.label} className="alos-rnd-glossary-entry" key={concept.key}>
+              <h4>{concept.label}</h4>
+              <dl>
+                <div>
+                  <dt>Apa itu</dt>
+                  <dd>{concept.whatItIs}</dd>
+                </div>
+                <div>
+                  <dt>Authority</dt>
+                  <dd>{concept.authority}</dd>
+                </div>
+                <div>
+                  <dt>Bukan</dt>
+                  <dd>{concept.whatItIsNot}</dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+        </div>
+      </article>
 
       <article aria-label="R&D Finding ke Production Backlog" className="alos-panel alos-rnd-flow-card">
         <div className="alos-panel-title">
