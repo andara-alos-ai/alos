@@ -157,6 +157,137 @@ class FindingRecord(BaseModel):
     updated_at: datetime
 
 
+class ResearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID | None = None
+    workspace_id: UUID
+    domain: str = Field(min_length=2, max_length=200)
+    title: str = Field(min_length=3, max_length=300)
+    objective: str = Field(min_length=10, max_length=10_000)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    priority: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "MEDIUM"
+    suggested_owner: str | None = Field(default=None, max_length=200)
+    approval_state: Literal[
+        "DRAFT",
+        "PENDING_REVIEW",
+        "APPROVED",
+        "REJECTED",
+        "QUEUED",
+    ] = "DRAFT"
+    kind: Literal["RESEARCH_REQUEST"] = "RESEARCH_REQUEST"
+
+
+class RAndDFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: UUID
+    workspace_id: UUID
+    domain: str = Field(min_length=2, max_length=200)
+    title: str = Field(min_length=3, max_length=300)
+    description: str = Field(min_length=10, max_length=20_000)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    impact: dict[str, Any] = Field(default_factory=dict)
+    priority: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "MEDIUM"
+    suggested_owner: str | None = Field(default=None, max_length=200)
+    approval_state: Literal[
+        "DRAFT",
+        "PENDING_REVIEW",
+        "APPROVED",
+        "REJECTED",
+        "QUEUED",
+    ] = "DRAFT"
+    kind: Literal["R_AND_D"] = "R_AND_D"
+
+
+class Recommendation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recommendation_id: UUID
+    workspace_id: UUID
+    domain: str = Field(min_length=2, max_length=200)
+    title: str = Field(min_length=3, max_length=300)
+    summary: str = Field(min_length=10, max_length=20_000)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    impact: dict[str, Any] = Field(default_factory=dict)
+    priority: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "MEDIUM"
+    suggested_owner: str | None = Field(default=None, max_length=200)
+    approval_state: Literal[
+        "DRAFT",
+        "PENDING_REVIEW",
+        "APPROVED",
+        "REJECTED",
+        "QUEUED",
+    ] = "DRAFT"
+    kind: Literal["RECOMMENDATION"] = "RECOMMENDATION"
+
+
+class BacklogCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: UUID
+    workspace_id: UUID
+    domain: str = Field(min_length=2, max_length=200)
+    title: str = Field(min_length=3, max_length=300)
+    description: str = Field(min_length=10, max_length=20_000)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    impact: dict[str, Any] = Field(default_factory=dict)
+    priority: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "MEDIUM"
+    suggested_owner: str | None = Field(default=None, max_length=200)
+    approval_state: Literal[
+        "DRAFT",
+        "PENDING_REVIEW",
+        "APPROVED",
+        "REJECTED",
+        "QUEUED",
+    ] = "DRAFT"
+    kind: Literal["BACKLOG_CANDIDATE"] = "BACKLOG_CANDIDATE"
+
+
+class ProductionBacklog(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: UUID
+    workspace_id: UUID
+    domain: str = Field(min_length=2, max_length=200)
+    title: str = Field(min_length=3, max_length=300)
+    description: str = Field(min_length=10, max_length=20_000)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    impact: dict[str, Any] = Field(default_factory=dict)
+    priority: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "MEDIUM"
+    suggested_owner: str | None = Field(default=None, max_length=200)
+    approval_state: Literal[
+        "DRAFT",
+        "PENDING_REVIEW",
+        "APPROVED",
+        "REJECTED",
+        "QUEUED",
+    ] = "DRAFT"
+    kind: Literal["PRODUCTION_BACKLOG"] = "PRODUCTION_BACKLOG"
+
+
+class OperationalFindingRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: UUID
+    workspace_id: UUID
+    domain: str = Field(min_length=2, max_length=200)
+    title: str = Field(min_length=3, max_length=300)
+    description: str = Field(min_length=10, max_length=20_000)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    impact: dict[str, Any] = Field(default_factory=dict)
+    priority: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "MEDIUM"
+    suggested_owner: str | None = Field(default=None, max_length=200)
+    approval_state: Literal[
+        "DRAFT",
+        "PENDING_REVIEW",
+        "APPROVED",
+        "REJECTED",
+        "QUEUED",
+    ] = "DRAFT"
+    kind: Literal["OPERATIONAL_FINDING"] = "OPERATIONAL_FINDING"
+
+
 class ApprovalCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

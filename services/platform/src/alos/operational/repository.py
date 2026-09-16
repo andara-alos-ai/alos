@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from math import ceil
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 from psycopg.errors import UniqueViolation
@@ -22,6 +22,7 @@ from alos.operational.models import (
     ApprovalCreateRequest,
     ApprovalDecisionRequest,
     ApprovalRecord,
+    BacklogCandidate,
     BusinessRecord,
     BusinessRecordRequest,
     EvidenceCreateRequest,
@@ -30,15 +31,20 @@ from alos.operational.models import (
     FindingRecord,
     FindingStatusRequest,
     OperationalDashboard,
+    OperationalFindingRecord,
     Page,
+    ProductionBacklog,
     ProposedActionCreateRequest,
     ProposedActionExecuteRequest,
     ProposedActionRecord,
+    RAndDFinding,
+    Recommendation,
     ReportDefinitionRecord,
     ReportDefinitionRequest,
     ReportGenerateRequest,
     ReportRecord,
     ReportScheduleRequest,
+    ResearchRequest,
     SearchResult,
     TaskCreateRequest,
     TaskList,
@@ -73,6 +79,340 @@ def _immutable_digest(value: dict[str, Any]) -> str:
 class OperationalRepository:
     def __init__(self, database_url: str) -> None:
         self._database_url = psycopg_url(database_url)
+        self._research_requests: dict[UUID, ResearchRequest] = {}
+        self._rnd_findings: dict[UUID, RAndDFinding] = {}
+        self._recommendations: dict[UUID, Recommendation] = {}
+        self._backlog_candidates: dict[UUID, BacklogCandidate] = {}
+        self._production_backlog: dict[UUID, ProductionBacklog] = {}
+        self._operational_findings: dict[UUID, OperationalFindingRecord] = {}
+
+    def _require_actor_workspace(self, actor: ActorContext, workspace_id: UUID) -> None:
+        require_business_access(
+            actor,
+            access_mode=AccessMode.READ,
+            workspace_id=workspace_id,
+        )
+
+    def _require_actor_workspace_write(self, actor: ActorContext, workspace_id: UUID) -> None:
+        require_business_access(
+            actor,
+            access_mode=AccessMode.CREATE_DRAFT,
+            workspace_id=workspace_id,
+        )
+
+    def _scope_filter(
+        self,
+        actor: ActorContext,
+        items: list[Any],
+        *,
+        domain: str | None = None,
+        priority: str | None = None,
+        approval_state: str | None = None,
+        search: str | None = None,
+    ) -> list[Any]:
+        filtered: list[Any] = []
+        needle = search.strip().lower() if search else ""
+        for item in items:
+            if item.workspace_id not in actor.workspace_ids:
+                continue
+            if domain and item.domain.lower() != domain.lower():
+                continue
+            if priority and item.priority != priority:
+                continue
+            if approval_state and item.approval_state != approval_state:
+                continue
+            if needle:
+                haystack = " ".join(
+                    [
+                        getattr(item, "title", ""),
+                        getattr(item, "description", ""),
+                        getattr(item, "summary", ""),
+                        getattr(item, "domain", ""),
+                    ]
+                ).lower()
+                if needle not in haystack:
+                    continue
+            filtered.append(item)
+        return filtered
+
+    def create_research_request(
+        self,
+        actor: ActorContext,
+        request: ResearchRequest,
+        *,
+        correlation_id: UUID,
+    ) -> ResearchRequest:
+        self._require_actor_workspace_write(actor, request.workspace_id)
+        request_id = request.request_id or uuid4()
+        record = ResearchRequest(
+            request_id=request_id,
+            workspace_id=request.workspace_id,
+            domain=request.domain,
+            title=request.title,
+            objective=request.objective,
+            evidence=request.evidence,
+            priority=request.priority,
+            suggested_owner=request.suggested_owner,
+            approval_state=request.approval_state,
+        )
+        self._research_requests[request_id] = record
+        return record
+
+    def list_research_requests(
+        self,
+        actor: ActorContext,
+        *,
+        domain: str | None = None,
+        approval_state: str | None = None,
+        search: str | None = None,
+    ) -> list[ResearchRequest]:
+        return self._scope_filter(
+            actor,
+            list(self._research_requests.values()),
+            domain=domain,
+            approval_state=approval_state,
+            search=search,
+        )
+
+    def get_research_request(self, actor: ActorContext, request_id: UUID) -> ResearchRequest:
+        record = self._research_requests.get(request_id)
+        if record is None:
+            raise OperationalNotFound("research request was not found")
+        self._require_actor_workspace(actor, record.workspace_id)
+        return record
+
+    def update_research_request_approval(
+        self,
+        actor: ActorContext,
+        request_id: UUID,
+        *,
+        approval_state: Literal["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "QUEUED"],
+    ) -> ResearchRequest:
+        record = self.get_research_request(actor, request_id)
+        self._require_actor_workspace_write(actor, record.workspace_id)
+        updated = record.model_copy(update={"approval_state": approval_state})
+        self._research_requests[request_id] = updated
+        return updated
+
+    def create_rnd_finding(
+        self,
+        actor: ActorContext,
+        request: RAndDFinding,
+        *,
+        correlation_id: UUID,
+    ) -> RAndDFinding:
+        self._require_actor_workspace_write(actor, request.workspace_id)
+        if request.finding_id in self._rnd_findings:
+            raise OperationalConflict("R&D finding already exists")
+        self._rnd_findings[request.finding_id] = request
+        return request
+
+    def list_rnd_findings(
+        self,
+        actor: ActorContext,
+        *,
+        domain: str | None = None,
+        priority: str | None = None,
+        approval_state: str | None = None,
+        search: str | None = None,
+    ) -> list[RAndDFinding]:
+        return self._scope_filter(
+            actor,
+            list(self._rnd_findings.values()),
+            domain=domain,
+            priority=priority,
+            approval_state=approval_state,
+            search=search,
+        )
+
+    def get_rnd_finding(self, actor: ActorContext, finding_id: UUID) -> RAndDFinding:
+        record = self._rnd_findings.get(finding_id)
+        if record is None:
+            raise OperationalNotFound("R&D finding was not found")
+        self._require_actor_workspace(actor, record.workspace_id)
+        return record
+
+    def update_rnd_finding_approval(
+        self,
+        actor: ActorContext,
+        finding_id: UUID,
+        *,
+        approval_state: Literal["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "QUEUED"],
+    ) -> RAndDFinding:
+        record = self.get_rnd_finding(actor, finding_id)
+        self._require_actor_workspace_write(actor, record.workspace_id)
+        updated = record.model_copy(update={"approval_state": approval_state})
+        self._rnd_findings[finding_id] = updated
+        return updated
+
+    def create_recommendation(
+        self,
+        actor: ActorContext,
+        request: Recommendation,
+        *,
+        correlation_id: UUID,
+    ) -> Recommendation:
+        self._require_actor_workspace_write(actor, request.workspace_id)
+        if request.recommendation_id in self._recommendations:
+            raise OperationalConflict("recommendation already exists")
+        self._recommendations[request.recommendation_id] = request
+        return request
+
+    def list_recommendations(
+        self,
+        actor: ActorContext,
+        *,
+        domain: str | None = None,
+        priority: str | None = None,
+        approval_state: str | None = None,
+        search: str | None = None,
+    ) -> list[Recommendation]:
+        return self._scope_filter(
+            actor,
+            list(self._recommendations.values()),
+            domain=domain,
+            priority=priority,
+            approval_state=approval_state,
+            search=search,
+        )
+
+    def create_backlog_candidate(
+        self,
+        actor: ActorContext,
+        request: BacklogCandidate,
+        *,
+        correlation_id: UUID,
+    ) -> BacklogCandidate:
+        self._require_actor_workspace_write(actor, request.workspace_id)
+        if request.item_id in self._backlog_candidates:
+            raise OperationalConflict("backlog candidate already exists")
+        self._backlog_candidates[request.item_id] = request
+        return request
+
+    def list_backlog_candidates(
+        self,
+        actor: ActorContext,
+        *,
+        domain: str | None = None,
+        priority: str | None = None,
+        approval_state: str | None = None,
+        search: str | None = None,
+    ) -> list[BacklogCandidate]:
+        return self._scope_filter(
+            actor,
+            list(self._backlog_candidates.values()),
+            domain=domain,
+            priority=priority,
+            approval_state=approval_state,
+            search=search,
+        )
+
+    def update_backlog_candidate_approval(
+        self,
+        actor: ActorContext,
+        item_id: UUID,
+        *,
+        approval_state: Literal["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "QUEUED"],
+    ) -> BacklogCandidate:
+        record = self._backlog_candidates.get(item_id)
+        if record is None:
+            raise OperationalNotFound("backlog candidate was not found")
+        self._require_actor_workspace_write(actor, record.workspace_id)
+        updated = record.model_copy(update={"approval_state": approval_state})
+        self._backlog_candidates[item_id] = updated
+        return updated
+
+    def create_production_backlog(
+        self,
+        actor: ActorContext,
+        request: ProductionBacklog,
+        *,
+        correlation_id: UUID,
+    ) -> ProductionBacklog:
+        self._require_actor_workspace_write(actor, request.workspace_id)
+        if request.item_id in self._production_backlog:
+            raise OperationalConflict("production backlog item already exists")
+        self._production_backlog[request.item_id] = request
+        return request
+
+    def list_production_backlog(
+        self,
+        actor: ActorContext,
+        *,
+        domain: str | None = None,
+        priority: str | None = None,
+        approval_state: str | None = None,
+        search: str | None = None,
+    ) -> list[ProductionBacklog]:
+        return self._scope_filter(
+            actor,
+            list(self._production_backlog.values()),
+            domain=domain,
+            priority=priority,
+            approval_state=approval_state,
+            search=search,
+        )
+
+    def update_production_backlog_approval(
+        self,
+        actor: ActorContext,
+        item_id: UUID,
+        *,
+        approval_state: Literal["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "QUEUED"],
+    ) -> ProductionBacklog:
+        record = self._production_backlog.get(item_id)
+        if record is None:
+            raise OperationalNotFound("production backlog item was not found")
+        self._require_actor_workspace_write(actor, record.workspace_id)
+        updated = record.model_copy(update={"approval_state": approval_state})
+        self._production_backlog[item_id] = updated
+        return updated
+
+    def create_operational_finding(
+        self,
+        actor: ActorContext,
+        request: OperationalFindingRecord,
+        *,
+        correlation_id: UUID,
+    ) -> OperationalFindingRecord:
+        self._require_actor_workspace_write(actor, request.workspace_id)
+        if request.finding_id in self._operational_findings:
+            raise OperationalConflict("operational finding already exists")
+        self._operational_findings[request.finding_id] = request
+        return request
+
+    def list_operational_findings(
+        self,
+        actor: ActorContext,
+        *,
+        domain: str | None = None,
+        priority: str | None = None,
+        approval_state: str | None = None,
+        search: str | None = None,
+    ) -> list[OperationalFindingRecord]:
+        return self._scope_filter(
+            actor,
+            list(self._operational_findings.values()),
+            domain=domain,
+            priority=priority,
+            approval_state=approval_state,
+            search=search,
+        )
+
+    def update_operational_finding_approval(
+        self,
+        actor: ActorContext,
+        finding_id: UUID,
+        *,
+        approval_state: Literal["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "QUEUED"],
+    ) -> OperationalFindingRecord:
+        record = self._operational_findings.get(finding_id)
+        if record is None:
+            raise OperationalNotFound("operational finding was not found")
+        self._require_actor_workspace_write(actor, record.workspace_id)
+        updated = record.model_copy(update={"approval_state": approval_state})
+        self._operational_findings[finding_id] = updated
+        return updated
 
     def list_tasks(
         self,

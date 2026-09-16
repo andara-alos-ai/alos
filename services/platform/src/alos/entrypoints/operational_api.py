@@ -20,6 +20,7 @@ from alos.operational.models import (
     ApprovalCreateRequest,
     ApprovalDecisionRequest,
     ApprovalRecord,
+    BacklogCandidate,
     BusinessRecord,
     BusinessRecordRequest,
     EvidenceCreateRequest,
@@ -28,14 +29,19 @@ from alos.operational.models import (
     FindingRecord,
     FindingStatusRequest,
     OperationalDashboard,
+    OperationalFindingRecord,
+    ProductionBacklog,
     ProposedActionCreateRequest,
     ProposedActionExecuteRequest,
     ProposedActionRecord,
+    RAndDFinding,
+    Recommendation,
     ReportDefinitionRecord,
     ReportDefinitionRequest,
     ReportGenerateRequest,
     ReportRecord,
     ReportScheduleRequest,
+    ResearchRequest,
     SearchResult,
     TaskCreateRequest,
     TaskList,
@@ -201,6 +207,255 @@ def create_evidence(
     try:
         return get_operational_repository().create_evidence(
             actor, request, correlation_id=correlation
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.post("/research-requests", response_model=ResearchRequest, status_code=status.HTTP_201_CREATED)
+def create_research_request(
+    request: ResearchRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    correlation: Annotated[UUID, Depends(correlation_id)],
+) -> ResearchRequest:
+    try:
+        return get_operational_repository().create_research_request(
+            actor,
+            request,
+            correlation_id=correlation,
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.get("/research-requests", response_model=list[ResearchRequest])
+def list_research_requests(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    domain: str | None = None,
+    approval_state: str | None = None,
+    search: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+) -> list[ResearchRequest]:
+    return get_operational_repository().list_research_requests(
+        actor,
+        domain=domain,
+        approval_state=approval_state,
+        search=search,
+    )
+
+
+@router.get("/research-requests/{request_id}", response_model=ResearchRequest)
+def get_research_request(
+    request_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> ResearchRequest:
+    try:
+        return get_operational_repository().get_research_request(actor, request_id)
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.patch("/research-requests/{request_id}/approval", response_model=ResearchRequest)
+def update_research_request_approval(
+    request_id: UUID,
+    approval_state: Annotated[str, Query()],
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> ResearchRequest:
+    try:
+        return get_operational_repository().update_research_request_approval(
+            actor,
+            request_id,
+            approval_state=approval_state,
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.post("/research-findings", response_model=RAndDFinding, status_code=status.HTTP_201_CREATED)
+def create_rnd_finding(
+    request: RAndDFinding,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    correlation: Annotated[UUID, Depends(correlation_id)],
+) -> RAndDFinding:
+    try:
+        return get_operational_repository().create_rnd_finding(
+            actor,
+            request,
+            correlation_id=correlation,
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.get("/research-findings", response_model=list[RAndDFinding])
+def list_rnd_findings(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    domain: str | None = None,
+    priority: str | None = None,
+    approval_state: str | None = None,
+    search: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+) -> list[RAndDFinding]:
+    return get_operational_repository().list_rnd_findings(
+        actor,
+        domain=domain,
+        priority=priority,
+        approval_state=approval_state,
+        search=search,
+    )
+
+
+@router.get("/research-findings/{finding_id}", response_model=RAndDFinding)
+def get_rnd_finding(
+    finding_id: UUID,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> RAndDFinding:
+    try:
+        return get_operational_repository().get_rnd_finding(actor, finding_id)
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.patch("/research-findings/{finding_id}/approval", response_model=RAndDFinding)
+def update_rnd_finding_approval(
+    finding_id: UUID,
+    approval_state: Annotated[str, Query()],
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> RAndDFinding:
+    try:
+        return get_operational_repository().update_rnd_finding_approval(
+            actor,
+            finding_id,
+            approval_state=approval_state,
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.post("/recommendations", response_model=Recommendation, status_code=status.HTTP_201_CREATED)
+def create_recommendation(
+    request: Recommendation,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    correlation: Annotated[UUID, Depends(correlation_id)],
+) -> Recommendation:
+    try:
+        return get_operational_repository().create_recommendation(
+            actor,
+            request,
+            correlation_id=correlation,
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.get("/recommendations", response_model=list[Recommendation])
+def list_recommendations(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    domain: str | None = None,
+    priority: str | None = None,
+    approval_state: str | None = None,
+    search: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+) -> list[Recommendation]:
+    return get_operational_repository().list_recommendations(
+        actor,
+        domain=domain,
+        priority=priority,
+        approval_state=approval_state,
+        search=search,
+    )
+
+
+@router.post("/backlog-candidates", response_model=BacklogCandidate, status_code=status.HTTP_201_CREATED)
+def create_backlog_candidate(
+    request: BacklogCandidate,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    correlation: Annotated[UUID, Depends(correlation_id)],
+) -> BacklogCandidate:
+    try:
+        return get_operational_repository().create_backlog_candidate(
+            actor,
+            request,
+            correlation_id=correlation,
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.get("/backlog-candidates", response_model=list[BacklogCandidate])
+def list_backlog_candidates(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    domain: str | None = None,
+    priority: str | None = None,
+    approval_state: str | None = None,
+    search: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+) -> list[BacklogCandidate]:
+    return get_operational_repository().list_backlog_candidates(
+        actor,
+        domain=domain,
+        priority=priority,
+        approval_state=approval_state,
+        search=search,
+    )
+
+
+@router.patch("/backlog-candidates/{item_id}/approval", response_model=BacklogCandidate)
+def update_backlog_candidate_approval(
+    item_id: UUID,
+    approval_state: Annotated[str, Query()],
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> BacklogCandidate:
+    try:
+        return get_operational_repository().update_backlog_candidate_approval(
+            actor,
+            item_id,
+            approval_state=approval_state,
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.post("/production-backlog", response_model=ProductionBacklog, status_code=status.HTTP_201_CREATED)
+def create_production_backlog(
+    request: ProductionBacklog,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    correlation: Annotated[UUID, Depends(correlation_id)],
+) -> ProductionBacklog:
+    try:
+        return get_operational_repository().create_production_backlog(
+            actor,
+            request,
+            correlation_id=correlation,
+        )
+    except OperationalError as error:
+        raise operational_http_error(error) from error
+
+
+@router.get("/production-backlog", response_model=list[ProductionBacklog])
+def list_production_backlog(
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    domain: str | None = None,
+    priority: str | None = None,
+    approval_state: str | None = None,
+    search: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+) -> list[ProductionBacklog]:
+    return get_operational_repository().list_production_backlog(
+        actor,
+        domain=domain,
+        priority=priority,
+        approval_state=approval_state,
+        search=search,
+    )
+
+
+@router.patch("/production-backlog/{item_id}/approval", response_model=ProductionBacklog)
+def update_production_backlog_approval(
+    item_id: UUID,
+    approval_state: Annotated[str, Query()],
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+) -> ProductionBacklog:
+    try:
+        return get_operational_repository().update_production_backlog_approval(
+            actor,
+            item_id,
+            approval_state=approval_state,
         )
     except OperationalError as error:
         raise operational_http_error(error) from error
