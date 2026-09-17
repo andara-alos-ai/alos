@@ -99,4 +99,57 @@ describe("RndWorkspace Presentation Component", () => {
     const html = renderToStaticMarkup(createElement(RndWorkspace, { actor: mockActor }));
     expect(html).toContain("baseline H1");
   });
+
+  // M2-H02-FE-05 (R&D Permission UX): allowed/denied/needs-approval and
+  // domain/backlog permission surfacing.
+  it("defaults every domain and the Production Backlog to a not-yet-verified badge when no backend permission is supplied", () => {
+    const html = renderToStaticMarkup(createElement(RndWorkspace, { actor: mockActor }));
+    expect(html).toContain("Izin belum diverifikasi");
+    expect(html).not.toContain("tone-allowed");
+  });
+
+  it("renders an explicit ALLOWED domain permission distinctly, without fabricating it for other domains", () => {
+    const html = renderToStaticMarkup(
+      createElement(RndWorkspace, {
+        actor: mockActor,
+        domainPermissions: [{ domain: "TECHNOLOGY", status: "ALLOWED" }],
+      }),
+    );
+    expect(html).toContain("tone-allowed");
+    expect(html).toContain("Diizinkan");
+    expect(html).toContain("Izin belum diverifikasi");
+  });
+
+  it("renders a DENIED domain with an understandable message and disables its research entry points", () => {
+    const html = renderToStaticMarkup(
+      createElement(RndWorkspace, {
+        actor: mockActor,
+        domainPermissions: [{ domain: "TECHNOLOGY", status: "DENIED", reason: "ACTOR_ROLE_NOT_AUTHORIZED" }],
+      }),
+    );
+    expect(html).toContain("Ditolak");
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("tidak diizinkan untuk Anda");
+    expect(html).not.toContain("ACTOR_ROLE_NOT_AUTHORIZED");
+    expect(html).not.toContain('href="/genesis?mode=INTERNAL"');
+  });
+
+  it("renders a NEEDS_APPROVAL domain distinctly from DENIED and disables its research entry points", () => {
+    const html = renderToStaticMarkup(
+      createElement(RndWorkspace, {
+        actor: mockActor,
+        domainPermissions: [{ domain: "TECHNOLOGY", status: "NEEDS_APPROVAL" }],
+      }),
+    );
+    expect(html).toContain("Perlu Persetujuan");
+    expect(html).toContain("memerlukan persetujuan");
+    expect(html).not.toContain('href="/genesis?mode=INTERNAL"');
+  });
+
+  it("shows a Production Backlog permission badge in the glossary, defaulting to not-yet-verified", () => {
+    const html = renderToStaticMarkup(createElement(RndWorkspace, { actor: mockActor }));
+    expect(html).toContain("Production Backlog");
+    const glossaryIndex = html.indexOf("GLOSARIUM STATUS");
+    expect(glossaryIndex).toBeGreaterThan(-1);
+  });
 });

@@ -4,6 +4,15 @@ import Link from "next/link";
 import { useState } from "react";
 
 import type { SessionActor } from "@/lib/governance";
+import {
+  isActionUsable,
+  permissionForDomain,
+  rndPermissionLabel,
+  rndPermissionNextAction,
+  rndPermissionTone,
+  type RndBacklogPermission,
+  type RndDomainPermission,
+} from "@/lib/rnd-permissions";
 
 export type RndDomainKey =
   | "TECHNOLOGY"
@@ -105,11 +114,20 @@ export const rndStatusConcepts: RndStatusConcept[] = [
 
 export type RndViewsProps = {
   actor: SessionActor;
+  // M2-H02-FE-05 (R&D Permission UX): backend-supplied allowed/denied/
+  // needs-approval decisions for the four R&D domains and for Production
+  // Backlog access. Omitted entirely until the backend contract exists —
+  // every domain/backlog defaults to NOT_CONNECTED (see
+  // lib/rnd-permissions.ts), never to a locally-fabricated ALLOWED state.
+  domainPermissions?: RndDomainPermission[];
+  backlogPermission?: RndBacklogPermission;
 };
 
-export function RndWorkspace({ actor }: RndViewsProps) {
+export function RndWorkspace({ actor, domainPermissions, backlogPermission }: RndViewsProps) {
   const [selectedDomain, setSelectedDomain] = useState<RndDomainKey>(rndDomains[0].key);
   const activeDomain = rndDomains.find((domain) => domain.key === selectedDomain) ?? rndDomains[0];
+  const activeDomainPermissionStatus = permissionForDomain(domainPermissions, activeDomain.key);
+  const backlogStatus = backlogPermission?.status ?? "NOT_CONNECTED";
 
   return (
     <section aria-label="Research & Intelligence" className="alos-content alos-rnd-workspace">
@@ -125,23 +143,29 @@ export function RndWorkspace({ actor }: RndViewsProps) {
           <h3>Pilih domain untuk melihat konteks risetnya</h3>
         </div>
         <div className="alos-rnd-domain-grid" role="tablist" aria-label="Domain R&D">
-          {rndDomains.map((domain) => (
-            <button
-              aria-current={domain.key === selectedDomain ? "true" : undefined}
-              aria-label={domain.label}
-              className={`alos-panel alos-rnd-domain-card ${domain.key === selectedDomain ? "selected" : ""}`}
-              key={domain.key}
-              onClick={() => setSelectedDomain(domain.key)}
-              role="tab"
-              type="button"
-            >
-              <div className="alos-panel-title">
-                <p className="alos-dash-kicker">{domain.key}</p>
-                <h3>{domain.label}</h3>
-              </div>
-              <p>{domain.description}</p>
-            </button>
-          ))}
+          {rndDomains.map((domain) => {
+            const status = permissionForDomain(domainPermissions, domain.key);
+            return (
+              <button
+                aria-current={domain.key === selectedDomain ? "true" : undefined}
+                aria-label={domain.label}
+                className={`alos-panel alos-rnd-domain-card ${domain.key === selectedDomain ? "selected" : ""}`}
+                key={domain.key}
+                onClick={() => setSelectedDomain(domain.key)}
+                role="tab"
+                type="button"
+              >
+                <div className="alos-panel-title">
+                  <p className="alos-dash-kicker">{domain.key}</p>
+                  <h3>{domain.label}</h3>
+                  <span className={`alos-rnd-permission-badge tone-${rndPermissionTone(status)}`}>
+                    {rndPermissionLabel(status)}
+                  </span>
+                </div>
+                <p>{domain.description}</p>
+              </button>
+            );
+          })}
         </div>
       </article>
 
@@ -149,8 +173,19 @@ export function RndWorkspace({ actor }: RndViewsProps) {
         <div className="alos-panel-title">
           <p className="alos-dash-kicker">STATUS DOMAIN TERPILIH</p>
           <h3>{activeDomain.label}</h3>
+          <span className={`alos-rnd-permission-badge tone-${rndPermissionTone(activeDomainPermissionStatus)}`}>
+            {rndPermissionLabel(activeDomainPermissionStatus)}
+          </span>
         </div>
         <p>{activeDomain.description}</p>
+        {rndPermissionNextAction(activeDomainPermissionStatus) ? (
+          <p
+            className={`alos-rnd-permission-note tone-${rndPermissionTone(activeDomainPermissionStatus)}`}
+            role={activeDomainPermissionStatus === "DENIED" ? "alert" : "note"}
+          >
+            {rndPermissionNextAction(activeDomainPermissionStatus)}
+          </p>
+        ) : null}
         <div className="alos-rnd-status-grid">
           {rndStatusConcepts.map((concept) => (
             <div className="alos-rnd-status-cell" key={concept.key}>
@@ -175,7 +210,14 @@ export function RndWorkspace({ actor }: RndViewsProps) {
         <div className="alos-rnd-glossary-grid">
           {rndStatusConcepts.map((concept) => (
             <article aria-label={concept.label} className="alos-rnd-glossary-entry" key={concept.key}>
-              <h4>{concept.label}</h4>
+              <h4>
+                {concept.label}
+                {concept.key === "PRODUCTION_BACKLOG" ? (
+                  <span className={`alos-rnd-permission-badge tone-${rndPermissionTone(backlogStatus)}`}>
+                    {rndPermissionLabel(backlogStatus)}
+                  </span>
+                ) : null}
+              </h4>
               <dl>
                 <div>
                   <dt>Apa itu</dt>
@@ -230,12 +272,19 @@ export function RndWorkspace({ actor }: RndViewsProps) {
               Dokumen perusahaan, data internal, laporan, dan evidence historis sesuai
               role/scope/classification Anda. Dapat dijadikan dasar Finding dan Recommendation.
             </p>
-            <Link
-              className="alos-rnd-source-entry-action"
-              href="/genesis?mode=INTERNAL"
-            >
-              Mulai riset internal via GENESIS →
-            </Link>
+            {isActionUsable(activeDomainPermissionStatus) ? (
+              <Link
+                className="alos-rnd-source-entry-action"
+                href="/genesis?mode=INTERNAL"
+              >
+                Mulai riset internal via GENESIS →
+              </Link>
+            ) : (
+              <span className="alos-rnd-source-entry-action disabled" role="note">
+                {rndPermissionNextAction(activeDomainPermissionStatus) ??
+                  `Riset domain ${activeDomain.label} ${rndPermissionLabel(activeDomainPermissionStatus).toLowerCase()}.`}
+              </span>
+            )}
           </article>
           <article aria-label="Riset External" className="alos-rnd-source-entry">
             <div className="alos-rnd-source-entry-head">
@@ -247,12 +296,19 @@ export function RndWorkspace({ actor }: RndViewsProps) {
               untrusted information: tidak memberi authority baru dan tidak pernah otomatis
               mengubah production tanpa review manusia.
             </p>
-            <Link
-              className="alos-rnd-source-entry-action"
-              href="/genesis?mode=INTERNAL_AND_EXTERNAL"
-            >
-              Mulai riset internal + external via GENESIS →
-            </Link>
+            {isActionUsable(activeDomainPermissionStatus) ? (
+              <Link
+                className="alos-rnd-source-entry-action"
+                href="/genesis?mode=INTERNAL_AND_EXTERNAL"
+              >
+                Mulai riset internal + external via GENESIS →
+              </Link>
+            ) : (
+              <span className="alos-rnd-source-entry-action disabled" role="note">
+                {rndPermissionNextAction(activeDomainPermissionStatus) ??
+                  `Riset domain ${activeDomain.label} ${rndPermissionLabel(activeDomainPermissionStatus).toLowerCase()}.`}
+              </span>
+            )}
           </article>
         </div>
         <p className="alos-empty-copy">

@@ -243,3 +243,68 @@
 .alos-rnd-source-entry-action:hover {
   text-decoration: underline;
 }
+
+.alos-rnd-source-entry-action.disabled {
+  color: var(--alos-text-secondary, #536761);
+  cursor: not-allowed;
+  font-style: italic;
+  font-weight: 500;
+}
+
+/* M2-H02-FE-05 (R&D Permission UX): allowed/denied/needs-approval /
+   not-yet-verified badges for R&D domains and Production Backlog. Tone is
+   driven entirely by the backend-shaped RndPermissionStatus; a
+   NOT_CONNECTED default is visually distinct (grey) from an explicit
+   ALLOWED (green) so no locally-fabricated authorization is implied. */
+.alos-rnd-permission-badge {
+  border-radius: 99px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+
+.alos-rnd-permission-badge.tone-allowed {
+  background: #dcf3e8;
+  color: #14724f;
+}
+
+.alos-rnd-permission-badge.tone-denied {
+  background: #fde8e8;
+  color: #b91c1c;
+}
+
+.alos-rnd-permission-badge.tone-needs-approval {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.alos-rnd-permission-badge.tone-unverified {
+  background: #eceff1;
+  color: #546e7a;
+}
+
+.alos-rnd-permission-note {
+  border-radius: 8px;
+  font-size: 0.82rem;
+  margin: 0;
+  padding: 8px 12px;
+}
+
+.alos-rnd-permission-note.tone-denied {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.alos-rnd-permission-note.tone-needs-approval {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+}
+
+.alos-rnd-permission-note.tone-unverified {
+  background: var(--alos-surface-subtle, #f5f8f3);
+  border: 1px solid var(--alos-border-subtle, #d9e3d5);
+  color: var(--alos-text-secondary, #536761);
+}
