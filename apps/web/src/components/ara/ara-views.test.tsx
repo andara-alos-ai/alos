@@ -71,4 +71,21 @@ describe("AraViews Presentation Component", () => {
     expect(html).toContain("Buat ringkasan progres divisi saya");
     expect(html).toContain("Dari Data Menuju Dampak");
   });
+
+  it("defaults the backend Context Builder state to NOT_CONNECTED instead of fabricating a READY/authorized state (M2-H02-FE-01)", () => {
+    const html = renderToStaticMarkup(createElement(AraViews, { actor: mockActor }));
+    expect(html).toContain("Belum terhubung ke Context Builder");
+    expect(html).not.toContain("Konteks siap digunakan");
+  });
+
+  it("renders a backend-supplied context state (e.g. BLOCKED) when provided, instead of the default (M2-H02-FE-01)", () => {
+    const html = renderToStaticMarkup(
+      createElement(AraViews, {
+        actor: mockActor,
+        contextViewState: { status: "BLOCKED", errorCode: "EXTERNAL_RESEARCH_NOT_AUTHORIZED" },
+      }),
+    );
+    expect(html).toContain("Riset eksternal belum diizinkan");
+    expect(html).not.toContain("Belum terhubung ke Context Builder");
+  });
 });

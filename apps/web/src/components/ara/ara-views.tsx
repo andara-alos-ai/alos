@@ -2,6 +2,8 @@
 
 import { useState, useMemo, type KeyboardEvent } from "react";
 import type { SessionActor } from "@/lib/governance";
+import { AraContextPanel } from "@/components/ara/ara-context-panel";
+import type { AraContextViewState } from "@/lib/ara-context";
 
 export type AraConversation = {
   id: string;
@@ -139,12 +141,17 @@ export type AraViewsProps = {
   actor?: SessionActor;
   initialQuery?: string;
   onSendMessage?: (content: string) => Promise<void>;
+  // Backend Context Builder state (M2-H02-BE-01/BE-02). Defaults to
+  // NOT_CONNECTED because no live endpoint exists yet for this checklist
+  // item — the UI must never fabricate a READY/authorized state locally.
+  contextViewState?: AraContextViewState;
 };
 
 export function AraViews({
   actor,
   initialQuery = "",
   onSendMessage,
+  contextViewState = { status: "NOT_CONNECTED" },
 }: AraViewsProps) {
   const [conversations, setConversations] = useState<AraConversation[]>(DEFAULT_CONVERSATIONS);
   const [activeConvId, setActiveConvId] = useState<string>("conv-1");
@@ -581,6 +588,9 @@ export function AraViews({
               </div>
             )}
           </div>
+
+          {/* Card 1b: Backend Context Builder state (M2-H02-FE-01) */}
+          <AraContextPanel state={contextViewState} />
 
           {/* Card 2: Agen Aktif */}
           <div className="alos-ara-card">

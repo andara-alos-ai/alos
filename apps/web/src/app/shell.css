@@ -9215,3 +9215,158 @@
 
 
 
+
+/* M2-H02-FE-01 (ARA Context UX): backend Context Builder state panel.
+   Renders LOADING / NOT_CONNECTED / BLOCKED / NEEDS_INFORMATION / ERROR /
+   READY distinctly so the user never mistakes a UI-only placeholder state
+   for a backend-authorized result. */
+.alos-ara-ctx-panel {
+  align-items: flex-start;
+  border-radius: 12px;
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px 14px;
+}
+
+.alos-ara-ctx-panel strong {
+  display: block;
+  font-size: 0.86rem;
+  margin-bottom: 2px;
+}
+
+.alos-ara-ctx-panel p {
+  font-size: 0.8rem;
+  margin: 2px 0;
+}
+
+.alos-ara-ctx-panel small {
+  display: block;
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+
+.alos-ara-ctx-panel.loading {
+  align-items: center;
+  background: var(--alos-surface-subtle, #f5f8f3);
+  border: 1px solid var(--alos-border-subtle, #d9e3d5);
+}
+
+.alos-ara-ctx-spinner {
+  animation: alos-ara-ctx-spin 0.9s linear infinite;
+  border: 2px solid #d9e3d5;
+  border-radius: 50%;
+  border-top-color: #1f8f78;
+  height: 16px;
+  width: 16px;
+}
+
+@keyframes alos-ara-ctx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.alos-ara-ctx-panel.not-connected {
+  background: #fdf3dc;
+  border: 1px solid #f4dfa6;
+}
+
+.alos-ara-ctx-panel.not-connected strong {
+  color: #ad7410;
+}
+
+.alos-ara-ctx-panel.denied {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.alos-ara-ctx-panel.denied strong {
+  color: #b91c1c;
+}
+
+.alos-ara-ctx-panel.needs-info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+
+.alos-ara-ctx-panel.needs-info strong {
+  color: #1d4ed8;
+}
+
+.alos-ara-ctx-panel.error {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+}
+
+.alos-ara-ctx-panel.error strong {
+  color: #c2410c;
+}
+
+.alos-ara-ctx-panel.ready {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  flex-direction: column;
+}
+
+.alos-ara-ctx-ready-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.alos-ara-ctx-token-meter {
+  color: #536761;
+  font-size: 0.72rem;
+}
+
+.alos-ara-ctx-item-list {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.alos-ara-ctx-item-list li {
+  align-items: center;
+  display: flex;
+  font-size: 0.78rem;
+  gap: 8px;
+}
+
+.alos-ara-ctx-trust-badge {
+  border-radius: 99px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.alos-ara-ctx-trust-badge.trust-authoritative {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.alos-ara-ctx-trust-badge.trust-internal-approved {
+  background: #dcf3e8;
+  color: #14724f;
+}
+
+.alos-ara-ctx-trust-badge.trust-external-untrusted {
+  background: #fdf0d6;
+  color: #93610d;
+}
+
+.alos-ara-ctx-omitted,
+.alos-ara-ctx-limitations {
+  color: #536761;
+  font-size: 0.74rem;
+  margin: 6px 0 0;
+}
+
+.alos-ara-ctx-limitations {
+  list-style: disc;
+  padding-left: 16px;
+}
