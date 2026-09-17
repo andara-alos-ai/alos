@@ -34,7 +34,12 @@ import {
 import {
   canManageDraftAgent,
   canTestActiveAgent,
+  citationSourceKindDescription,
+  citationSourceKindLabel,
+  classifyCitationSourceKind,
   contextHref,
+  externalResearchPresentation,
+  reliabilityPresentation,
   type ContextEntityType,
   type GenesisActiveAgent,
   type GenesisContextOption,
@@ -1204,7 +1209,7 @@ export function GenesisChat({
                 </div>
                 <dl className="genesis-source-state">
                   <div><dt>Mode sumber</dt><dd>{modeLabel(mode)}</dd></div>
-                  <div><dt>External</dt><dd>{humanExternalStatus(externalStatus)}</dd></div>
+                  <div><dt>External</dt><dd><GenesisExternalStatusBadge status={externalStatus} /></dd></div>
                 </dl>
               </section>
 
@@ -1320,7 +1325,8 @@ export function GenesisChat({
                 {messages.flatMap((message) =>
                   message.citations.map((citation, index) => (
                     <li key={message.message_id + "-source-" + index}>
-                      <span>Source cited</span><b>{String(citation.title ?? citation.source_id ?? "Source")}</b>
+                      <span>Source cited ({citationSourceKindLabel(classifyCitationSourceKind(citation.source_kind))})</span>
+                      <b>{String(citation.title ?? citation.source_id ?? "Source")}</b>
                     </li>
                   )),
                 )}
@@ -1508,7 +1514,7 @@ function GenesisWelcome({
   );
 }
 
-function GenesisMessage({
+export function GenesisMessage({
   agent,
   message,
 }: {
@@ -1532,12 +1538,24 @@ function GenesisMessage({
           </section>
         ) : null}
         <p>{response?.answer || message.content}</p>
-        {!isHuman && response?.reliability ? <small className="alos-genesis-reliability"><GenesisWorkspaceIcon name="check" /> Reliability: {response.reliability}</small> : null}
+        {!isHuman && response?.reliability ? <GenesisReliabilityBadge status={response.reliability} /> : null}
         {!isHuman ? <GenesisResponseSections response={response} /> : null}
         {!isHuman && message.citations.length ? (
           <details>
             <summary><GenesisWorkspaceIcon name="database" /> Sumber Data <span>{message.citations.length}</span></summary>
-            <ul>{message.citations.map((citation, index) => <li key={String(citation.source_id ?? citation.url ?? index)}><span>{String(citation.title ?? citation.source_id ?? citation.url ?? "Source terverifikasi")}</span><small>{String(citation.source_kind ?? "SOURCE")}</small></li>)}</ul>
+            <ul className="alos-citation-list">
+              {message.citations.map((citation, index) => {
+                const kind = classifyCitationSourceKind(citation.source_kind);
+                return (
+                  <li key={String(citation.source_id ?? citation.url ?? index)}>
+                    <span>{String(citation.title ?? citation.source_id ?? citation.url ?? "Source terverifikasi")}</span>
+                    <span className={`alos-citation-badge kind-${kind.toLowerCase()}`} title={citationSourceKindDescription(kind)}>
+                      {citationSourceKindLabel(kind)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           </details>
         ) : null}
         {!isHuman && message.tool_activity.length ? <small className="alos-tool-activity">{message.tool_activity.length} governed tool call</small> : null}
@@ -1571,6 +1589,24 @@ function selectedAgentFromMessage(message: Message): AgentCandidate | undefined 
     risk_level: candidate.risk_level ?? "UNKNOWN",
     capability_keys: candidate.capability_keys ?? [],
   };
+}
+
+// M2-H02-FE-03 (Safe Error UX): translate the backend reliability status
+// (SUPPORTED/UNSUPPORTED/NEEDS_INFO/…) into an understandable badge instead
+// of leaking the raw backend enum. A NEEDS_INFO/UNSUPPORTED answer must
+// never look as confident as a SUPPORTED one, and no authority is implied
+// by any tone here.
+function GenesisReliabilityBadge({ status }: { status: string }) {
+  const presentation = reliabilityPresentation(status);
+  return (
+    <small
+      className={`alos-genesis-reliability tone-${presentation.tone}`}
+      role={presentation.tone === "blocked" ? "alert" : "status"}
+      title={presentation.message}
+    >
+      <GenesisWorkspaceIcon name="check" /> {presentation.label}
+    </small>
+  );
 }
 
 function GenesisResponseSections({ response }: { response: GenesisResponse | null }) {
@@ -1768,12 +1804,21 @@ function modeLabel(mode: ContextMode): string {
   }[mode];
 }
 
-function humanExternalStatus(status: string): string {
-  if (status === "NOT_REQUESTED") return "Tidak diminta";
-  if (status === "SUCCEEDED") return "Tersedia";
-  if (status === "EXTERNAL_RESEARCH_NOT_CONFIGURED") return "Belum dikonfigurasi";
-  if (status === "UNAVAILABLE") return "Tidak tersedia";
-  return status;
+// M2-H02-FE-03 (Safe Error UX): "blocked external source" and "unavailable
+// evidence" must be understandable states, not a bare backend status
+// string, and must never imply GENESIS silently retried with an
+// unauthorized/untrusted source.
+function GenesisExternalStatusBadge({ status }: { status: string }) {
+  const presentation = externalResearchPresentation(status);
+  return (
+    <span
+      className={`alos-genesis-external-badge tone-${presentation.tone}`}
+      role={presentation.tone === "blocked" || presentation.tone === "unavailable" ? "alert" : "status"}
+      title={presentation.message}
+    >
+      {presentation.label}
+    </span>
+  );
 }
 
 type GenesisWorkspaceIconName =

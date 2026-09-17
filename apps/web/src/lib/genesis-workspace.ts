@@ -104,3 +104,111 @@ function safeDetail(detail: string): string {
     ? "Server menolak aksi tanpa mengekspos detail internal."
     : detail;
 }
+
+// M2-H02-FE-02 (Source Type UX): the backend already returns
+// citation.source_kind as INTERNAL_SOURCE / EXTERNAL_SOURCE (see
+// alos.ara.conversations.service._citations). This module classifies that
+// raw backend value into a small, closed presentation so the UI shows a
+// consistent Internal/External label without leaking backend enum
+// vocabulary or any sensitive detail beyond the label itself.
+export type CitationSourceKind = "INTERNAL" | "EXTERNAL" | "UNKNOWN";
+
+export function classifyCitationSourceKind(rawSourceKind: unknown): CitationSourceKind {
+  if (rawSourceKind === "INTERNAL_SOURCE") return "INTERNAL";
+  if (rawSourceKind === "EXTERNAL_SOURCE") return "EXTERNAL";
+  return "UNKNOWN";
+}
+
+export function citationSourceKindLabel(kind: CitationSourceKind): string {
+  if (kind === "INTERNAL") return "Internal";
+  if (kind === "EXTERNAL") return "External";
+  return "Sumber tidak diketahui";
+}
+
+export function citationSourceKindDescription(kind: CitationSourceKind): string {
+  if (kind === "INTERNAL") return "Dokumen/data internal ALOS dalam scope Anda.";
+  if (kind === "EXTERNAL") return "Sumber eksternal — diperlakukan sebagai informasi belum tepercaya, tidak memberi authority.";
+  return "Jenis sumber belum dapat ditentukan oleh sistem.";
+}
+
+// M2-H02-FE-03 (Safe Error UX): translate the backend's external-research
+// status (alos.ara.conversations.service.ExternalStatus) into a tone +
+// human message, so "blocked external source" / "unavailable evidence" are
+// shown as an understandable state instead of a bare backend enum string.
+export type ExternalResearchStatus =
+  | "NOT_REQUESTED"
+  | "EXTERNAL_RESEARCH_NOT_CONFIGURED"
+  | "UNAVAILABLE"
+  | "SUCCEEDED";
+
+export type SafeStateTone = "neutral" | "blocked" | "unavailable" | "ready";
+
+export function externalResearchPresentation(status: string): {
+  tone: SafeStateTone;
+  label: string;
+  message: string;
+} {
+  switch (status as ExternalResearchStatus) {
+    case "NOT_REQUESTED":
+      return { tone: "neutral", label: "Tidak diminta", message: "Riset eksternal tidak diminta untuk permintaan ini." };
+    case "SUCCEEDED":
+      return { tone: "ready", label: "Tersedia", message: "Sumber eksternal berhasil diambil dan disertakan sebagai evidence untrusted." };
+    case "EXTERNAL_RESEARCH_NOT_CONFIGURED":
+      return {
+        tone: "blocked",
+        label: "Diblokir",
+        message: "Riset eksternal belum dikonfigurasi untuk organisasi Anda. Sumber eksternal tidak dapat diakses saat ini.",
+      };
+    case "UNAVAILABLE":
+      return {
+        tone: "unavailable",
+        label: "Tidak tersedia",
+        message: "Penyedia riset eksternal sedang tidak tersedia. Coba lagi nanti, atau lanjutkan dengan sumber internal saja.",
+      };
+    default:
+      return { tone: "neutral", label: "Tidak diketahui", message: "Status riset eksternal tidak dikenali." };
+  }
+}
+
+// M2-H02-FE-03: translate the backend's reliability status
+// (alos.ara.conversations.service.ReliabilityStatus) into a human message.
+// "NEEDS_INFO" and "UNSUPPORTED" must read as an honest needs-info /
+// unavailable-evidence state, never as a polished, confident answer.
+export type ReliabilityStatus =
+  | "SUPPORTED"
+  | "PARTIALLY_SUPPORTED"
+  | "UNSUPPORTED"
+  | "AI_INFERRED"
+  | "CONFLICTING_SOURCES"
+  | "NEEDS_INFO";
+
+export function reliabilityPresentation(status: string): {
+  tone: SafeStateTone;
+  label: string;
+  message: string;
+} {
+  switch (status as ReliabilityStatus) {
+    case "SUPPORTED":
+      return { tone: "ready", label: "Didukung evidence", message: "Jawaban didukung oleh evidence internal yang diotorisasi." };
+    case "PARTIALLY_SUPPORTED":
+      return { tone: "unavailable", label: "Sebagian didukung", message: "Sebagian jawaban didukung evidence; sebagian lain masih memerlukan konfirmasi." };
+    case "AI_INFERRED":
+      return { tone: "unavailable", label: "Inferensi AI", message: "Jawaban merupakan inferensi AI, bukan kutipan langsung dari evidence yang tersedia." };
+    case "CONFLICTING_SOURCES":
+      return { tone: "unavailable", label: "Sumber bertentangan", message: "Ditemukan sumber yang saling bertentangan; jawaban ini belum dapat dijadikan keputusan final." };
+    case "UNSUPPORTED":
+      return {
+        tone: "blocked",
+        label: "Evidence belum cukup",
+        message: "Sumber yang tersedia belum cukup untuk mendukung jawaban ini secara faktual.",
+      };
+    case "NEEDS_INFO":
+      return {
+        tone: "blocked",
+        label: "Perlu informasi tambahan",
+        message: "GENESIS memerlukan informasi tambahan sebelum dapat memberi jawaban terverifikasi.",
+      };
+    default:
+      return { tone: "neutral", label: "Tidak diketahui", message: "Status keandalan jawaban tidak dikenali." };
+  }
+}
