@@ -29,7 +29,7 @@ alos-scheduler = "alos.jobs.scheduler:main"
 
 [project.optional-dependencies]
 dev = [
-  "mypy>=1.17,<2",
+  "mypy>=1.17,<3",
   "pip-audit>=2.9,<3",
   "pytest>=9.0.3,<10",
   "pytest-asyncio>=1.1,<2",
